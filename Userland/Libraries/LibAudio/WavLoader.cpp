@@ -34,6 +34,8 @@
 
 namespace Audio {
 
+static constexpr size_t maximum_wav_size = 1 * GiB; // FIXME: is there a more appropriate size limit?
+
 WavLoaderPlugin::WavLoaderPlugin(const StringView& path)
     : m_file(Core::File::construct(path))
 {
@@ -125,7 +127,7 @@ bool WavLoaderPlugin::parse_header()
                 ok = false;
         } else {
             *m_stream >> value;
-            if (m_stream->has_any_error())
+            if (m_stream->handle_any_error())
                 ok = false;
         }
         return value;
@@ -139,7 +141,7 @@ bool WavLoaderPlugin::parse_header()
                 ok = false;
         } else {
             *m_stream >> value;
-            if (m_stream->has_any_error())
+            if (m_stream->handle_any_error())
                 ok = false;
         }
         return value;
@@ -153,7 +155,7 @@ bool WavLoaderPlugin::parse_header()
                 ok = false;
         } else {
             *m_stream >> value;
-            if (m_stream->has_any_error())
+            if (m_stream->handle_any_error())
                 ok = false;
         }
         return value;
@@ -192,8 +194,8 @@ bool WavLoaderPlugin::parse_header()
     u16 audio_format = read_u16();
     CHECK_OK("Audio format");     // incomplete read check
     ok = ok && audio_format == 1; // WAVE_FORMAT_PCM
+    CHECK_OK("Audio format");     // value check
     VERIFY(audio_format == 1);
-    CHECK_OK("Audio format"); // value check
 
     m_num_channels = read_u16();
     ok = ok && (m_num_channels == 1 || m_num_channels == 2);
@@ -211,8 +213,8 @@ bool WavLoaderPlugin::parse_header()
     m_bits_per_sample = read_u16();
     CHECK_OK("Bits per sample"); // incomplete read check
     ok = ok && (m_bits_per_sample == 8 || m_bits_per_sample == 16 || m_bits_per_sample == 24);
-    VERIFY(m_bits_per_sample == 8 || m_bits_per_sample == 16 || m_bits_per_sample == 24);
     CHECK_OK("Bits per sample"); // value check
+    VERIFY(m_bits_per_sample == 8 || m_bits_per_sample == 16 || m_bits_per_sample == 24);
 
     // Read chunks until we find DATA
     bool found_data = false;
@@ -243,7 +245,7 @@ bool WavLoaderPlugin::parse_header()
     CHECK_OK("Found no data chunk");
     VERIFY(found_data);
 
-    ok = ok && data_sz < INT32_MAX;
+    ok = ok && data_sz < maximum_wav_size;
     CHECK_OK("Data was too large");
 
     int bytes_per_sample = (m_bits_per_sample / 8) * m_num_channels;

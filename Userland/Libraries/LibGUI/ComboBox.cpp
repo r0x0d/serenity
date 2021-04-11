@@ -60,6 +60,9 @@ private:
 
 ComboBox::ComboBox()
 {
+    REGISTER_STRING_PROPERTY("placeholder", editor_placeholder, set_editor_placeholder);
+    REGISTER_BOOL_PROPERTY("model_only", only_allow_values_from_model, set_only_allow_values_from_model);
+
     set_min_width(32);
     set_fixed_height(22);
 
@@ -142,6 +145,16 @@ ComboBox::ComboBox()
 
 ComboBox::~ComboBox()
 {
+}
+
+void ComboBox::set_editor_placeholder(const StringView& placeholder)
+{
+    m_editor->set_placeholder(placeholder);
+}
+
+const String& ComboBox::editor_placeholder() const
+{
+    return m_editor->placeholder();
 }
 
 void ComboBox::navigate(AbstractView::CursorMovement cursor_movement)
@@ -231,14 +244,12 @@ void ComboBox::open()
     };
 
     auto taskbar_height = GUI::Desktop::the().taskbar_height();
-    auto menubar_height = GUI::Desktop::the().menubar_height();
     // NOTE: This is so the combobox bottom edge exactly fits the taskbar's
     //       top edge - the value was found through trial and error though.
     auto offset = 8;
     Gfx::IntRect list_window_rect { my_screen_rect.bottom_left(), size };
-    list_window_rect.intersect(Desktop::the().rect().shrunken(0, taskbar_height + menubar_height + offset));
+    list_window_rect.intersect(Desktop::the().rect().shrunken(0, taskbar_height + offset));
 
-    m_editor->set_has_visible_list(true);
     m_editor->set_focus(true);
     if (m_selected_index.has_value()) {
         // Don't set m_updating_model to true here because we only want to
@@ -259,8 +270,6 @@ void ComboBox::open()
 void ComboBox::close()
 {
     m_list_window->hide();
-    m_editor->set_has_visible_list(false);
-    m_editor->set_focus(true);
 }
 
 String ComboBox::text() const

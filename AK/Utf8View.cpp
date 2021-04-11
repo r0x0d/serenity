@@ -25,7 +25,7 @@
  */
 
 #include <AK/Assertions.h>
-#include <AK/LogStream.h>
+#include <AK/Format.h>
 #include <AK/Utf8View.h>
 
 namespace AK {
@@ -142,6 +142,24 @@ size_t Utf8View::calculate_length() const
         ++length;
     }
     return length;
+}
+
+bool Utf8View::starts_with(const Utf8View& start) const
+{
+    if (start.is_empty())
+        return true;
+    if (is_empty())
+        return false;
+    if (start.length() > length())
+        return false;
+    if (begin_ptr() == start.begin_ptr())
+        return true;
+
+    for (auto k = begin(), l = start.begin(); l != start.end(); ++k, ++l) {
+        if (*k != *l)
+            return false;
+    }
+    return true;
 }
 
 Utf8CodepointIterator::Utf8CodepointIterator(const unsigned char* ptr, size_t length)

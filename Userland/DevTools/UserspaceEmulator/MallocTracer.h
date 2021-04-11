@@ -56,11 +56,12 @@ struct Mallocation {
 
 class MallocRegionMetadata {
 public:
+    MmapRegion& region;
     FlatPtr address { 0 };
     size_t chunk_size { 0 };
 
-    size_t chunk_index_for_address(FlatPtr) const;
-    Mallocation& mallocation_for_address(FlatPtr) const;
+    Optional<size_t> chunk_index_for_address(FlatPtr) const;
+    Mallocation* mallocation_for_address(FlatPtr) const;
 
     Vector<Mallocation> mallocations;
 };
@@ -69,9 +70,9 @@ class MallocTracer {
 public:
     explicit MallocTracer(Emulator&);
 
-    void target_did_malloc(Badge<SoftCPU>, FlatPtr address, size_t);
-    void target_did_free(Badge<SoftCPU>, FlatPtr address);
-    void target_did_realloc(Badge<SoftCPU>, FlatPtr address, size_t);
+    void target_did_malloc(Badge<Emulator>, FlatPtr address, size_t);
+    void target_did_free(Badge<Emulator>, FlatPtr address);
+    void target_did_realloc(Badge<Emulator>, FlatPtr address, size_t);
 
     void audit_read(const Region&, FlatPtr address, size_t);
     void audit_write(const Region&, FlatPtr address, size_t);
@@ -102,11 +103,14 @@ ALWAYS_INLINE Mallocation* MallocTracer::find_mallocation(const Region& region, 
     auto* malloc_data = static_cast<MmapRegion&>(const_cast<Region&>(region)).malloc_metadata();
     if (!malloc_data)
         return nullptr;
-    auto& mallocation = malloc_data->mallocation_for_address(address);
-    if (!mallocation.used)
+    auto* mallocation = malloc_data->mallocation_for_address(address);
+    if (!mallocation)
         return nullptr;
-    VERIFY(mallocation.contains(address));
-    return &mallocation;
+    if (!mallocation->used)
+        return nullptr;
+    if (!mallocation->contains(address))
+        return nullptr;
+    return mallocation;
 }
 
 }

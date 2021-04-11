@@ -34,6 +34,7 @@
 #include "WindowManager.h"
 #include <AK/Badge.h>
 #include <WindowServer/WindowClientEndpoint.h>
+#include <ctype.h>
 
 namespace WindowServer {
 
@@ -153,13 +154,14 @@ void Window::set_title(const String& title)
 
 void Window::set_rect(const Gfx::IntRect& rect)
 {
-    VERIFY(!rect.is_empty());
     if (m_rect == rect)
         return;
     auto old_rect = m_rect;
     m_rect = rect;
-    if (!m_client && (!m_backing_store || old_rect.size() != rect.size())) {
-        m_backing_store = Gfx::Bitmap::create(Gfx::BitmapFormat::RGB32, m_rect.size());
+    if (rect.is_empty()) {
+        m_backing_store = nullptr;
+    } else if (!m_client && (!m_backing_store || old_rect.size() != rect.size())) {
+        m_backing_store = Gfx::Bitmap::create(Gfx::BitmapFormat::BGRx8888, m_rect.size());
     }
 
     invalidate(true, old_rect.size() != rect.size());
@@ -444,12 +446,7 @@ void Window::event(Core::Event& event)
         m_client->post_message(Messages::WindowClient::WindowLeft(m_window_id));
         break;
     case Event::KeyDown:
-        m_client->post_message(
-            Messages::WindowClient::KeyDown(m_window_id,
-                (u32) static_cast<const KeyEvent&>(event).code_point(),
-                (u32) static_cast<const KeyEvent&>(event).key(),
-                static_cast<const KeyEvent&>(event).modifiers(),
-                (u32) static_cast<const KeyEvent&>(event).scancode()));
+        handle_keydown_event(static_cast<const KeyEvent&>(event));
         break;
     case Event::KeyUp:
         m_client->post_message(
@@ -480,6 +477,27 @@ void Window::event(Core::Event& event)
     default:
         break;
     }
+}
+
+void Window::handle_keydown_event(const KeyEvent& event)
+{
+    if (event.modifiers() == Mod_Alt && event.code_point() && menubar()) {
+        Menu* menu_to_open = nullptr;
+        menubar()->for_each_menu([&](Menu& menu) {
+            if (tolower(menu.alt_shortcut_character()) == tolower(event.code_point())) {
+                menu_to_open = &menu;
+                return IterationDecision::Break;
+            }
+            return IterationDecision::Continue;
+        });
+        if (menu_to_open) {
+            frame().open_menubar_menu(*menu_to_open);
+            if (!menu_to_open->is_empty())
+                menu_to_open->set_hovered_item(0);
+            return;
+        }
+    }
+    m_client->post_message(Messages::WindowClient::KeyDown(m_window_id, (u32)event.code_point(), (u32)event.key(), event.modifiers(), (u32)event.scancode()));
 }
 
 void Window::set_global_cursor_tracking_enabled(bool enabled)
@@ -528,7 +546,7 @@ void Window::invalidate(bool invalidate_frame, bool re_render_frame)
 
 void Window::invalidate(const Gfx::IntRect& rect, bool with_frame)
 {
-    if (type() == WindowType::MenuApplet) {
+    if (type() == WindowType::Applet) {
         AppletManager::the().invalidate_applet(*this, rect);
         return;
     }
@@ -576,6 +594,14 @@ void Window::prepare_dirty_rects()
             m_dirty_rects = rect();
     } else {
         m_dirty_rects.move_by(frame().render_rect().location());
+        if (m_invalidated_frame) {
+            if (m_invalidated) {
+                m_dirty_rects.add(frame().render_rect());
+            } else {
+                for (auto& rects : frame().render_rect().shatter(rect()))
+                    m_dirty_rects.add(rects);
+            }
+        }
     }
 }
 
@@ -631,17 +657,22 @@ void Window::ensure_window_menu()
         m_window_menu = Menu::construct(nullptr, -1, "(Window Menu)");
         m_window_menu->set_window_menu_of(*this);
 
-        auto minimize_item = make<MenuItem>(*m_window_menu, 1, m_minimized ? "Unminimize" : "Minimize");
+        auto minimize_item = make<MenuItem>(*m_window_menu, 1, m_minimized ? "&Unminimize" : "Mi&nimize");
         m_window_menu_minimize_item = minimize_item.ptr();
         m_window_menu->add_item(move(minimize_item));
 
-        auto maximize_item = make<MenuItem>(*m_window_menu, 2, m_maximized ? "Restore" : "Maximize");
+        auto maximize_item = make<MenuItem>(*m_window_menu, 2, m_maximized ? "&Restore" : "Ma&ximize");
         m_window_menu_maximize_item = maximize_item.ptr();
         m_window_menu->add_item(move(maximize_item));
 
         m_window_menu->add_item(make<MenuItem>(*m_window_menu, MenuItem::Type::Separator));
 
-        auto close_item = make<MenuItem>(*m_window_menu, 3, "Close");
+        auto menubar_visibility_item = make<MenuItem>(*m_window_menu, 4, "Menu &Bar");
+        m_window_menu_menubar_visibility_item = menubar_visibility_item.ptr();
+        menubar_visibility_item->set_checkable(true);
+        m_window_menu->add_item(move(menubar_visibility_item));
+
+        auto close_item = make<MenuItem>(*m_window_menu, 3, "&Close");
         m_window_menu_close_item = close_item.ptr();
         m_window_menu_close_item->set_icon(&close_icon());
         m_window_menu_close_item->set_default(true);
@@ -663,6 +694,14 @@ void Window::ensure_window_menu()
                 break;
             case 3:
                 request_close();
+                break;
+            case 4:
+                frame().invalidate();
+                item.set_checked(!item.is_checked());
+                m_should_show_menubar = item.is_checked();
+                frame().invalidate();
+                Compositor::the().invalidate_occlusions();
+                Compositor::the().invalidate_screen();
                 break;
             }
         };
@@ -686,6 +725,8 @@ void Window::popup_window_menu(const Gfx::IntPoint& position, WindowMenuDefaultA
     m_window_menu_maximize_item->set_default(default_action == WindowMenuDefaultAction::Maximize || default_action == WindowMenuDefaultAction::Restore);
     m_window_menu_maximize_item->set_icon(m_maximized ? &restore_icon() : &maximize_icon());
     m_window_menu_close_item->set_default(default_action == WindowMenuDefaultAction::Close);
+    m_window_menu_menubar_visibility_item->set_enabled(menubar());
+    m_window_menu_menubar_visibility_item->set_checked(menubar() && m_should_show_menubar);
 
     m_window_menu->popup(position);
 }
@@ -926,12 +967,45 @@ bool Window::hit_test(const Gfx::IntPoint& point, bool include_frame) const
             return frame().hit_test(point);
         return false;
     }
+    if (!m_hit_testing_enabled)
+        return false;
     u8 threshold = alpha_hit_threshold() * 255;
     if (threshold == 0 || !m_backing_store || !m_backing_store->has_alpha_channel())
         return true;
     auto relative_point = point.translated(-rect().location()) * m_backing_store->scale();
     auto color = m_backing_store->get_pixel(relative_point);
     return color.alpha() >= threshold;
+}
+
+void Window::set_menubar(MenuBar* menubar)
+{
+    if (m_menubar == menubar)
+        return;
+    m_menubar = menubar;
+    if (m_menubar) {
+        // FIXME: Maybe move this to the theming system?
+        static constexpr auto menubar_menu_margin = 14;
+
+        auto& wm = WindowManager::the();
+        Gfx::IntPoint next_menu_location { 0, 0 };
+        auto menubar_rect = Gfx::WindowTheme::current().menubar_rect(Gfx::WindowTheme::WindowType::Normal, rect(), wm.palette(), 1);
+        m_menubar->for_each_menu([&](Menu& menu) {
+            int text_width = wm.font().width(menu.name());
+            menu.set_rect_in_window_menubar({ next_menu_location.x(), 0, text_width + menubar_menu_margin, menubar_rect.height() });
+            next_menu_location.move_by(menu.rect_in_window_menubar().width(), 0);
+            return IterationDecision::Continue;
+        });
+    }
+    Compositor::the().invalidate_occlusions();
+    frame().invalidate();
+}
+
+void Window::invalidate_menubar()
+{
+    if (!m_should_show_menubar || !menubar())
+        return;
+    // FIXME: This invalidates way more than the menubar!
+    frame().invalidate();
 }
 
 }

@@ -87,8 +87,8 @@ String get_standardized_encoding(const String& encoding)
 
     if (trimmed_lowercase_encoding.is_one_of("unicode-1-1-utf-8", "unicode11utf8", "unicode20utf8", "utf-8", "utf8", "x-unicode20utf8"))
         return "UTF-8";
-    if (trimmed_lowercase_encoding.is_one_of("866", "cp866", "csibm866", "ibm666"))
-        return "IBM666";
+    if (trimmed_lowercase_encoding.is_one_of("866", "cp866", "csibm866", "ibm866"))
+        return "IBM866";
     if (trimmed_lowercase_encoding.is_one_of("csisolatin2", "iso-8859-2", "iso-ir-101", "iso8859-2", "iso88592", "iso_8859-2", "iso_8859-2:1987", "l2", "latin2"))
         return "ISO-8859-2";
     if (trimmed_lowercase_encoding.is_one_of("csisolatin3", "iso-8859-3", "iso-ir-109", "iso8859-3", "iso88593", "iso_8859-3", "iso_8859-3:1988", "l3", "latin3"))
@@ -183,7 +183,8 @@ String UTF8Decoder::to_utf8(const StringView& input)
 String UTF16BEDecoder::to_utf8(const StringView& input)
 {
     StringBuilder builder(input.length() / 2);
-    for (size_t i = 0; i < input.length(); i += 2) {
+    size_t utf16_length = input.length() - (input.length() % 2);
+    for (size_t i = 0; i < utf16_length; i += 2) {
         u16 code_point = (input[i] << 8) | input[i + 1];
         builder.append_code_point(code_point);
     }

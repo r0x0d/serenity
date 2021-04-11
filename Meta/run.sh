@@ -16,7 +16,7 @@ die() {
 
 # To support virtualization acceleration on mac
 # we need to use 64-bit qemu
-if [ "$(uname)" = "Darwin" ] && [ "$(uname -m)" = "x86_64" ]; then 
+if [ "$(uname)" = "Darwin" ] && [ "$(uname -m)" = "x86_64" ]; then
 
     [ -z "$SERENITY_QEMU_BIN" ] && SERENITY_QEMU_BIN="qemu-system-x86_64"
 
@@ -25,6 +25,7 @@ if [ "$(uname)" = "Darwin" ] && [ "$(uname -m)" = "x86_64" ]; then
     fi
 fi
 
+SERENITY_RUN="${SERENITY_RUN:-$1}"
 
 [ -z "$SERENITY_QEMU_BIN" ] && SERENITY_QEMU_BIN="qemu-system-i386"
 
@@ -35,7 +36,7 @@ fi
 [ -z "$SERENITY_QEMU_CPU" ] && SERENITY_QEMU_CPU="max"
 
 [ -z "$SERENITY_DISK_IMAGE" ] && {
-    if [ "$1" = qgrub ]; then
+    if [ "$SERENITY_RUN" = qgrub ]; then
         SERENITY_DISK_IMAGE="grub_disk_image"
     else
         SERENITY_DISK_IMAGE="_disk_image"
@@ -65,9 +66,9 @@ $SERENITY_EXTRA_QEMU_ARGS
 -d guest_errors
 -smp 2
 -device VGA,vgamem_mb=64
--device piix3-ide
 -drive file=${SERENITY_DISK_IMAGE},id=disk,if=none
--device ide-hd,bus=ide.6,drive=disk,unit=0
+-device ahci,id=ahci
+-device ide-hd,bus=ahci.0,drive=disk,unit=0
 -usb
 -debugcon stdio
 -soundhw pcspk
@@ -78,8 +79,6 @@ export SDL_VIDEO_X11_DGAMOUSE=0
 
 : "${SERENITY_BUILD:=.}"
 cd -P -- "$SERENITY_BUILD" || die "Could not cd to \"$SERENITY_BUILD\""
-
-SERENITY_RUN="${SERENITY_RUN:-$1}"
 
 if [ "$SERENITY_RUN" = "b" ]; then
     # Meta/run.sh b: bochs
@@ -136,6 +135,22 @@ elif [ "$SERENITY_RUN" = "qcmd" ]; then
         $SERENITY_VIRT_TECH_ARG \
         -netdev user,id=breh,hostfwd=tcp:127.0.0.1:8888-10.0.2.15:8888,hostfwd=tcp:127.0.0.1:8823-10.0.2.15:23 \
         -device e1000,netdev=breh \
+        -kernel Kernel/Kernel \
+        -append "${SERENITY_KERNEL_CMDLINE}"
+elif [ "$SERENITY_RUN" = "ci" ]; then
+    # Meta/run.sh ci: qemu in text mode
+    echo "Running QEMU in CI"
+    "$SERENITY_QEMU_BIN" \
+        $SERENITY_EXTRA_QEMU_ARGS \
+        -s -m $SERENITY_RAM_SIZE \
+        -cpu $SERENITY_QEMU_CPU \
+        -d guest_errors \
+        -smp 2 \
+        -drive file=${SERENITY_DISK_IMAGE},format=raw,index=0,media=disk \
+        -device ich9-ahci \
+        -nographic \
+        -display none \
+        -debugcon file:debug.log \
         -kernel Kernel/Kernel \
         -append "${SERENITY_KERNEL_CMDLINE}"
 else

@@ -27,7 +27,6 @@
 #pragma once
 
 #include <AK/ByteBuffer.h>
-#include <AK/LogStream.h>
 #include <AK/Span.h>
 #include <AK/String.h>
 #include <AK/Types.h>
@@ -82,6 +81,8 @@ public:
     // The "trimmed length" is the number of words after trimming leading zeroed words
     size_t trimmed_length() const;
 
+    void clamp_to_trimmed_length();
+
     UnsignedBigInteger plus(const UnsignedBigInteger& other) const;
     UnsignedBigInteger minus(const UnsignedBigInteger& other) const;
     UnsignedBigInteger bitwise_or(const UnsignedBigInteger& other) const;
@@ -129,19 +130,6 @@ struct UnsignedDivisionResult {
     Crypto::UnsignedBigInteger remainder;
 };
 
-}
-
-inline const LogStream&
-operator<<(const LogStream& stream, const Crypto::UnsignedBigInteger& value)
-{
-    if (value.is_invalid()) {
-        stream << "Invalid BigInt";
-        return stream;
-    }
-    for (int i = value.length() - 1; i >= 0; --i) {
-        stream << value.words()[i] << "|";
-    }
-    return stream;
 }
 
 template<>

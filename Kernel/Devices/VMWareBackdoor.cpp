@@ -29,7 +29,7 @@
 #include <AK/Singleton.h>
 #include <AK/String.h>
 #include <Kernel/API/MousePacket.h>
-#include <Kernel/Arch/i386/CPU.h>
+#include <Kernel/Arch/x86/CPU.h>
 #include <Kernel/CommandLine.h>
 #include <Kernel/Debug.h>
 #include <Kernel/Devices/VMWareBackdoor.h>
@@ -118,7 +118,7 @@ VMWareBackdoor* VMWareBackdoor::the()
 
 UNMAP_AFTER_INIT VMWareBackdoor::VMWareBackdoor()
 {
-    if (kernel_command_line().lookup("vmmouse").value_or("on") == "on")
+    if (kernel_command_line().is_vmmouse_enabled())
         enable_absolute_vmmouse();
 }
 
@@ -145,7 +145,7 @@ void VMWareBackdoor::enable_absolute_vmmouse()
     InterruptDisabler disabler;
     if (!detect_vmmouse())
         return;
-    klog() << "VMWareBackdoor: Enabling absolute mouse mode";
+    dmesgln("VMWareBackdoor: Enabling absolute mouse mode");
 
     VMWareCommand command;
 
@@ -153,7 +153,7 @@ void VMWareBackdoor::enable_absolute_vmmouse()
     command.command = VMMOUSE_STATUS;
     send(command);
     if (command.ax == 0xFFFF0000) {
-        klog() << "VMWareBackdoor: VMMOUSE_STATUS got bad status";
+        dmesgln("VMWareBackdoor: VMMOUSE_STATUS got bad status");
         return;
     }
 
@@ -213,9 +213,7 @@ Optional<MousePacket> VMWareBackdoor::receive_mouse_packet()
     command.command = VMMOUSE_STATUS;
     send(command);
     if (command.ax == 0xFFFF0000) {
-#if PS2MOUSE_DEBUG
-        klog() << "PS2MouseDevice: Resetting VMWare mouse";
-#endif
+        dbgln_if(PS2MOUSE_DEBUG, "PS2MouseDevice: Resetting VMWare mouse");
         disable_absolute_vmmouse();
         enable_absolute_vmmouse();
         return {};
@@ -231,7 +229,7 @@ Optional<MousePacket> VMWareBackdoor::receive_mouse_packet()
     int buttons = (command.ax & 0xFFFF);
     int x = (command.bx);
     int y = (command.cx);
-    int z = (command.dx);
+    int z = (i8)(command.dx); // signed 8 bit value only!
 
     if constexpr (PS2MOUSE_DEBUG) {
         dbgln("Absolute Mouse: Buttons {:x}", buttons);

@@ -190,14 +190,18 @@ Result<StringView, DecodeError> Decoder::decode_printable_string(ReadonlyBytes d
     return StringView { data };
 }
 
-Result<Bitmap, DecodeError> Decoder::decode_bit_string(ReadonlyBytes data)
+Result<const BitmapView, DecodeError> Decoder::decode_bit_string(ReadonlyBytes data)
 {
     if (data.size() < 1)
         return DecodeError::InvalidInputFormat;
 
     auto unused_bits = data[0];
-    // FIXME: It's rather annoying that `Bitmap` is always mutable.
-    return Bitmap::wrap(const_cast<u8*>(data.offset_pointer(1)), data.size() * 8 - unused_bits);
+    auto total_size_in_bits = data.size() * 8;
+
+    if (unused_bits > total_size_in_bits)
+        return DecodeError::Overflow;
+
+    return BitmapView { const_cast<u8*>(data.offset_pointer(1)), total_size_in_bits - unused_bits };
 }
 
 Result<Tag, DecodeError> Decoder::peek()

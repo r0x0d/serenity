@@ -72,6 +72,12 @@ void IconView::resize_event(ResizeEvent& event)
 {
     AbstractView::resize_event(event);
     update_content_size();
+
+    if (!m_had_valid_size) {
+        m_had_valid_size = true;
+        if (!selection().is_empty())
+            scroll_into_view(selection().first());
+    }
 }
 
 void IconView::reinit_item_cache() const
@@ -474,6 +480,8 @@ void IconView::get_item_rects(int item_index, ItemData& item_data, const Gfx::Fo
     } else {
         item_data.text_rect.set_width(unwrapped_text_width);
         item_data.text_rect.inflate(6, 4);
+        if (item_data.text_rect.width() > available_width)
+            item_data.text_rect.set_width(available_width);
         item_data.text_rect.center_horizontally_within(item_rect);
     }
     item_data.text_rect.intersect(item_rect);
@@ -506,6 +514,9 @@ void IconView::paint_event(PaintEvent& event)
     painter.add_clip_rect(event.rect());
 
     painter.fill_rect(event.rect(), fill_with_background_color() ? widget_background_color : Color::Transparent);
+
+    if (!model())
+        return;
 
     painter.translate(frame_thickness(), frame_thickness());
     painter.translate(-horizontal_scrollbar().value(), -vertical_scrollbar().value());
@@ -814,7 +825,7 @@ inline IterationDecision IconView::for_each_item_intersecting_rect(const Gfx::In
                     return decision;
             }
         }
-        item_index += m_visual_column_count;
+        item_index += (m_flow_direction == FlowDirection::LeftToRight) ? m_visual_column_count : m_visual_row_count;
     };
 
     return IterationDecision::Continue;

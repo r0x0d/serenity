@@ -27,7 +27,7 @@
 #include <AK/StringView.h>
 #include <Kernel/ACPI/MultiProcessorParser.h>
 #include <Kernel/API/Syscall.h>
-#include <Kernel/Arch/i386/CPU.h>
+#include <Kernel/Arch/x86/CPU.h>
 #include <Kernel/CommandLine.h>
 #include <Kernel/IO.h>
 #include <Kernel/Interrupts/APIC.h>
@@ -61,7 +61,7 @@ UNMAP_AFTER_INIT void InterruptManagement::initialize()
     VERIFY(!InterruptManagement::initialized());
     s_interrupt_management = new InterruptManagement();
 
-    if (kernel_command_line().lookup("smp").value_or("off") == "on")
+    if (kernel_command_line().is_smp_enabled())
         InterruptManagement::the().switch_to_ioapic_mode();
     else
         InterruptManagement::the().switch_to_pic_mode();
@@ -142,7 +142,7 @@ UNMAP_AFTER_INIT InterruptManagement::InterruptManagement()
 
 UNMAP_AFTER_INIT void InterruptManagement::switch_to_pic_mode()
 {
-    klog() << "Interrupts: Switch to Legacy PIC mode";
+    dmesgln("Interrupts: Switch to Legacy PIC mode");
     InterruptDisabler disabler;
     m_smp_enabled = false;
     m_interrupt_controllers[0] = adopt(*new PIC());
@@ -161,7 +161,7 @@ UNMAP_AFTER_INIT void InterruptManagement::switch_to_pic_mode()
 
 UNMAP_AFTER_INIT void InterruptManagement::switch_to_ioapic_mode()
 {
-    klog() << "Interrupts: Switch to IOAPIC mode";
+    dmesgln("Interrupts: Switch to IOAPIC mode");
     InterruptDisabler disabler;
 
     if (m_madt.is_null()) {
@@ -175,7 +175,7 @@ UNMAP_AFTER_INIT void InterruptManagement::switch_to_ioapic_mode()
     m_smp_enabled = true;
     if (m_interrupt_controllers.size() == 1) {
         if (get_interrupt_controller(0).type() == IRQControllerType::i8259) {
-            klog() << "Interrupts: NO IOAPIC detected, Reverting to PIC mode.";
+            dmesgln("Interrupts: NO IOAPIC detected, Reverting to PIC mode.");
             return;
         }
     }

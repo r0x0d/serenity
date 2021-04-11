@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2018-2021, Andreas Kling <kling@serenityos.org>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -39,11 +39,19 @@ Variant ModelIndex::data(ModelRole role) const
     return model()->data(*this, role);
 }
 
-const LogStream& operator<<(const LogStream& stream, const ModelIndex& value)
+ModelIndex ModelIndex::sibling(int row, int column) const
 {
-    if (value.internal_data())
-        return stream << String::formatted("ModelIndex({},{},{:p})", value.row(), value.column(), value.internal_data());
-    return stream << String::formatted("ModelIndex({},{})", value.row(), value.column());
+    if (!is_valid())
+        return {};
+    VERIFY(model());
+    return model()->index(row, column, parent());
+}
+
+ModelIndex ModelIndex::sibling_at_column(int column) const
+{
+    if (!is_valid())
+        return {};
+    return sibling(row(), column);
 }
 
 }

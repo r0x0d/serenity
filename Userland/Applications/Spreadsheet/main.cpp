@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020, the SerenityOS developers.
+ * Copyright (c) 2020-2021, the SerenityOS developers.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -33,11 +33,12 @@
 #include <LibGUI/Application.h>
 #include <LibGUI/Clipboard.h>
 #include <LibGUI/FilePicker.h>
-#include <LibGUI/Forward.h>
 #include <LibGUI/Icon.h>
 #include <LibGUI/Menu.h>
 #include <LibGUI/MenuBar.h>
+#include <LibGUI/MessageBox.h>
 #include <LibGUI/Window.h>
+#include <unistd.h>
 
 int main(int argc, char* argv[])
 {
@@ -48,7 +49,7 @@ int main(int argc, char* argv[])
 
     auto app = GUI::Application::construct(argc, argv);
 
-    if (pledge("stdio recvfd sendfd thread rpath accept cpath wpath unix", nullptr) < 0) {
+    if (pledge("stdio recvfd sendfd thread rpath accept cpath wpath fattr unix", nullptr) < 0) {
         perror("pledge");
         return 1;
     }
@@ -68,6 +69,12 @@ int main(int argc, char* argv[])
     }
 
     if (unveil("/tmp/portal/webcontent", "rw") < 0) {
+        perror("unveil");
+        return 1;
+    }
+
+    // For writing temporary files when exporting.
+    if (unveil("/tmp", "crw") < 0) {
         perror("unveil");
         return 1;
     }
@@ -104,7 +111,7 @@ int main(int argc, char* argv[])
         spreadsheet_widget.load(filename);
 
     auto menubar = GUI::MenuBar::construct();
-    auto& app_menu = menubar->add_menu("Spreadsheet");
+    auto& app_menu = menubar->add_menu("File");
 
     app_menu.add_action(GUI::Action::create("Add New Sheet", Gfx::Bitmap::load_from_file("/res/icons/16x16/new-tab.png"), [&](auto&) {
         spreadsheet_widget.add_sheet();
@@ -157,31 +164,40 @@ int main(int argc, char* argv[])
     };
 
     auto& edit_menu = menubar->add_menu("Edit");
-    edit_menu.add_action(GUI::CommonActions::make_copy_action([&](auto&) {
+
+    auto clipboard_action = [&](bool is_cut) {
         /// text/x-spreadsheet-data:
+        /// - action: copy/cut
         /// - currently selected cell
         /// - selected cell+
-        auto& cells = spreadsheet_widget.current_worksheet().selected_cells();
+        auto* worksheet_ptr = spreadsheet_widget.current_worksheet_if_available();
+        if (!worksheet_ptr) {
+            GUI::MessageBox::show_error(window, "There are no active worksheets");
+            return;
+        }
+        auto& worksheet = *worksheet_ptr;
+        auto& cells = worksheet.selected_cells();
         VERIFY(!cells.is_empty());
         StringBuilder text_builder, url_builder;
+        url_builder.append(is_cut ? "cut\n" : "copy\n");
         bool first = true;
         auto cursor = spreadsheet_widget.current_selection_cursor();
         if (cursor) {
             Spreadsheet::Position position { (size_t)cursor->column(), (size_t)cursor->row() };
-            url_builder.append(position.to_url(spreadsheet_widget.current_worksheet()).to_string());
+            url_builder.append(position.to_url(worksheet).to_string());
             url_builder.append('\n');
         }
 
         for (auto& cell : cells) {
             if (first && !cursor) {
-                url_builder.append(cell.to_url(spreadsheet_widget.current_worksheet()).to_string());
+                url_builder.append(cell.to_url(worksheet).to_string());
                 url_builder.append('\n');
             }
 
-            url_builder.append(cell.to_url(spreadsheet_widget.current_worksheet()).to_string());
+            url_builder.append(cell.to_url(worksheet).to_string());
             url_builder.append('\n');
 
-            auto cell_data = spreadsheet_widget.current_worksheet().at(cell);
+            auto cell_data = worksheet.at(cell);
             if (!first)
                 text_builder.append('\t');
             if (cell_data)
@@ -190,38 +206,48 @@ int main(int argc, char* argv[])
         }
         HashMap<String, String> metadata;
         metadata.set("text/x-spreadsheet-data", url_builder.to_string());
+        dbgln(url_builder.to_string());
 
         GUI::Clipboard::the().set_data(text_builder.string_view().bytes(), "text/plain", move(metadata));
-    },
-        window));
+    };
+
+    edit_menu.add_action(GUI::CommonActions::make_copy_action([&] { clipboard_action(false); }, window));
+    edit_menu.add_action(GUI::CommonActions::make_cut_action([&] { clipboard_action(true); }, window));
     edit_menu.add_action(GUI::CommonActions::make_paste_action([&](auto&) {
         ScopeGuard update_after_paste { [&] { spreadsheet_widget.update(); } };
 
-        auto& cells = spreadsheet_widget.current_worksheet().selected_cells();
+        auto* worksheet_ptr = spreadsheet_widget.current_worksheet_if_available();
+        if (!worksheet_ptr) {
+            GUI::MessageBox::show_error(window, "There are no active worksheets");
+            return;
+        }
+        auto& sheet = *worksheet_ptr;
+        auto& cells = sheet.selected_cells();
         VERIFY(!cells.is_empty());
         const auto& data = GUI::Clipboard::the().data_and_type();
         if (auto spreadsheet_data = data.metadata.get("text/x-spreadsheet-data"); spreadsheet_data.has_value()) {
             Vector<Spreadsheet::Position> source_positions, target_positions;
-            auto& sheet = spreadsheet_widget.current_worksheet();
+            auto lines = spreadsheet_data.value().split_view('\n');
+            auto action = lines.take_first();
 
-            for (auto& line : spreadsheet_data.value().split_view('\n')) {
+            for (auto& line : lines) {
                 dbgln("Paste line '{}'", line);
                 auto position = sheet.position_from_url(line);
                 if (position.has_value())
                     source_positions.append(position.release_value());
             }
 
-            for (auto& position : spreadsheet_widget.current_worksheet().selected_cells())
+            for (auto& position : sheet.selected_cells())
                 target_positions.append(position);
 
             if (source_positions.is_empty())
                 return;
 
             auto first_position = source_positions.take_first();
-            sheet.copy_cells(move(source_positions), move(target_positions), first_position);
+            sheet.copy_cells(move(source_positions), move(target_positions), first_position, action == "cut" ? Spreadsheet::Sheet::CopyOperation::Cut : Spreadsheet::Sheet::CopyOperation::Copy);
         } else {
-            for (auto& cell : spreadsheet_widget.current_worksheet().selected_cells())
-                spreadsheet_widget.current_worksheet().ensure(cell).set_data(StringView { data.data.data(), data.data.size() });
+            for (auto& cell : sheet.selected_cells())
+                sheet.ensure(cell).set_data(StringView { data.data.data(), data.data.size() });
             spreadsheet_widget.update();
         }
     },
@@ -231,16 +257,20 @@ int main(int argc, char* argv[])
 
     help_menu.add_action(GUI::Action::create(
         "Functions Help", [&](auto&) {
-            auto docs = spreadsheet_widget.current_worksheet().gather_documentation();
-            auto help_window = Spreadsheet::HelpWindow::the(window);
-            help_window->set_docs(move(docs));
-            help_window->show();
+            if (auto* worksheet_ptr = spreadsheet_widget.current_worksheet_if_available()) {
+                auto docs = worksheet_ptr->gather_documentation();
+                auto help_window = Spreadsheet::HelpWindow::the(window);
+                help_window->set_docs(move(docs));
+                help_window->show();
+            } else {
+                GUI::MessageBox::show_error(window, "Cannot prepare documentation/help without an active worksheet");
+            }
         },
         window));
 
     help_menu.add_action(GUI::CommonActions::make_about_action("Spreadsheet", app_icon, window));
 
-    app->set_menubar(move(menubar));
+    window->set_menubar(move(menubar));
 
     window->show();
 

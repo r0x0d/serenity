@@ -26,7 +26,7 @@
 
 #pragma once
 
-#include <AK/Bitmap.h>
+#include <AK/BitmapView.h>
 #include <AK/ScopeGuard.h>
 #include <AK/TemporaryChange.h>
 #include <AK/Vector.h>
@@ -52,15 +52,13 @@ public:
     Heap(u8* memory, size_t memory_size)
         : m_total_chunks(calculate_chunks(memory_size))
         , m_chunks(memory)
-        , m_bitmap(Bitmap::wrap(memory + m_total_chunks * CHUNK_SIZE, m_total_chunks))
+        , m_bitmap(memory + m_total_chunks * CHUNK_SIZE, m_total_chunks)
     {
         // To keep the alignment of the memory passed in, place the bitmap
         // at the end of the memory block.
         VERIFY(m_total_chunks * CHUNK_SIZE + (m_total_chunks + 7) / 8 <= memory_size);
     }
-    ~Heap()
-    {
-    }
+    ~Heap() = default;
 
     static size_t calculate_memory_for_bytes(size_t bytes)
     {
@@ -94,7 +92,7 @@ public:
         u8* ptr = a->data;
         a->allocation_size_in_chunks = chunks_needed;
 
-        m_bitmap.set_range(first_chunk.value(), chunks_needed, true);
+        m_bitmap.set_range_and_verify_that_all_bits_flip(first_chunk.value(), chunks_needed, true);
 
         m_allocated_chunks += chunks_needed;
         if constexpr (HEAP_SCRUB_BYTE_ALLOC != 0) {
@@ -109,10 +107,13 @@ public:
             return;
         auto* a = (AllocationHeader*)((((u8*)ptr) - sizeof(AllocationHeader)));
         VERIFY((u8*)a >= m_chunks && (u8*)ptr < m_chunks + m_total_chunks * CHUNK_SIZE);
-        VERIFY((u8*)a + a->allocation_size_in_chunks * CHUNK_SIZE <= m_chunks + m_total_chunks * CHUNK_SIZE);
         FlatPtr start = ((FlatPtr)a - (FlatPtr)m_chunks) / CHUNK_SIZE;
 
-        m_bitmap.set_range(start, a->allocation_size_in_chunks, false);
+        // First, verify that the start of the allocation at `ptr` is actually allocated.
+        VERIFY(m_bitmap.get(start));
+
+        VERIFY((u8*)a + a->allocation_size_in_chunks * CHUNK_SIZE <= m_chunks + m_total_chunks * CHUNK_SIZE);
+        m_bitmap.set_range_and_verify_that_all_bits_flip(start, a->allocation_size_in_chunks, false);
 
         VERIFY(m_allocated_chunks >= a->allocation_size_in_chunks);
         m_allocated_chunks -= a->allocation_size_in_chunks;
@@ -172,7 +173,7 @@ private:
     size_t m_total_chunks { 0 };
     size_t m_allocated_chunks { 0 };
     u8* m_chunks { nullptr };
-    Bitmap m_bitmap;
+    BitmapView m_bitmap;
 };
 
 template<typename ExpandHeap>

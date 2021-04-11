@@ -32,10 +32,10 @@ KResult Process::do_kill(Process& process, int signal)
 {
     // FIXME: Allow sending SIGCONT to everyone in the process group.
     // FIXME: Should setuid processes have some special treatment here?
-    if (!is_superuser() && m_euid != process.m_uid && m_uid != process.m_uid)
+    if (!is_superuser() && euid() != process.uid() && uid() != process.uid())
         return EPERM;
     if (process.is_kernel_process() && signal == SIGKILL) {
-        klog() << "attempted to send SIGKILL to kernel process " << process.name().characters() << "(" << process.pid().value() << ")";
+        dbgln("Aattempted to send SIGKILL to kernel process {} ({})", process.name(), process.pid());
         return EPERM;
     }
     if (signal != 0)
@@ -89,7 +89,7 @@ KResult Process::do_killall(int signal)
     ScopedSpinLock lock(g_processes_lock);
     for (auto& process : *g_processes) {
         KResult res = KSuccess;
-        if (process.pid() == m_pid)
+        if (process.pid() == pid())
             res = do_killself(signal);
         else
             res = do_kill(process, signal);
@@ -117,40 +117,40 @@ KResult Process::do_killself(int signal)
     return KSuccess;
 }
 
-int Process::sys$kill(pid_t pid_or_pgid, int signal)
+KResultOr<int> Process::sys$kill(pid_t pid_or_pgid, int signal)
 {
-    if (pid_or_pgid == m_pid.value())
+    if (pid_or_pgid == pid().value())
         REQUIRE_PROMISE(stdio);
     else
         REQUIRE_PROMISE(proc);
 
     if (signal < 0 || signal >= 32)
-        return -EINVAL;
+        return EINVAL;
     if (pid_or_pgid < -1) {
         if (pid_or_pgid == NumericLimits<i32>::min())
-            return -EINVAL;
+            return EINVAL;
         return do_killpg(-pid_or_pgid, signal);
     }
     if (pid_or_pgid == -1)
         return do_killall(signal);
-    if (pid_or_pgid == m_pid.value()) {
+    if (pid_or_pgid == pid().value()) {
         return do_killself(signal);
     }
     VERIFY(pid_or_pgid >= 0);
     ScopedSpinLock lock(g_processes_lock);
     auto peer = Process::from_pid(pid_or_pgid);
     if (!peer)
-        return -ESRCH;
+        return ESRCH;
     return do_kill(*peer, signal);
 }
 
-int Process::sys$killpg(pid_t pgrp, int signum)
+KResultOr<int> Process::sys$killpg(pid_t pgrp, int signum)
 {
     REQUIRE_PROMISE(proc);
     if (signum < 1 || signum >= 32)
-        return -EINVAL;
+        return EINVAL;
     if (pgrp < 0)
-        return -EINVAL;
+        return EINVAL;
 
     return do_killpg(pgrp, signum);
 }

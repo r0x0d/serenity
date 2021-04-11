@@ -30,6 +30,7 @@
 #include "Report.h"
 #include <AK/ByteBuffer.h>
 #include <AK/Memory.h>
+#include <AK/QuickSort.h>
 
 namespace UserspaceEmulator {
 
@@ -49,6 +50,7 @@ void SoftMMU::add_region(NonnullOwnPtr<Region> region)
     }
 
     m_regions.append(move(region));
+    quick_sort((Vector<OwnPtr<Region>>&)m_regions, [](auto& a, auto& b) { return a->base() < b->base(); });
 }
 
 void SoftMMU::remove_region(Region& region)
@@ -59,6 +61,48 @@ void SoftMMU::remove_region(Region& region)
     }
 
     m_regions.remove_first_matching([&](auto& entry) { return entry.ptr() == &region; });
+}
+
+void SoftMMU::ensure_split_at(X86::LogicalAddress address)
+{
+    // FIXME: If this fails, call Emulator::dump_backtrace
+    VERIFY(address.selector() != 0x2b);
+
+    u32 offset = address.offset();
+    VERIFY((offset & (PAGE_SIZE - 1)) == 0);
+    size_t page_index = address.offset() / PAGE_SIZE;
+
+    if (!page_index)
+        return;
+    if (m_page_to_region_map[page_index - 1] != m_page_to_region_map[page_index])
+        return;
+    if (!m_page_to_region_map[page_index])
+        return;
+
+    // If we get here, we know that the page exists and belongs to a region, that there is
+    // a previous page, and that it belongs to the same region.
+    VERIFY(is<MmapRegion>(m_page_to_region_map[page_index]));
+    auto* old_region = static_cast<MmapRegion*>(m_page_to_region_map[page_index]);
+
+    //dbgln("splitting at {:p}", address.offset());
+    //dbgln("    old region: {:p}-{:p}", old_region->base(), old_region->end() - 1);
+
+    NonnullOwnPtr<MmapRegion> new_region = old_region->split_at(VirtualAddress(offset));
+    //dbgln("    new region: {:p}-{:p}", new_region->base(), new_region->end() - 1);
+    //dbgln(" up old region: {:p}-{:p}", old_region->base(), old_region->end() - 1);
+
+    size_t first_page_in_region = new_region->base() / PAGE_SIZE;
+    size_t last_page_in_region = (new_region->base() + new_region->size() - 1) / PAGE_SIZE;
+
+    //dbgln("  @ remapping pages {} thru {}", first_page_in_region, last_page_in_region);
+
+    for (size_t page = first_page_in_region; page <= last_page_in_region; ++page) {
+        VERIFY(m_page_to_region_map[page] == old_region);
+        m_page_to_region_map[page] = new_region.ptr();
+    }
+
+    m_regions.append(move(new_region));
+    quick_sort((Vector<OwnPtr<Region>>&)m_regions, [](auto& a, auto& b) { return a->base() < b->base(); });
 }
 
 void SoftMMU::set_tls_region(NonnullOwnPtr<Region> region)

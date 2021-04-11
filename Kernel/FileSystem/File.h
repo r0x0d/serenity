@@ -43,10 +43,7 @@ class File;
 
 class FileBlockCondition : public Thread::BlockCondition {
 public:
-    FileBlockCondition(File& file)
-        : m_file(file)
-    {
-    }
+    FileBlockCondition() { }
 
     virtual bool should_add_blocker(Thread::Blocker& b, void* data) override
     {
@@ -64,9 +61,6 @@ public:
             return blocker.unblock(false, data);
         });
     }
-
-private:
-    File& m_file;
 };
 
 // File is the base class for anything that can be referenced by a FileDescription.
@@ -111,10 +105,10 @@ public:
     virtual KResult attach(FileDescription&) { return KSuccess; }
     virtual void detach(FileDescription&) { }
     virtual void did_seek(FileDescription&, off_t) { }
-    virtual KResultOr<size_t> read(FileDescription&, size_t, UserOrKernelBuffer&, size_t) = 0;
-    virtual KResultOr<size_t> write(FileDescription&, size_t, const UserOrKernelBuffer&, size_t) = 0;
+    virtual KResultOr<size_t> read(FileDescription&, u64, UserOrKernelBuffer&, size_t) = 0;
+    virtual KResultOr<size_t> write(FileDescription&, u64, const UserOrKernelBuffer&, size_t) = 0;
     virtual int ioctl(FileDescription&, unsigned request, FlatPtr arg);
-    virtual KResultOr<Region*> mmap(Process&, FileDescription&, const Range&, size_t offset, int prot, bool shared);
+    virtual KResultOr<Region*> mmap(Process&, FileDescription&, const Range&, u64 offset, int prot, bool shared);
     virtual KResult stat(::stat&) const { return EBADF; }
 
     virtual String absolute_path(const FileDescription&) const = 0;

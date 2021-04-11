@@ -68,7 +68,7 @@ void AsyncDeviceRequest::request_finished()
     m_queue.wake_all();
 }
 
-auto AsyncDeviceRequest::wait(timeval* timeout) -> RequestWaitResult
+auto AsyncDeviceRequest::wait(Time* timeout) -> RequestWaitResult
 {
     VERIFY(!m_parent_request);
     auto request_result = get_request_result();
@@ -91,15 +91,11 @@ void AsyncDeviceRequest::add_sub_request(NonnullRefPtr<AsyncDeviceRequest> sub_r
     VERIFY(sub_request->m_parent_request == nullptr);
     sub_request->m_parent_request = this;
 
-    bool should_start;
-    {
-        ScopedSpinLock lock(m_lock);
-        VERIFY(!is_completed_result(m_result));
-        m_sub_requests_pending.append(sub_request);
-        should_start = (m_result == Started);
-    }
-    if (should_start)
-        sub_request->do_start();
+    ScopedSpinLock lock(m_lock);
+    VERIFY(!is_completed_result(m_result));
+    m_sub_requests_pending.append(sub_request);
+    if (m_result == Started)
+        sub_request->do_start(move(lock));
 }
 
 void AsyncDeviceRequest::sub_request_finished(AsyncDeviceRequest& sub_request)

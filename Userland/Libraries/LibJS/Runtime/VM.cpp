@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2020, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2020-2021, Linus Groh <mail@linusgroh.de>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -24,12 +25,16 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <AK/Debug.h>
 #include <AK/ScopeGuard.h>
 #include <AK/StringBuilder.h>
+#include <AK/TemporaryChange.h>
 #include <LibJS/Interpreter.h>
 #include <LibJS/Runtime/Array.h>
 #include <LibJS/Runtime/Error.h>
 #include <LibJS/Runtime/GlobalObject.h>
+#include <LibJS/Runtime/NativeFunction.h>
+#include <LibJS/Runtime/PromiseReaction.h>
 #include <LibJS/Runtime/Reference.h>
 #include <LibJS/Runtime/ScriptFunction.h>
 #include <LibJS/Runtime/Symbol.h>
@@ -128,6 +133,9 @@ void VM::gather_roots(HashTable<Cell*>& roots)
 
     for (auto& symbol : m_global_symbol_map)
         roots.set(symbol.value);
+
+    for (auto* job : m_promise_jobs)
+        roots.set(job);
 }
 
 Symbol* VM::get_global_symbol(const String& description)
@@ -163,8 +171,8 @@ void VM::set_variable(const FlyString& name, Value value, GlobalObject& global_o
 
 Value VM::get_variable(const FlyString& name, GlobalObject& global_object)
 {
-    if (m_call_stack.size()) {
-        if (name == names.arguments) {
+    if (!m_call_stack.is_empty()) {
+        if (name == names.arguments && !call_frame().callee.is_empty()) {
             // HACK: Special handling for the name "arguments":
             //       If the name "arguments" is defined in the current scope, for example via
             //       a function parameter, or by a local var declaration, we use that.
@@ -175,6 +183,7 @@ Value VM::get_variable(const FlyString& name, GlobalObject& global_object)
                 return possible_match.value().value;
             if (!call_frame().arguments_object) {
                 call_frame().arguments_object = Array::create(global_object);
+                call_frame().arguments_object->put(names.callee, call_frame().callee);
                 for (auto argument : call_frame().arguments) {
                     call_frame().arguments_object->indexed_properties().append(argument);
                 }
@@ -211,6 +220,9 @@ Reference VM::get_reference(const FlyString& name)
 Value VM::construct(Function& function, Function& new_target, Optional<MarkedValueList> arguments, GlobalObject& global_object)
 {
     CallFrame call_frame;
+    call_frame.callee = &function;
+    if (auto* interpreter = interpreter_if_exists())
+        call_frame.current_node = interpreter->current_node();
     call_frame.is_strict_mode = function.is_strict_mode();
 
     push_call_frame(call_frame, function.global_object());
@@ -280,15 +292,21 @@ Value VM::construct(Function& function, Function& new_target, Optional<MarkedVal
 
 void VM::throw_exception(Exception* exception)
 {
-    if (should_log_exceptions() && exception->value().is_object() && is<Error>(exception->value().as_object())) {
-        auto& error = static_cast<Error&>(exception->value().as_object());
-        dbgln("Throwing JavaScript Error: {}, {}", error.name(), error.message());
+    if (should_log_exceptions()) {
+        auto value = exception->value();
+        if (value.is_object() && is<Error>(value.as_object())) {
+            auto& error = static_cast<Error&>(value.as_object());
+            dbgln("Throwing JavaScript exception: [{}] {}", error.name(), error.message());
+        } else {
+            dbgln("Throwing JavaScript exception: {}", value);
+        }
 
         for (ssize_t i = m_call_stack.size() - 1; i >= 0; --i) {
+            const auto& source_range = m_call_stack[i]->current_node->source_range();
             auto function_name = m_call_stack[i]->function_name;
             if (function_name.is_empty())
                 function_name = "<anonymous>";
-            dbgln("  {}", function_name);
+            dbgln("  {} at {}:{}:{}", function_name, source_range.filename, source_range.start.line, source_range.start.column);
         }
     }
 
@@ -331,8 +349,12 @@ Value VM::get_new_target() const
 Value VM::call_internal(Function& function, Value this_value, Optional<MarkedValueList> arguments)
 {
     VERIFY(!exception());
+    VERIFY(!this_value.is_empty());
 
     CallFrame call_frame;
+    call_frame.callee = &function;
+    if (auto* interpreter = interpreter_if_exists())
+        call_frame.current_node = interpreter->current_node();
     call_frame.is_strict_mode = function.is_strict_mode();
     call_frame.function_name = function.name();
     call_frame.this_value = function.bound_this().value_or(this_value);
@@ -360,6 +382,46 @@ bool VM::in_strict_mode() const
     if (call_stack().is_empty())
         return false;
     return call_frame().is_strict_mode;
+}
+
+void VM::run_queued_promise_jobs()
+{
+    dbgln_if(PROMISE_DEBUG, "Running queued promise jobs");
+    // Temporarily get rid of the exception, if any - job functions must be called
+    // either way, and that can't happen if we already have an exception stored.
+    TemporaryChange change(m_exception, static_cast<Exception*>(nullptr));
+    while (!m_promise_jobs.is_empty()) {
+        auto* job = m_promise_jobs.take_first();
+        dbgln_if(PROMISE_DEBUG, "Calling promise job function @ {}", job);
+        [[maybe_unused]] auto result = call(*job, js_undefined());
+    }
+    // Ensure no job has created a new exception, they must clean up after themselves.
+    VERIFY(!m_exception);
+}
+
+// 9.4.4 HostEnqueuePromiseJob, https://tc39.es/ecma262/#sec-hostenqueuepromisejob
+void VM::enqueue_promise_job(NativeFunction& job)
+{
+    m_promise_jobs.append(&job);
+}
+
+// 27.2.1.9 HostPromiseRejectionTracker, https://tc39.es/ecma262/#sec-host-promise-rejection-tracker
+void VM::promise_rejection_tracker(const Promise& promise, Promise::RejectionOperation operation) const
+{
+    switch (operation) {
+    case Promise::RejectionOperation::Reject:
+        // A promise was rejected without any handlers
+        if (on_promise_unhandled_rejection)
+            on_promise_unhandled_rejection(promise);
+        break;
+    case Promise::RejectionOperation::Handle:
+        // A handler was added to an already rejected promise
+        if (on_promise_rejection_handled)
+            on_promise_rejection_handled(promise);
+        break;
+    default:
+        VERIFY_NOT_REACHED();
+    }
 }
 
 }

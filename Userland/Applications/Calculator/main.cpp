@@ -34,6 +34,7 @@
 #include <LibGUI/Window.h>
 #include <LibGfx/Bitmap.h>
 #include <stdio.h>
+#include <unistd.h>
 
 int main(int argc, char** argv)
 {
@@ -61,7 +62,7 @@ int main(int argc, char** argv)
     auto window = GUI::Window::construct();
     window->set_title("Calculator");
     window->set_resizable(false);
-    window->resize(254, 213);
+    window->resize(254, 215);
 
     auto& widget = window->set_main_widget<CalculatorWidget>();
 
@@ -70,17 +71,16 @@ int main(int argc, char** argv)
 
     auto menubar = GUI::MenuBar::construct();
 
-    auto& app_menu = menubar->add_menu("Calculator");
+    auto& app_menu = menubar->add_menu("&File");
     app_menu.add_action(GUI::CommonActions::make_quit_action([](auto&) {
         GUI::Application::the()->quit();
-        return;
     }));
 
-    auto& edit_menu = menubar->add_menu("Edit");
-    edit_menu.add_action(GUI::Action::create("Copy", { Mod_Ctrl, Key_C }, Gfx::Bitmap::load_from_file("/res/icons/16x16/edit-copy.png"), [&](const GUI::Action&) {
+    auto& edit_menu = menubar->add_menu("&Edit");
+    edit_menu.add_action(GUI::CommonActions::make_copy_action([&](auto&) {
         GUI::Clipboard::the().set_plain_text(widget.get_entry());
     }));
-    edit_menu.add_action(GUI::Action::create("Paste", { Mod_Ctrl, Key_V }, Gfx::Bitmap::load_from_file("/res/icons/16x16/paste.png"), [&](const GUI::Action&) {
+    edit_menu.add_action(GUI::CommonActions::make_paste_action([&](auto&) {
         auto clipboard = GUI::Clipboard::the().data_and_type();
         if (clipboard.mime_type == "text/plain") {
             if (!clipboard.data.is_empty()) {
@@ -90,10 +90,8 @@ int main(int argc, char** argv)
         }
     }));
 
-    auto& help_menu = menubar->add_menu("Help");
+    auto& help_menu = menubar->add_menu("&Help");
     help_menu.add_action(GUI::CommonActions::make_about_action("Calculator", app_icon, window));
-
-    app->set_menubar(move(menubar));
-
+    window->set_menubar(move(menubar));
     return app->exec();
 }

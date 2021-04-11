@@ -24,6 +24,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <LibCore/ArgsParser.h>
 #include <LibCore/ElapsedTimer.h>
 #include <LibGUI/Application.h>
 #include <LibGUI/Icon.h>
@@ -36,13 +37,14 @@
 #include <LibGfx/Bitmap.h>
 #include <LibGfx/Matrix4x4.h>
 #include <LibGfx/Vector3.h>
-#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <time.h>
+#include <unistd.h>
 
 const int WIDTH = 200;
 const int HEIGHT = 200;
+
+static bool flag_hide_window_frame = false;
 
 class Cube final : public GUI::Widget {
     C_OBJECT(Cube)
@@ -78,7 +80,7 @@ private:
 
 Cube::Cube()
 {
-    m_bitmap = Gfx::Bitmap::create(Gfx::BitmapFormat::RGB32, { WIDTH, HEIGHT });
+    m_bitmap = Gfx::Bitmap::create(Gfx::BitmapFormat::BGRx8888, { WIDTH, HEIGHT });
 
     m_accumulated_time = 0;
     m_cycles = 0;
@@ -238,6 +240,11 @@ int main(int argc, char** argv)
         return 1;
     }
 
+    Core::ArgsParser parser;
+    parser.set_general_help("Create a window with a spinning cube.");
+    parser.add_option(flag_hide_window_frame, "Hide window frame", "hide-window", 'h');
+    parser.parse(argc, argv);
+
     auto window = GUI::Window::construct();
     window->set_double_buffering_enabled(true);
     window->set_title("Cube");
@@ -257,17 +264,19 @@ int main(int argc, char** argv)
     window->set_icon(app_icon.bitmap_for_size(16));
 
     auto menubar = GUI::MenuBar::construct();
-    auto& app_menu = menubar->add_menu("Cube Demo");
+    auto& app_menu = menubar->add_menu("File");
     auto show_window_frame_action = GUI::Action::create_checkable("Show window frame", [&](auto& action) {
         cube.set_show_window_frame(action.is_checked());
     });
+
+    cube.set_show_window_frame(!flag_hide_window_frame);
     show_window_frame_action->set_checked(cube.show_window_frame());
     app_menu.add_action(move(show_window_frame_action));
     app_menu.add_separator();
     app_menu.add_action(GUI::CommonActions::make_quit_action([&](auto&) { app->quit(); }));
     auto& help_menu = menubar->add_menu("Help");
     help_menu.add_action(GUI::CommonActions::make_about_action("Cube Demo", app_icon, window));
-    app->set_menubar(move(menubar));
+    window->set_menubar(move(menubar));
 
     cube.on_context_menu_request = [&](auto& event) {
         app_menu.popup(event.screen_position());

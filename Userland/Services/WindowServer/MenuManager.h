@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2018-2021, Andreas Kling <kling@serenityos.org>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -31,13 +31,12 @@
 #include "Window.h"
 #include <AK/HashMap.h>
 #include <AK/StringBuilder.h>
-#include <LibCore/Object.h>
-#include <LibCore/Timer.h>
 
 namespace WindowServer {
 
 class MenuManager final : public Core::Object {
-    C_OBJECT(MenuManager)
+    C_OBJECT(MenuManager);
+
 public:
     static MenuManager& the();
 
@@ -49,78 +48,40 @@ public:
     bool is_open(const Menu&) const;
     bool has_open_menu() const { return !m_open_menu_stack.is_empty(); }
 
-    Gfx::IntRect menubar_rect() const;
-    static int menubar_menu_margin() { return 16; }
-
-    void set_needs_window_resize();
-
     Menu* current_menu() { return m_current_menu.ptr(); }
     void set_current_menu(Menu*);
     void clear_current_menu();
-    void open_menu(Menu&, bool from_menu_bar, bool as_current_menu = true);
+    void open_menu(Menu&, bool as_current_menu = true);
 
-    MenuBar* current_menubar() { return m_current_menubar.ptr(); }
-    void set_current_menubar(MenuBar*);
-    void close_menubar(MenuBar&);
-
-    void close_bar();
     void close_everyone();
     void close_everyone_not_in_lineage(Menu&);
     void close_menu_and_descendants(Menu&);
 
     void close_all_menus_from_client(Badge<ClientConnection>, ClientConnection&);
 
-    Menu* system_menu() { return m_system_menu; }
-    void set_system_menu(Menu&);
-
     int theme_index() const { return m_theme_index; }
-
-    Window& window() { return *m_window; }
-
-    template<typename Callback>
-    void for_each_active_menubar_menu(Callback callback)
-    {
-        if (system_menu()) {
-            if (callback(*system_menu()) == IterationDecision::Break)
-                return;
-        }
-        if (m_current_menubar)
-            m_current_menubar->for_each_menu(callback);
-    }
 
     Menu* previous_menu(Menu* current);
     Menu* next_menu(Menu* current);
 
     void did_change_theme();
 
+    void set_hovered_menu(Menu*);
+    Menu* hovered_menu() { return m_hovered_menu; }
+
 private:
     void close_menus(const Vector<Menu*>&);
 
-    const Window& window() const { return *m_window; }
-
     virtual void event(Core::Event&) override;
     void handle_mouse_event(MouseEvent&);
-    void handle_menu_mouse_event(Menu&, const MouseEvent&);
-
-    void draw();
-
-    RefPtr<Window> m_window;
 
     WeakPtr<Menu> m_current_menu;
-    WeakPtr<Menu> m_current_menu_bar_menu;
     WeakPtr<Window> m_previous_input_window;
     Vector<WeakPtr<Menu>> m_open_menu_stack;
 
-    RefPtr<Core::Timer> m_search_timer;
-    StringBuilder m_current_search;
-    WeakPtr<Menu> m_system_menu;
-
-    bool m_needs_window_resize { false };
-    bool m_bar_open { false };
-
     int m_theme_index { 0 };
 
-    WeakPtr<MenuBar> m_current_menubar;
+    WeakPtr<Menu> m_hovered_menu;
 };
 
 }

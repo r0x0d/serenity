@@ -150,7 +150,10 @@ class OpCode;
 class ByteCode : public Vector<ByteCodeValueType> {
 public:
     ByteCode() = default;
+    ByteCode(const ByteCode&) = default;
     virtual ~ByteCode() = default;
+
+    ByteCode& operator=(ByteCode&&) = default;
 
     void insert_bytecode_compare_values(Vector<CompareTypeAndValuePair>&& pairs)
     {
@@ -334,51 +337,53 @@ public:
     {
 
         // FORKJUMP _ALT
-        // REGEXP ALT1
+        // REGEXP ALT2
         // JUMP  _END
         // LABEL _ALT
-        // REGEXP ALT2
+        // REGEXP ALT1
         // LABEL _END
 
         ByteCode byte_code;
 
         empend(static_cast<ByteCodeValueType>(OpCodeId::ForkJump));
-        empend(left.size() + 2); // Jump to the _ALT label
+        empend(right.size() + 2); // Jump to the _ALT label
 
-        for (auto& op : left)
+        for (auto& op : right)
             append(move(op));
 
         empend(static_cast<ByteCodeValueType>(OpCodeId::Jump));
-        empend(right.size()); // Jump to the _END label
+        empend(left.size()); // Jump to the _END label
 
         // LABEL _ALT = bytecode.size() + 2
 
-        for (auto& op : right)
+        for (auto& op : left)
             append(move(op));
 
         // LABEL _END = alterantive_bytecode.size
     }
 
-    void insert_bytecode_repetition_min_max(ByteCode& bytecode_to_repeat, size_t minimum, Optional<size_t> maximum)
+    void insert_bytecode_repetition_min_max(ByteCode& bytecode_to_repeat, size_t minimum, Optional<size_t> maximum, bool greedy = true)
     {
         ByteCode new_bytecode;
         new_bytecode.insert_bytecode_repetition_n(bytecode_to_repeat, minimum);
 
         if (maximum.has_value()) {
+            auto jump_kind = static_cast<ByteCodeValueType>(greedy ? OpCodeId::ForkStay : OpCodeId::ForkJump);
             if (maximum.value() > minimum) {
                 auto diff = maximum.value() - minimum;
-                new_bytecode.empend(static_cast<ByteCodeValueType>(OpCodeId::ForkStay));
+                new_bytecode.empend(jump_kind);
                 new_bytecode.empend(diff * (bytecode_to_repeat.size() + 2)); // Jump to the _END label
 
                 for (size_t i = 0; i < diff; ++i) {
                     new_bytecode.append(bytecode_to_repeat);
-                    new_bytecode.empend(static_cast<ByteCodeValueType>(OpCodeId::ForkStay));
+                    new_bytecode.empend(jump_kind);
                     new_bytecode.empend((diff - i - 1) * (bytecode_to_repeat.size() + 2)); // Jump to the _END label
                 }
             }
         } else {
             // no maximum value set, repeat finding if possible
-            new_bytecode.empend(static_cast<ByteCodeValueType>(OpCodeId::ForkJump));
+            auto jump_kind = static_cast<ByteCodeValueType>(greedy ? OpCodeId::ForkJump : OpCodeId::ForkStay);
+            new_bytecode.empend(jump_kind);
             new_bytecode.empend(-bytecode_to_repeat.size() - 2); // Jump to the last iteration
         }
 
@@ -768,7 +773,7 @@ public:
 
 private:
     ALWAYS_INLINE static void compare_char(const MatchInput& input, MatchState& state, u32 ch1, bool inverse, bool& inverse_matched);
-    ALWAYS_INLINE static bool compare_string(const MatchInput& input, MatchState& state, const char* str, size_t length);
+    ALWAYS_INLINE static bool compare_string(const MatchInput& input, MatchState& state, const char* str, size_t length, bool& had_zero_length_match);
     ALWAYS_INLINE static void compare_character_class(const MatchInput& input, MatchState& state, CharClass character_class, u32 ch, bool inverse, bool& inverse_matched);
     ALWAYS_INLINE static void compare_character_range(const MatchInput& input, MatchState& state, u32 from, u32 to, u32 ch, bool inverse, bool& inverse_matched);
 };

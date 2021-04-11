@@ -40,7 +40,7 @@ class TextEditorWidget final : public GUI::Widget {
     C_OBJECT(TextEditorWidget)
 public:
     virtual ~TextEditorWidget() override;
-    void open_file(const String& path);
+    bool open_file(const String& path);
     bool request_close();
 
     GUI::TextEditor& editor() { return *m_editor; }
@@ -63,7 +63,7 @@ private:
     void update_preview();
     void update_markdown_preview();
     void update_html_preview();
-    void update_statusbar_cursor_position();
+    void update_statusbar();
 
     virtual void drop_event(GUI::DropEvent&) override;
 
@@ -113,6 +113,16 @@ private:
     RefPtr<GUI::Action> m_no_wrapping_action;
     RefPtr<GUI::Action> m_wrap_anywhere_action;
     RefPtr<GUI::Action> m_wrap_at_words_action;
+
+    RefPtr<GUI::Action> m_visualize_trailing_whitespace_action;
+    RefPtr<GUI::Action> m_visualize_leading_whitespace_action;
+
+    GUI::ActionGroup m_soft_tab_width_actions;
+    RefPtr<GUI::Action> m_soft_tab_1_width_action;
+    RefPtr<GUI::Action> m_soft_tab_2_width_action;
+    RefPtr<GUI::Action> m_soft_tab_4_width_action;
+    RefPtr<GUI::Action> m_soft_tab_8_width_action;
+    RefPtr<GUI::Action> m_soft_tab_16_width_action;
 
     GUI::ActionGroup syntax_actions;
     RefPtr<GUI::Action> m_plain_text_highlight;

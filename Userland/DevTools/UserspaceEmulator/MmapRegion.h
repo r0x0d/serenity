@@ -36,8 +36,8 @@ class MallocTracer;
 
 class MmapRegion final : public Region {
 public:
-    static NonnullOwnPtr<MmapRegion> create_anonymous(u32 base, u32 size, u32 prot);
-    static NonnullOwnPtr<MmapRegion> create_file_backed(u32 base, u32 size, u32 prot, int flags, int fd, off_t offset, String name = {});
+    static NonnullOwnPtr<MmapRegion> create_anonymous(u32 base, u32 size, u32 prot, String name);
+    static NonnullOwnPtr<MmapRegion> create_file_backed(u32 base, u32 size, u32 prot, int flags, int fd, off_t offset, String name);
     virtual ~MmapRegion() override;
 
     virtual ValueWithShadow<u8> read8(u32 offset) override;
@@ -56,15 +56,22 @@ public:
     bool is_malloc_block() const { return m_malloc; }
     void set_malloc(bool b) { m_malloc = b; }
 
+    NonnullOwnPtr<MmapRegion> split_at(VirtualAddress);
+
+    int prot() const
+    {
+        return (is_readable() ? PROT_READ : 0) | (is_writable() ? PROT_WRITE : 0) | (is_executable() ? PROT_EXEC : 0);
+    }
     void set_prot(int prot);
 
     MallocRegionMetadata* malloc_metadata() { return m_malloc_metadata; }
     void set_malloc_metadata(Badge<MallocTracer>, NonnullOwnPtr<MallocRegionMetadata> metadata) { m_malloc_metadata = move(metadata); }
 
     const String& name() const { return m_name; }
+    void set_name(String name) { m_name = move(name); }
 
 private:
-    MmapRegion(u32 base, u32 size, int prot);
+    MmapRegion(u32 base, u32 size, int prot, u8* data, u8* shadow_data);
 
     u8* m_data { nullptr };
     u8* m_shadow_data { nullptr };
@@ -74,5 +81,8 @@ private:
     OwnPtr<MallocRegionMetadata> m_malloc_metadata;
     String m_name;
 };
+
+template<>
+inline bool Region::fast_is<MmapRegion>() const { return m_mmap; }
 
 }

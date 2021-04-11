@@ -37,9 +37,11 @@ namespace Bindings {
 class WindowObject final
     : public JS::GlobalObject
     , public Weakable<WindowObject> {
+    JS_OBJECT(WindowObject, JS::GlobalObject);
+
 public:
     explicit WindowObject(DOM::Window&);
-    virtual void initialize() override;
+    virtual void initialize_global_object() override;
     virtual ~WindowObject() override;
 
     DOM::Window& impl() { return *m_impl; }
@@ -74,15 +76,19 @@ public:
     }
 
 private:
-    virtual const char* class_name() const override { return "WindowObject"; }
     virtual void visit_edges(Visitor&) override;
 
+    JS_DECLARE_NATIVE_GETTER(top_getter);
+
     JS_DECLARE_NATIVE_GETTER(document_getter);
-    JS_DECLARE_NATIVE_SETTER(document_setter);
 
     JS_DECLARE_NATIVE_GETTER(performance_getter);
+    JS_DECLARE_NATIVE_GETTER(screen_getter);
 
     JS_DECLARE_NATIVE_GETTER(event_getter);
+
+    JS_DECLARE_NATIVE_GETTER(inner_width_getter);
+    JS_DECLARE_NATIVE_GETTER(inner_height_getter);
 
     JS_DECLARE_NATIVE_FUNCTION(alert);
     JS_DECLARE_NATIVE_FUNCTION(confirm);

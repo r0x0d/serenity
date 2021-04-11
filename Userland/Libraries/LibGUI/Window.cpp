@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2018-2021, Andreas Kling <kling@serenityos.org>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -35,6 +35,7 @@
 #include <LibGUI/Application.h>
 #include <LibGUI/Desktop.h>
 #include <LibGUI/Event.h>
+#include <LibGUI/MenuBar.h>
 #include <LibGUI/Painter.h>
 #include <LibGUI/Widget.h>
 #include <LibGUI/Window.h>
@@ -109,6 +110,8 @@ Window::Window(Core::Object* parent)
 
 Window::~Window()
 {
+    if (m_menubar)
+        m_menubar->notify_removed_from_window({});
     all_windows->remove(this);
     hide();
 }
@@ -159,6 +162,12 @@ void Window::show()
     m_visible = true;
 
     apply_icon();
+
+    if (m_menubar) {
+        // This little dance makes us create a server-side menubar.
+        auto menubar = move(m_menubar);
+        set_menubar(menubar);
+    }
 
     reified_windows->set(m_window_id, this);
     Application::the()->did_create_window({});
@@ -226,10 +235,10 @@ String Window::title() const
     return WindowServerConnection::the().send_sync<Messages::WindowServer::GetWindowTitle>(m_window_id)->title();
 }
 
-Gfx::IntRect Window::rect_in_menubar() const
+Gfx::IntRect Window::applet_rect_on_screen() const
 {
-    VERIFY(m_window_type == WindowType::MenuApplet);
-    return WindowServerConnection::the().send_sync<Messages::WindowServer::GetWindowRectInMenubar>(m_window_id)->rect();
+    VERIFY(m_window_type == WindowType::Applet);
+    return WindowServerConnection::the().send_sync<Messages::WindowServer::GetAppletRectOnScreen>(m_window_id)->rect();
 }
 
 Gfx::IntRect Window::rect() const
@@ -363,8 +372,12 @@ void Window::handle_mouse_event(MouseEvent& event)
     if (event.buttons() != 0 && !m_automatic_cursor_tracking_widget)
         m_automatic_cursor_tracking_widget = *result.widget;
     if (result.widget != m_global_cursor_tracking_widget.ptr())
-        return result.widget->dispatch_event(*local_event, this);
-    return;
+        result.widget->dispatch_event(*local_event, this);
+
+    if (!m_pending_paint_event_rects.is_empty()) {
+        MultiPaintEvent paint_event(move(m_pending_paint_event_rects), size());
+        handle_multi_paint_event(paint_event);
+    }
 }
 
 void Window::handle_multi_paint_event(MultiPaintEvent& event)
@@ -422,7 +435,7 @@ void Window::handle_multi_paint_event(MultiPaintEvent& event)
 
 void Window::handle_key_event(KeyEvent& event)
 {
-    if (!m_focused_widget && event.type() == Event::KeyDown && event.key() == Key_Tab && !event.ctrl() && !event.alt() && !event.logo()) {
+    if (!m_focused_widget && event.type() == Event::KeyDown && event.key() == Key_Tab && !event.ctrl() && !event.alt() && !event.super()) {
         focus_a_widget_if_possible(FocusSource::Keyboard);
         return;
     }
@@ -494,6 +507,22 @@ void Window::handle_theme_change_event(ThemeChangeEvent& event)
     dispatch_theme_change(*m_main_widget.ptr(), dispatch_theme_change);
 }
 
+void Window::handle_screen_rect_change_event(ScreenRectChangeEvent& event)
+{
+    if (!m_main_widget)
+        return;
+    auto dispatch_screen_rect_change = [&](auto& widget, auto recursive) {
+        widget.dispatch_event(event, this);
+        widget.for_each_child_widget([&](auto& widget) -> IterationDecision {
+            widget.dispatch_event(event, this);
+            recursive(widget, recursive);
+            return IterationDecision::Continue;
+        });
+    };
+    dispatch_screen_rect_change(*m_main_widget.ptr(), dispatch_screen_rect_change);
+    screen_rect_change_event(event);
+}
+
 void Window::handle_drag_move_event(DragEvent& event)
 {
     if (!m_main_widget)
@@ -560,6 +589,9 @@ void Window::event(Core::Event& event)
 
     if (event.type() == Event::ThemeChange)
         return handle_theme_change_event(static_cast<ThemeChangeEvent&>(event));
+
+    if (event.type() == Event::ScreenRectChange)
+        return handle_screen_rect_change_event(static_cast<ScreenRectChangeEvent&>(event));
 
     Core::Object::event(event);
 }
@@ -757,7 +789,7 @@ void Window::flip(const Vector<Gfx::IntRect, 32>& dirty_rects)
 
 OwnPtr<WindowBackingStore> Window::create_backing_store(const Gfx::IntSize& size)
 {
-    auto format = m_has_alpha_channel ? Gfx::BitmapFormat::RGBA32 : Gfx::BitmapFormat::RGB32;
+    auto format = m_has_alpha_channel ? Gfx::BitmapFormat::BGRA8888 : Gfx::BitmapFormat::BGRx8888;
 
     VERIFY(!size.is_empty());
     size_t pitch = Gfx::Bitmap::minimum_pitch(size.width(), format);
@@ -786,6 +818,10 @@ void Window::wm_event(WMEvent&)
 {
 }
 
+void Window::screen_rect_change_event(ScreenRectChangeEvent&)
+{
+}
+
 void Window::set_icon(const Gfx::Bitmap* icon)
 {
     if (m_icon == icon)
@@ -793,7 +829,7 @@ void Window::set_icon(const Gfx::Bitmap* icon)
 
     Gfx::IntSize icon_size = icon ? icon->size() : Gfx::IntSize(16, 16);
 
-    m_icon = Gfx::Bitmap::create(Gfx::BitmapFormat::RGBA32, icon_size);
+    m_icon = Gfx::Bitmap::create(Gfx::BitmapFormat::BGRA8888, icon_size);
     VERIFY(m_icon);
     if (icon) {
         Painter painter(*m_icon);
@@ -831,10 +867,10 @@ Vector<Widget*> Window::focusable_widgets(FocusSource source) const
         bool widget_accepts_focus = false;
         switch (source) {
         case FocusSource::Keyboard:
-            widget_accepts_focus = ((unsigned)widget.focus_policy() & (unsigned)FocusPolicy::TabFocus);
+            widget_accepts_focus = has_flag(widget.focus_policy(), FocusPolicy::TabFocus);
             break;
         case FocusSource::Mouse:
-            widget_accepts_focus = ((unsigned)widget.focus_policy() & (unsigned)FocusPolicy::ClickFocus);
+            widget_accepts_focus = has_flag(widget.focus_policy(), FocusPolicy::ClickFocus);
             break;
         case FocusSource::Programmatic:
             widget_accepts_focus = widget.focus_policy() != FocusPolicy::NoFocus;
@@ -1046,6 +1082,19 @@ bool Window::is_active() const
 Gfx::Bitmap* Window::back_bitmap()
 {
     return m_back_store ? &m_back_store->bitmap() : nullptr;
+}
+
+void Window::set_menubar(RefPtr<MenuBar> menubar)
+{
+    if (m_menubar == menubar)
+        return;
+    if (m_menubar)
+        m_menubar->notify_removed_from_window({});
+    m_menubar = move(menubar);
+    if (m_window_id && m_menubar) {
+        m_menubar->notify_added_to_window({});
+        WindowServerConnection::the().send_sync<Messages::WindowServer::SetWindowMenubar>(m_window_id, m_menubar->menubar_id());
+    }
 }
 
 }

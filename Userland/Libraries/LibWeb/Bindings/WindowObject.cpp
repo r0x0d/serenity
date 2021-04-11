@@ -40,11 +40,13 @@
 #include <LibWeb/Bindings/NavigatorObject.h>
 #include <LibWeb/Bindings/NodeWrapperFactory.h>
 #include <LibWeb/Bindings/PerformanceWrapper.h>
+#include <LibWeb/Bindings/ScreenWrapper.h>
 #include <LibWeb/Bindings/WindowObject.h>
 #include <LibWeb/DOM/Document.h>
 #include <LibWeb/DOM/Event.h>
 #include <LibWeb/DOM/Window.h>
 #include <LibWeb/Origin.h>
+#include <LibWeb/Page/Frame.h>
 
 #include <LibWeb/Bindings/WindowObjectHelper.h>
 
@@ -56,17 +58,21 @@ WindowObject::WindowObject(DOM::Window& impl)
     impl.set_wrapper({}, *this);
 }
 
-void WindowObject::initialize()
+void WindowObject::initialize_global_object()
 {
-    GlobalObject::initialize();
+    Base::initialize_global_object();
 
     set_prototype(&ensure_web_prototype<EventTargetPrototype>("EventTarget"));
 
     define_property("window", this, JS::Attribute::Enumerable);
     define_property("frames", this, JS::Attribute::Enumerable);
     define_property("self", this, JS::Attribute::Enumerable);
-    define_native_property("document", document_getter, document_setter, JS::Attribute::Enumerable);
+    define_native_property("top", top_getter, JS::Attribute::Enumerable);
+    define_native_property("document", document_getter, nullptr, JS::Attribute::Enumerable);
     define_native_property("performance", performance_getter, nullptr, JS::Attribute::Enumerable);
+    define_native_property("screen", screen_getter, nullptr, JS::Attribute::Enumerable);
+    define_native_property("innerWidth", inner_width_getter, nullptr, JS::Attribute::Enumerable);
+    define_native_property("innerHeight", inner_height_getter, nullptr, JS::Attribute::Enumerable);
     define_native_function("alert", alert);
     define_native_function("confirm", confirm);
     define_native_function("prompt", prompt);
@@ -348,17 +354,24 @@ JS_DEFINE_NATIVE_FUNCTION(WindowObject::btoa)
     return JS::js_string(vm, move(encoded));
 }
 
+JS_DEFINE_NATIVE_GETTER(WindowObject::top_getter)
+{
+    auto* impl = impl_from(vm, global_object);
+    if (!impl)
+        return {};
+    auto* this_frame = impl->document().frame();
+    VERIFY(this_frame);
+    VERIFY(this_frame->main_frame().document());
+    auto& top_window = this_frame->main_frame().document()->window();
+    return top_window.wrapper();
+}
+
 JS_DEFINE_NATIVE_GETTER(WindowObject::document_getter)
 {
     auto* impl = impl_from(vm, global_object);
     if (!impl)
         return {};
     return wrap(global_object, impl->document());
-}
-
-JS_DEFINE_NATIVE_SETTER(WindowObject::document_setter)
-{
-    // FIXME: Figure out what we should do here. Just ignore attempts to set window.document for now.
 }
 
 JS_DEFINE_NATIVE_GETTER(WindowObject::performance_getter)
@@ -369,6 +382,14 @@ JS_DEFINE_NATIVE_GETTER(WindowObject::performance_getter)
     return wrap(global_object, impl->performance());
 }
 
+JS_DEFINE_NATIVE_GETTER(WindowObject::screen_getter)
+{
+    auto* impl = impl_from(vm, global_object);
+    if (!impl)
+        return {};
+    return wrap(global_object, impl->screen());
+}
+
 JS_DEFINE_NATIVE_GETTER(WindowObject::event_getter)
 {
     auto* impl = impl_from(vm, global_object);
@@ -377,6 +398,22 @@ JS_DEFINE_NATIVE_GETTER(WindowObject::event_getter)
     if (!impl->current_event())
         return JS::js_undefined();
     return wrap(global_object, const_cast<DOM::Event&>(*impl->current_event()));
+}
+
+JS_DEFINE_NATIVE_GETTER(WindowObject::inner_width_getter)
+{
+    auto* impl = impl_from(vm, global_object);
+    if (!impl)
+        return {};
+    return JS::Value(impl->inner_width());
+}
+
+JS_DEFINE_NATIVE_GETTER(WindowObject::inner_height_getter)
+{
+    auto* impl = impl_from(vm, global_object);
+    if (!impl)
+        return {};
+    return JS::Value(impl->inner_height());
 }
 
 }

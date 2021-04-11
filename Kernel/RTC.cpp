@@ -25,7 +25,6 @@
  */
 
 #include <AK/Assertions.h>
-#include <AK/LogStream.h>
 #include <AK/Time.h>
 #include <Kernel/CMOS.h>
 #include <Kernel/RTC.h>
@@ -100,7 +99,7 @@ time_t now()
     unsigned year, month, day, hour, minute, second;
     read_registers(year, month, day, hour, minute, second);
 
-    klog() << "RTC: Year: " << year << ", month: " << month << ", day: " << day << ", hour: " << hour << ", minute: " << minute << ", second: " << second;
+    dmesgln("RTC: Year: {}, month: {}, day: {}, hour: {}, minute: {}, second: {}", year, month, day, hour, minute, second);
 
     time_t days_since_epoch = years_to_days_since_epoch(year) + day_of_year(year, month, day);
     return ((days_since_epoch * 24 + hour) * 60 + minute) * 60 + second;

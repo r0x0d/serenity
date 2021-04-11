@@ -310,9 +310,9 @@ static bool print_filesystem_object(const String& path, const String& name, cons
         printf("  %4u,%4u ", major(st.st_rdev), minor(st.st_rdev));
     } else {
         if (flag_human_readable) {
-            printf(" %10s ", human_readable_size((size_t)st.st_size).characters());
+            printf(" %10s ", human_readable_size(st.st_size).characters());
         } else {
-            printf(" %10zd ", st.st_size);
+            printf(" %10lld ", st.st_size);
         }
     }
 

@@ -51,6 +51,8 @@ public:
     void set_should_fill_selected_rows(bool fill) { m_should_fill_selected_rows = fill; }
     bool should_fill_selected_rows() const { return m_should_fill_selected_rows; }
 
+    virtual int vertical_padding() const override { return m_vertical_padding; }
+
 protected:
     TreeView();
 
@@ -74,6 +76,7 @@ private:
     int text_padding() const { return 2; }
     int tree_column_x_offset() const;
     virtual void update_column_sizes() override;
+    virtual void auto_resize_column(int column) override;
 
     template<typename Callback>
     void traverse_in_paint_order(Callback) const;
@@ -89,6 +92,7 @@ private:
     RefPtr<Gfx::Bitmap> m_collapse_bitmap;
 
     bool m_should_fill_selected_rows { false };
+    int m_vertical_padding { 6 };
 };
 
 }

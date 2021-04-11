@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2018-2021, Andreas Kling <kling@serenityos.org>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -227,6 +227,9 @@ void Object::dispatch_event(Core::Event& e, Object* stay_within)
     VERIFY(!stay_within || stay_within == this || stay_within->is_ancestor_of(*this));
     auto* target = this;
     do {
+        // If there's an event filter on this target, ask if it wants to swallow this event.
+        if (target->m_event_filter && !target->m_event_filter(e))
+            return;
         target->event(e);
         target = target->parent();
         if (target == stay_within) {
@@ -262,9 +265,9 @@ void Object::register_property(const String& name, Function<JsonValue()> getter,
     m_properties.set(name, make<Property>(name, move(getter), move(setter)));
 }
 
-const LogStream& operator<<(const LogStream& stream, const Object& object)
+void Object::set_event_filter(Function<bool(Core::Event&)> filter)
 {
-    return stream << object.class_name() << '{' << &object << '}';
+    m_event_filter = move(filter);
 }
 
 }

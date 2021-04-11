@@ -28,10 +28,10 @@
 
 #include <AK/Assertions.h>
 #include <AK/Atomic.h>
-#include <AK/LogStream.h>
+#include <AK/Format.h>
 #include <AK/Types.h>
 #ifdef KERNEL
-#    include <Kernel/Arch/i386/CPU.h>
+#    include <Kernel/Arch/x86/CPU.h>
 #endif
 
 namespace AK {
@@ -337,12 +337,6 @@ template<typename T>
 inline NonnullRefPtr<T> adopt(T& object)
 {
     return NonnullRefPtr<T>(NonnullRefPtr<T>::Adopt, object);
-}
-
-template<typename T>
-inline const LogStream& operator<<(const LogStream& stream, const NonnullRefPtr<T>& value)
-{
-    return stream << value.ptr();
 }
 
 template<typename T>

@@ -426,6 +426,11 @@ void Editor::set_document(GUI::TextDocument& doc)
 
     if (m_language_client) {
         set_autocomplete_provider(make<LanguageServerAidedAutocompleteProvider>(*m_language_client));
+        // NOTE:
+        // When a file is opened for the first time in HackStudio, its content is already synced with the filesystem.
+        // Otherwise, if the file has already been opened before in some Editor instance, it should exist in the LanguageServer's
+        // FileDB, and the LanguageServer should already have its up-to-date content.
+        // So it's OK to just pass an fd here (rather than the TextDocument's content).
         int fd = open(code_document.file_path().characters(), O_RDONLY | O_NOCTTY);
         if (fd < 0) {
             perror("open");
@@ -524,6 +529,9 @@ void Editor::on_navigatable_link_click(const GUI::TextDocumentSpan& span)
 
 void Editor::on_identifier_click(const GUI::TextDocumentSpan& span)
 {
+    if (!m_language_client)
+        return;
+
     m_language_client->on_declaration_found = [this](const String& file, size_t line, size_t column) {
         HackStudio::open_file(file, line, column);
     };

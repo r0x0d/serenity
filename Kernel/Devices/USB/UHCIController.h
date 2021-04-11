@@ -27,6 +27,8 @@
 
 #pragma once
 
+#include <AK/Platform.h>
+
 #include <AK/NonnullOwnPtr.h>
 #include <Kernel/Devices/USB/UHCIDescriptorTypes.h>
 #include <Kernel/IO.h>

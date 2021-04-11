@@ -27,10 +27,12 @@
 #include "SoftCPU.h"
 #include "Emulator.h"
 #include <AK/Assertions.h>
+#include <AK/BitCast.h>
 #include <AK/Debug.h>
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 #if defined(__GNUC__) && !defined(__clang__)
 #    pragma GCC optimize("O3")
@@ -56,27 +58,18 @@
 
 namespace UserspaceEmulator {
 
-template<class Dest, class Source>
-static inline Dest bit_cast(Source source)
-{
-    static_assert(sizeof(Dest) == sizeof(Source));
-    Dest dest;
-    memcpy(&dest, &source, sizeof(dest));
-    return dest;
-}
-
 template<typename T>
-void warn_if_uninitialized(T value_with_shadow, const char* message)
+ALWAYS_INLINE void warn_if_uninitialized(T value_with_shadow, const char* message)
 {
-    if (value_with_shadow.is_uninitialized()) {
+    if (value_with_shadow.is_uninitialized()) [[unlikely]] {
         reportln("\033[31;1mWarning! Use of uninitialized value: {}\033[0m\n", message);
         Emulator::the().dump_backtrace();
     }
 }
 
-void SoftCPU::warn_if_flags_tainted(const char* message) const
+ALWAYS_INLINE void SoftCPU::warn_if_flags_tainted(const char* message) const
 {
-    if (m_flags_tainted) {
+    if (m_flags_tainted) [[unlikely]] {
         reportln("\n=={}==  \033[31;1mConditional depends on uninitialized data\033[0m ({})\n", getpid(), message);
         Emulator::the().dump_backtrace();
     }
@@ -110,22 +103,6 @@ void SoftCPU::dump() const
     outln("#eax={:08x} #ebx={:08x} #ecx={:08x} #edx={:08x} #ebp={:08x} #esp={:08x} #esi={:08x} #edi={:08x} #f={}",
         eax().shadow(), ebx().shadow(), ecx().shadow(), edx().shadow(), ebp().shadow(), esp().shadow(), esi().shadow(), edi().shadow(), m_flags_tainted);
     fflush(stdout);
-}
-
-void SoftCPU::did_receive_secret_data()
-{
-    if (m_secret_data[0] == 1) {
-        if (auto* tracer = m_emulator.malloc_tracer())
-            tracer->target_did_malloc({}, m_secret_data[2], m_secret_data[1]);
-    } else if (m_secret_data[0] == 2) {
-        if (auto* tracer = m_emulator.malloc_tracer())
-            tracer->target_did_free({}, m_secret_data[1]);
-    } else if (m_secret_data[0] == 3) {
-        if (auto* tracer = m_emulator.malloc_tracer())
-            tracer->target_did_realloc({}, m_secret_data[2], m_secret_data[1]);
-    } else {
-        VERIFY_NOT_REACHED();
-    }
 }
 
 void SoftCPU::update_code_cache()
@@ -1520,7 +1497,7 @@ void SoftCPU::FDIV_RM32(const X86::Instruction& insn)
         auto new_f32 = insn.modrm().read32(*this, insn);
         // FIXME: Respect shadow values
         auto f32 = bit_cast<float>(new_f32.value());
-        // FIXME: Raise IA on + infinity / +-infinitiy, +-0 / +-0, raise Z on finite / +-0
+        // FIXME: Raise IA on + infinity / +-infinity, +-0 / +-0, raise Z on finite / +-0
         fpu_set(0, fpu_get(0) / f32);
     }
 }
@@ -1533,7 +1510,7 @@ void SoftCPU::FDIVR_RM32(const X86::Instruction& insn)
         auto new_f32 = insn.modrm().read32(*this, insn);
         // FIXME: Respect shadow values
         auto f32 = bit_cast<float>(new_f32.value());
-        // FIXME: Raise IA on + infinity / +-infinitiy, +-0 / +-0, raise Z on finite / +-0
+        // FIXME: Raise IA on + infinity / +-infinity, +-0 / +-0, raise Z on finite / +-0
         fpu_set(0, f32 / fpu_get(0));
     }
 }
@@ -1598,11 +1575,30 @@ void SoftCPU::FLD1(const X86::Instruction&)
     fpu_push(1.0);
 }
 
-void SoftCPU::FLDL2T(const X86::Instruction&) { TODO_INSN(); }
-void SoftCPU::FLDL2E(const X86::Instruction&) { TODO_INSN(); }
-void SoftCPU::FLDPI(const X86::Instruction&) { TODO_INSN(); }
-void SoftCPU::FLDLG2(const X86::Instruction&) { TODO_INSN(); }
-void SoftCPU::FLDLN2(const X86::Instruction&) { TODO_INSN(); }
+void SoftCPU::FLDL2T(const X86::Instruction&)
+{
+    fpu_push(log2f(10.0f));
+}
+
+void SoftCPU::FLDL2E(const X86::Instruction&)
+{
+    fpu_push(log2f(M_E));
+}
+
+void SoftCPU::FLDPI(const X86::Instruction&)
+{
+    fpu_push(M_PI);
+}
+
+void SoftCPU::FLDLG2(const X86::Instruction&)
+{
+    fpu_push(log10f(2.0f));
+}
+
+void SoftCPU::FLDLN2(const X86::Instruction&)
+{
+    fpu_push(M_LN2);
+}
 
 void SoftCPU::FLDZ(const X86::Instruction&)
 {
@@ -1610,14 +1606,56 @@ void SoftCPU::FLDZ(const X86::Instruction&)
 }
 
 void SoftCPU::FNSTENV(const X86::Instruction&) { TODO_INSN(); }
-void SoftCPU::F2XM1(const X86::Instruction&) { TODO_INSN(); }
-void SoftCPU::FYL2X(const X86::Instruction&) { TODO_INSN(); }
-void SoftCPU::FPTAN(const X86::Instruction&) { TODO_INSN(); }
+
+void SoftCPU::F2XM1(const X86::Instruction&)
+{
+    // FIXME: validate ST(0) is in range –1.0 to +1.0
+    auto f32 = fpu_get(0);
+    // FIXME: Set C0, C2, C3 in FPU status word.
+    fpu_set(0, powf(2, f32) - 1.0f);
+}
+
+void SoftCPU::FYL2X(const X86::Instruction&)
+{
+    // FIXME: Raise IA on +-infinity, +-0, raise Z on +-0
+    auto f32 = fpu_get(0);
+    // FIXME: Set C0, C2, C3 in FPU status word.
+    fpu_set(1, fpu_get(1) * log2f(f32));
+    fpu_pop();
+}
+
+void SoftCPU::FYL2XP1(const X86::Instruction&)
+{
+    // FIXME: validate ST(0) range
+    auto f32 = fpu_get(0);
+    // FIXME: Set C0, C2, C3 in FPU status word.
+    fpu_set(1, (fpu_get(1) * log2f(f32 + 1.0f)));
+    fpu_pop();
+}
+
+void SoftCPU::FPTAN(const X86::Instruction&)
+{
+    // FIXME: set C1 upon stack overflow or if result was rounded
+    // FIXME: Set C2 to 1 if ST(0) is outside range of -2^63 to +2^63; else set to 0
+    fpu_set(0, tanf(fpu_get(0)));
+    fpu_push(1.0f);
+}
+
 void SoftCPU::FPATAN(const X86::Instruction&) { TODO_INSN(); }
 void SoftCPU::FXTRACT(const X86::Instruction&) { TODO_INSN(); }
 void SoftCPU::FPREM1(const X86::Instruction&) { TODO_INSN(); }
-void SoftCPU::FDECSTP(const X86::Instruction&) { TODO_INSN(); }
-void SoftCPU::FINCSTP(const X86::Instruction&) { TODO_INSN(); }
+
+void SoftCPU::FDECSTP(const X86::Instruction&)
+{
+    m_fpu_top = (m_fpu_top == 0) ? 7 : m_fpu_top - 1;
+    set_cf(0);
+}
+
+void SoftCPU::FINCSTP(const X86::Instruction&)
+{
+    m_fpu_top = (m_fpu_top == 7) ? 0 : m_fpu_top + 1;
+    set_cf(0);
+}
 
 void SoftCPU::FNSTCW(const X86::Instruction& insn)
 {
@@ -1625,7 +1663,6 @@ void SoftCPU::FNSTCW(const X86::Instruction& insn)
 }
 
 void SoftCPU::FPREM(const X86::Instruction&) { TODO_INSN(); }
-void SoftCPU::FYL2XP1(const X86::Instruction&) { TODO_INSN(); }
 
 void SoftCPU::FSQRT(const X86::Instruction&)
 {
@@ -1633,15 +1670,28 @@ void SoftCPU::FSQRT(const X86::Instruction&)
 }
 
 void SoftCPU::FSINCOS(const X86::Instruction&) { TODO_INSN(); }
-void SoftCPU::FRNDINT(const X86::Instruction&) { TODO_INSN(); }
-void SoftCPU::FSCALE(const X86::Instruction&) { TODO_INSN(); }
+
+void SoftCPU::FRNDINT(const X86::Instruction&)
+{
+    // FIXME: support rounding mode
+    fpu_set(0, round(fpu_get(0)));
+}
+
+void SoftCPU::FSCALE(const X86::Instruction&)
+{
+    // FIXME: set C1 upon stack overflow or if result was rounded
+    fpu_set(0, fpu_get(0) * powf(2, floorf(fpu_get(1))));
+}
 
 void SoftCPU::FSIN(const X86::Instruction&)
 {
     fpu_set(0, sin(fpu_get(0)));
 }
 
-void SoftCPU::FCOS(const X86::Instruction&) { TODO_INSN(); }
+void SoftCPU::FCOS(const X86::Instruction&)
+{
+    fpu_set(0, cos(fpu_get(0)));
+}
 
 void SoftCPU::FIADD_RM32(const X86::Instruction& insn)
 {
@@ -1688,8 +1738,6 @@ void SoftCPU::FISUBR_RM32(const X86::Instruction& insn)
     // FIXME: Respect shadow values
     fpu_set(0, (long double)m32int - fpu_get(0));
 }
-
-void SoftCPU::FUCOMPP(const X86::Instruction&) { TODO_INSN(); }
 
 void SoftCPU::FIDIV_RM32(const X86::Instruction& insn)
 {
@@ -1849,7 +1897,7 @@ void SoftCPU::FDIV_RM64(const X86::Instruction& insn)
         auto new_f64 = insn.modrm().read64(*this, insn);
         // FIXME: Respect shadow values
         auto f64 = bit_cast<double>(new_f64.value());
-        // FIXME: Raise IA on + infinity / +-infinitiy, +-0 / +-0, raise Z on finite / +-0
+        // FIXME: Raise IA on + infinity / +-infinity, +-0 / +-0, raise Z on finite / +-0
         fpu_set(0, fpu_get(0) / f64);
     }
 }
@@ -1864,7 +1912,7 @@ void SoftCPU::FDIVR_RM64(const X86::Instruction& insn)
         auto new_f64 = insn.modrm().read64(*this, insn);
         // FIXME: Respect shadow values
         auto f64 = bit_cast<double>(new_f64.value());
-        // FIXME: Raise IA on + infinity / +-infinitiy, +-0 / +-0, raise Z on finite / +-0
+        // FIXME: Raise IA on + infinity / +-infinity, +-0 / +-0, raise Z on finite / +-0
         fpu_set(0, f64 / fpu_get(0));
     }
 }
@@ -1900,6 +1948,7 @@ void SoftCPU::FSTP_RM64(const X86::Instruction& insn)
 void SoftCPU::FRSTOR(const X86::Instruction&) { TODO_INSN(); }
 void SoftCPU::FUCOM(const X86::Instruction&) { TODO_INSN(); }
 void SoftCPU::FUCOMP(const X86::Instruction&) { TODO_INSN(); }
+void SoftCPU::FUCOMPP(const X86::Instruction&) { TODO_INSN(); }
 void SoftCPU::FNSAVE(const X86::Instruction&) { TODO_INSN(); }
 void SoftCPU::FNSTSW(const X86::Instruction&) { TODO_INSN(); }
 
@@ -1979,7 +2028,7 @@ void SoftCPU::FIDIV_RM16(const X86::Instruction& insn)
 void SoftCPU::FDIVRP(const X86::Instruction& insn)
 {
     VERIFY(insn.modrm().is_register());
-    // FIXME: Raise IA on + infinity / +-infinitiy, +-0 / +-0, raise Z on finite / +-0
+    // FIXME: Raise IA on + infinity / +-infinity, +-0 / +-0, raise Z on finite / +-0
     fpu_set(insn.modrm().register_index(), fpu_get(0) / fpu_get(insn.modrm().register_index()));
     fpu_pop();
 }
@@ -1996,7 +2045,7 @@ void SoftCPU::FIDIVR_RM16(const X86::Instruction& insn)
 void SoftCPU::FDIVP(const X86::Instruction& insn)
 {
     VERIFY(insn.modrm().is_register());
-    // FIXME: Raise IA on + infinity / +-infinitiy, +-0 / +-0, raise Z on finite / +-0
+    // FIXME: Raise IA on + infinity / +-infinity, +-0 / +-0, raise Z on finite / +-0
     fpu_set(insn.modrm().register_index(), fpu_get(insn.modrm().register_index()) / fpu_get(0));
     fpu_pop();
 }
@@ -2757,18 +2806,6 @@ void SoftCPU::PUSH_reg16(const X86::Instruction& insn)
 void SoftCPU::PUSH_reg32(const X86::Instruction& insn)
 {
     push32(gpr32(insn.reg32()));
-
-    if (m_secret_handshake_state == 2) {
-        m_secret_data[0] = gpr32(insn.reg32()).value();
-        ++m_secret_handshake_state;
-    } else if (m_secret_handshake_state == 3) {
-        m_secret_data[1] = gpr32(insn.reg32()).value();
-        ++m_secret_handshake_state;
-    } else if (m_secret_handshake_state == 4) {
-        m_secret_data[2] = gpr32(insn.reg32()).value();
-        m_secret_handshake_state = 0;
-        did_receive_secret_data();
-    }
 }
 
 template<typename T, bool cf>
@@ -2964,11 +3001,6 @@ void SoftCPU::SALC(const X86::Instruction&)
 {
     // FIXME: Respect shadow flags once they exists!
     set_al(shadow_wrap_as_initialized<u8>(cf() ? 0xff : 0x00));
-
-    if (m_secret_handshake_state < 2)
-        ++m_secret_handshake_state;
-    else
-        m_secret_handshake_state = 0;
 }
 
 template<typename T>

@@ -25,6 +25,7 @@
  */
 
 #include <AK/Function.h>
+#include <LibJS/Runtime/Array.h>
 #include <LibJS/Runtime/Error.h>
 #include <LibJS/Runtime/Function.h>
 #include <LibJS/Runtime/GlobalObject.h>
@@ -175,7 +176,7 @@ JS_DEFINE_NATIVE_FUNCTION(ReflectObject::delete_property)
         if (property_key_as_double >= 0 && (i32)property_key_as_double == property_key_as_double)
             property_name = PropertyName(property_key_as_double);
     }
-    return target->delete_property(property_name);
+    return Value(target->delete_property(property_name));
 }
 
 JS_DEFINE_NATIVE_FUNCTION(ReflectObject::get)
@@ -235,7 +236,7 @@ JS_DEFINE_NATIVE_FUNCTION(ReflectObject::own_keys)
     auto* target = get_target_object_from(global_object, "ownKeys");
     if (!target)
         return {};
-    return target->get_own_properties(*target, PropertyKind::Key);
+    return Array::create_from(global_object, target->get_own_properties(PropertyKind::Key));
 }
 
 JS_DEFINE_NATIVE_FUNCTION(ReflectObject::prevent_extensions)

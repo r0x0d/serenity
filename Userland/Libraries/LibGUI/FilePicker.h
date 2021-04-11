@@ -47,8 +47,8 @@ public:
         Save
     };
 
-    static Optional<String> get_open_filepath(Window* parent_window, const String& window_title = {});
-    static Optional<String> get_save_filepath(Window* parent_window, const String& title, const String& extension);
+    static Optional<String> get_open_filepath(Window* parent_window, const String& window_title = {}, const StringView& path = Core::StandardPaths::home_directory());
+    static Optional<String> get_save_filepath(Window* parent_window, const String& title, const String& extension, const StringView& path = Core::StandardPaths::home_directory());
 
     virtual ~FilePicker() override;
 
@@ -83,6 +83,7 @@ private:
 
     RefPtr<TextBox> m_filename_textbox;
     RefPtr<TextBox> m_location_textbox;
+    RefPtr<Menu> m_context_menu;
     Mode m_mode { Mode::Open };
 };
 

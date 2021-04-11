@@ -28,7 +28,7 @@
 
 #include <AK/OwnPtr.h>
 #include <AK/Types.h>
-#include <Kernel/Arch/i386/CPU.h>
+#include <Kernel/Arch/x86/CPU.h>
 #include <Kernel/Interrupts/GenericInterruptHandler.h>
 #include <Kernel/Interrupts/IRQController.h>
 
@@ -50,7 +50,7 @@ public:
     virtual bool is_sharing_with_others() const override { return false; }
 
     virtual HandlerType type() const override { return HandlerType::SpuriousInterruptHandler; }
-    virtual const char* purpose() const override { return "Spurious Interrupt Handler"; }
+    virtual const char* purpose() const override;
     virtual const char* controller() const override;
 
 private:

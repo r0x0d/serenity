@@ -69,9 +69,6 @@ void Menu::set_icon(const Gfx::Bitmap* icon)
 void Menu::add_action(NonnullRefPtr<Action> action)
 {
     m_items.append(make<MenuItem>(m_menu_id, move(action)));
-#if GMENU_DEBUG
-    dbgln("GUI::Menu::add_action(): MenuItem Menu ID: {}", m_menu_id);
-#endif
 }
 
 Menu& Menu::add_submenu(const String& name)
@@ -163,6 +160,15 @@ Action* Menu::action_at(size_t index)
     if (index >= m_items.size())
         return nullptr;
     return m_items[index].action();
+}
+
+void Menu::visibility_did_change(Badge<WindowServerConnection>, bool visible)
+{
+    if (m_visible == visible)
+        return;
+    m_visible = visible;
+    if (on_visibility_change)
+        on_visibility_change(visible);
 }
 
 }

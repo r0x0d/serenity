@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2018-2021, Andreas Kling <kling@serenityos.org>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -25,10 +25,9 @@
  */
 
 #include <Kernel/API/Syscall.h>
-#include <Kernel/Arch/i386/CPU.h>
+#include <Kernel/Arch/x86/CPU.h>
 #include <Kernel/Panic.h>
 #include <Kernel/Process.h>
-#include <Kernel/Random.h>
 #include <Kernel/ThreadTracer.h>
 #include <Kernel/VM/MemoryManager.h>
 
@@ -38,6 +37,7 @@ extern "C" void syscall_handler(TrapFrame*);
 extern "C" void syscall_asm_entry();
 
 // clang-format off
+#if ARCH(I386)
 asm(
     ".globl syscall_asm_entry\n"
     "syscall_asm_entry:\n"
@@ -65,34 +65,41 @@ asm(
     "    call syscall_handler \n"
     "    movl %ebx, 0(%esp) \n" // push pointer to TrapFrame
     "    jmp common_trap_exit \n");
+#elif ARCH(X86_64)
+    asm(
+    ".globl syscall_asm_entry\n"
+    "syscall_asm_entry:\n"
+    "    cli\n"
+    "    hlt\n");
+#endif
 // clang-format on
 
 namespace Syscall {
 
-static int handle(RegisterState&, u32 function, u32 arg1, u32 arg2, u32 arg3);
+static KResultOr<FlatPtr> handle(RegisterState&, FlatPtr function, FlatPtr arg1, FlatPtr arg2, FlatPtr arg3);
 
 UNMAP_AFTER_INIT void initialize()
 {
     register_user_callable_interrupt_handler(syscall_vector, syscall_asm_entry);
-    klog() << "Syscall: int 0x82 handler installed";
 }
 
 #pragma GCC diagnostic ignored "-Wcast-function-type"
-typedef int (Process::*Handler)(u32, u32, u32);
+typedef KResultOr<FlatPtr> (Process::*Handler)(FlatPtr, FlatPtr, FlatPtr);
+typedef KResultOr<FlatPtr> (Process::*HandlerWithRegisterState)(RegisterState&);
 #define __ENUMERATE_SYSCALL(x) reinterpret_cast<Handler>(&Process::sys$##x),
 static Handler s_syscall_table[] = {
     ENUMERATE_SYSCALLS(__ENUMERATE_SYSCALL)
 };
 #undef __ENUMERATE_SYSCALL
 
-int handle(RegisterState& regs, u32 function, u32 arg1, u32 arg2, u32 arg3)
+KResultOr<FlatPtr> handle(RegisterState& regs, FlatPtr function, FlatPtr arg1, FlatPtr arg2, FlatPtr arg3)
 {
     VERIFY_INTERRUPTS_ENABLED();
     auto current_thread = Thread::current();
     auto& process = current_thread->process();
     current_thread->did_syscall();
 
-    if (function == SC_exit || function == SC_exit_thread) {
+    if (function == SC_abort || function == SC_exit || function == SC_exit_thread) {
         // These syscalls need special handling since they never return to the caller.
 
         if (auto* tracer = process.tracer(); tracer && tracer->is_tracing_syscalls()) {
@@ -101,37 +108,40 @@ int handle(RegisterState& regs, u32 function, u32 arg1, u32 arg2, u32 arg3)
             process.tracer_trap(*current_thread, regs); // this triggers SIGTRAP and stops the thread!
         }
 
-        if (function == SC_exit)
-            process.sys$exit((int)arg1);
-        else
+        switch (function) {
+        case SC_abort:
+            process.sys$abort();
+            break;
+        case SC_exit:
+            process.sys$exit(arg1);
+            break;
+        case SC_exit_thread:
             process.sys$exit_thread(arg1);
-        VERIFY_NOT_REACHED();
-        return 0;
+            break;
+        default:
+            VERIFY_NOT_REACHED();
+        }
     }
 
-    if (function == SC_fork)
-        return process.sys$fork(regs);
-
-    if (function == SC_sigreturn)
-        return process.sys$sigreturn(regs);
+    if (function == SC_fork || function == SC_sigreturn) {
+        // These syscalls want the RegisterState& rather than individual parameters.
+        auto handler = (HandlerWithRegisterState)s_syscall_table[function];
+        return (process.*(handler))(regs);
+    }
 
     if (function >= Function::__Count) {
         dbgln("Unknown syscall {} requested ({:08x}, {:08x}, {:08x})", function, arg1, arg2, arg3);
-        return -ENOSYS;
+        return ENOSYS;
     }
 
     if (s_syscall_table[function] == nullptr) {
         dbgln("Null syscall {} requested, you probably need to rebuild this program!", function);
-        return -ENOSYS;
+        return ENOSYS;
     }
     return (process.*(s_syscall_table[function]))(arg1, arg2, arg3);
 }
 
 }
-
-constexpr int RandomByteBufferSize = 256;
-u8 g_random_byte_buffer[RandomByteBufferSize];
-int g_random_byte_buffer_offset = RandomByteBufferSize;
 
 void syscall_handler(TrapFrame* trap)
 {
@@ -152,17 +162,15 @@ void syscall_handler(TrapFrame* trap)
 
     // Apply a random offset in the range 0-255 to the stack pointer,
     // to make kernel stacks a bit less deterministic.
-    // Since this is very hot code, request random data in chunks instead of
-    // one byte at a time. This is a noticeable speedup.
-    if (g_random_byte_buffer_offset == RandomByteBufferSize) {
-        get_fast_random_bytes(g_random_byte_buffer, RandomByteBufferSize);
-        g_random_byte_buffer_offset = 0;
-    }
-    auto* ptr = (char*)__builtin_alloca(g_random_byte_buffer[g_random_byte_buffer_offset++]);
+    u32 lsw;
+    u32 msw;
+    read_tsc(lsw, msw);
+
+    auto* ptr = (char*)__builtin_alloca(lsw & 0xff);
     asm volatile(""
                  : "=m"(*ptr));
 
-    static constexpr u32 iopl_mask = 3u << 12;
+    static constexpr FlatPtr iopl_mask = 3u << 12;
 
     if ((regs.eflags & (iopl_mask)) != 0) {
         PANIC("Syscall from process with IOPL != 0");
@@ -192,11 +200,16 @@ void syscall_handler(TrapFrame* trap)
         handle_crash(regs, "Syscall from non-syscall region", SIGSEGV);
     }
 
-    u32 function = regs.eax;
-    u32 arg1 = regs.edx;
-    u32 arg2 = regs.ecx;
-    u32 arg3 = regs.ebx;
-    regs.eax = Syscall::handle(regs, function, arg1, arg2, arg3);
+    auto function = regs.eax;
+    auto arg1 = regs.edx;
+    auto arg2 = regs.ecx;
+    auto arg3 = regs.ebx;
+
+    auto result = Syscall::handle(regs, function, arg1, arg2, arg3);
+    if (result.is_error())
+        regs.eax = result.error();
+    else
+        regs.eax = result.value();
 
     process.big_lock().unlock();
 

@@ -47,6 +47,9 @@
 
 namespace WindowServer {
 
+const int double_click_speed_max = 900;
+const int double_click_speed_min = 100;
+
 class Screen;
 class MouseEvent;
 class Window;
@@ -94,7 +97,6 @@ public:
     void notify_opacity_changed(Window&);
     void notify_occlusion_state_changed(Window&);
     void notify_progress_changed(Window&);
-    void notify_client_changed_app_menubar(ClientConnection&);
 
     Gfx::IntRect maximized_window_rect(const Window&) const;
 
@@ -113,12 +115,15 @@ public:
     const Window* active_input_window() const { return m_active_input_window.ptr(); }
     const ClientConnection* active_client() const;
 
+    Window* window_with_active_menu() { return m_window_with_active_menu; }
+    const Window* window_with_active_menu() const { return m_window_with_active_menu; }
+    void set_window_with_active_menu(Window*);
+
     const Window* highlight_window() const { return m_highlight_window.ptr(); }
     void set_highlight_window(Window*);
 
     void move_to_front_and_make_active(Window&);
 
-    Gfx::IntRect menubar_rect() const;
     Gfx::IntRect desktop_rect() const;
     Gfx::IntRect arena_rect_for_type(WindowType) const;
 
@@ -149,6 +154,8 @@ public:
 
     void set_acceleration_factor(double);
     void set_scroll_step_size(unsigned);
+    void set_double_click_speed(int);
+    int double_click_speed() const;
 
     Window* set_active_input_window(Window*);
     void restore_active_input_window(Window*);
@@ -165,6 +172,7 @@ public:
     void tell_wm_listeners_window_state_changed(Window&);
     void tell_wm_listeners_window_icon_changed(Window&);
     void tell_wm_listeners_window_rect_changed(Window&);
+    void tell_wm_listeners_applet_area_size_changed(const Gfx::IntSize&);
 
     bool is_active_window_or_accessory(Window&) const;
 
@@ -329,6 +337,7 @@ private:
     WeakPtr<Window> m_highlight_window;
     WeakPtr<Window> m_active_input_window;
     WeakPtr<Window> m_active_input_tracking_window;
+    WeakPtr<Window> m_window_with_active_menu;
 
     WeakPtr<Window> m_move_window;
     Gfx::IntPoint m_move_origin;
@@ -356,8 +365,6 @@ private:
     String m_dnd_text;
     RefPtr<Core::MimeData> m_dnd_mime_data;
     RefPtr<Gfx::Bitmap> m_dnd_bitmap;
-
-    bool m_previous_event_is_key_down_logo { false };
 };
 
 template<typename Callback>
@@ -396,11 +403,11 @@ IterationDecision WindowManager::for_each_visible_window_from_back_to_front(Call
         return IterationDecision::Break;
     if (for_each_visible_window_of_type_from_back_to_front(WindowType::Taskbar, callback) == IterationDecision::Break)
         return IterationDecision::Break;
+    if (for_each_visible_window_of_type_from_back_to_front(WindowType::AppletArea, callback) == IterationDecision::Break)
+        return IterationDecision::Break;
     if (for_each_visible_window_of_type_from_back_to_front(WindowType::Notification, callback) == IterationDecision::Break)
         return IterationDecision::Break;
     if (for_each_visible_window_of_type_from_back_to_front(WindowType::Tooltip, callback) == IterationDecision::Break)
-        return IterationDecision::Break;
-    if (for_each_visible_window_of_type_from_back_to_front(WindowType::Menubar, callback) == IterationDecision::Break)
         return IterationDecision::Break;
     if (for_each_visible_window_of_type_from_back_to_front(WindowType::Menu, callback) == IterationDecision::Break)
         return IterationDecision::Break;
@@ -437,11 +444,11 @@ IterationDecision WindowManager::for_each_visible_window_from_front_to_back(Call
         return IterationDecision::Break;
     if (for_each_visible_window_of_type_from_front_to_back(WindowType::Menu, callback) == IterationDecision::Break)
         return IterationDecision::Break;
-    if (for_each_visible_window_of_type_from_front_to_back(WindowType::Menubar, callback) == IterationDecision::Break)
-        return IterationDecision::Break;
     if (for_each_visible_window_of_type_from_front_to_back(WindowType::Tooltip, callback) == IterationDecision::Break)
         return IterationDecision::Break;
     if (for_each_visible_window_of_type_from_front_to_back(WindowType::Notification, callback) == IterationDecision::Break)
+        return IterationDecision::Break;
+    if (for_each_visible_window_of_type_from_front_to_back(WindowType::AppletArea, callback) == IterationDecision::Break)
         return IterationDecision::Break;
     if (for_each_visible_window_of_type_from_front_to_back(WindowType::Taskbar, callback) == IterationDecision::Break)
         return IterationDecision::Break;

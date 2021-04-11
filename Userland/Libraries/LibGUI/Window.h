@@ -101,7 +101,7 @@ public:
     int height() const { return rect().height(); }
 
     Gfx::IntRect rect() const;
-    Gfx::IntRect rect_in_menubar() const;
+    Gfx::IntRect applet_rect_on_screen() const;
     Gfx::IntSize size() const { return rect().size(); }
     void set_rect(const Gfx::IntRect&);
     void set_rect(int x, int y, int width, int height) { set_rect({ x, y, width, height }); }
@@ -211,9 +211,12 @@ public:
 
     void did_disable_focused_widget(Badge<Widget>);
 
+    void set_menubar(RefPtr<MenuBar>);
+
 protected:
     Window(Core::Object* parent = nullptr);
     virtual void wm_event(WMEvent&);
+    virtual void screen_rect_change_event(ScreenRectChangeEvent&);
 
 private:
     void update_cursor();
@@ -228,6 +231,7 @@ private:
     void handle_became_active_or_inactive_event(Core::Event&);
     void handle_close_request();
     void handle_theme_change_event(ThemeChangeEvent&);
+    void handle_screen_rect_change_event(ScreenRectChangeEvent&);
     void handle_drag_move_event(DragEvent&);
     void handle_left_event();
 
@@ -240,6 +244,8 @@ private:
 
     OwnPtr<WindowBackingStore> m_front_store;
     OwnPtr<WindowBackingStore> m_back_store;
+
+    RefPtr<MenuBar> m_menubar;
 
     RefPtr<Gfx::Bitmap> m_icon;
     RefPtr<Gfx::Bitmap> m_custom_cursor;

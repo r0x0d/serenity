@@ -140,7 +140,7 @@ bool FrameLoader::parse_document(DOM::Document& document, const ByteBuffer& data
     }
     if (mime_type.starts_with("image/"))
         return build_image_document(document, data);
-    if (mime_type == "text/plain")
+    if (mime_type == "text/plain" || mime_type == "application/json")
         return build_text_document(document, data);
     if (mime_type == "text/markdown")
         return build_markdown_document(document, data);
@@ -178,7 +178,7 @@ bool FrameLoader::load(const LoadRequest& request, Type type)
 
         ResourceLoader::the().load(
             favicon_url,
-            [this, favicon_url](auto data, auto&) {
+            [this, favicon_url](auto data, auto&, auto) {
                 dbgln("Favicon downloaded, {} bytes from {}", data.size(), favicon_url);
                 auto decoder = Gfx::ImageDecoder::create(data.data(), data.size());
                 auto bitmap = decoder->bitmap();
@@ -226,7 +226,7 @@ void FrameLoader::load_error_page(const URL& failed_url, const String& error)
     auto error_page_url = "file:///res/html/error.html";
     ResourceLoader::the().load(
         error_page_url,
-        [this, failed_url, error](auto data, auto&) {
+        [this, failed_url, error](auto data, auto&, auto) {
             VERIFY(!data.is_null());
 #pragma GCC diagnostic ignored "-Wformat-nonliteral"
             auto html = String::format(
@@ -238,7 +238,7 @@ void FrameLoader::load_error_page(const URL& failed_url, const String& error)
             VERIFY(document);
             frame().set_document(document);
         },
-        [](auto error) {
+        [](auto& error, auto) {
             dbgln("Failed to load error page: {}", error);
             VERIFY_NOT_REACHED();
         });

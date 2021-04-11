@@ -24,7 +24,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <Kernel/Arch/i386/CPU.h>
+#include <Kernel/Arch/x86/CPU.h>
 #include <Kernel/Debug.h>
 #include <Kernel/Interrupts/IRQHandler.h>
 #include <Kernel/Interrupts/InterruptManagement.h>
@@ -56,6 +56,8 @@ bool IRQHandler::eoi()
 void IRQHandler::enable_irq()
 {
     dbgln_if(IRQ_DEBUG, "Enable IRQ {}", interrupt_number());
+    if (!is_registered())
+        register_interrupt_handler();
     m_enabled = true;
     if (!m_shared_with_others)
         m_responsible_irq_controller->enable(*this);

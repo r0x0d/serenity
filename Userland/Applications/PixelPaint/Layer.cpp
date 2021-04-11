@@ -55,10 +55,17 @@ RefPtr<Layer> Layer::create_with_bitmap(Image& image, const Gfx::Bitmap& bitmap,
 RefPtr<Layer> Layer::create_snapshot(Image& image, const Layer& layer)
 {
     auto snapshot = create_with_bitmap(image, *layer.bitmap().clone(), layer.name());
-    snapshot->set_opacity_percent(layer.opacity_percent());
-    snapshot->set_visible(layer.is_visible());
+    /*
+        We set these properties directly because calling the setters might 
+        notify the image of an update on the newly created layer, but this 
+        layer has not yet been added to the image.
+    */
+    snapshot->m_opacity_percent = layer.opacity_percent();
+    snapshot->m_visible = layer.is_visible();
+
     snapshot->set_selected(layer.is_selected());
     snapshot->set_location(layer.location());
+
     return snapshot;
 }
 
@@ -66,7 +73,7 @@ Layer::Layer(Image& image, const Gfx::IntSize& size, const String& name)
     : m_image(image)
     , m_name(name)
 {
-    m_bitmap = Gfx::Bitmap::create(Gfx::BitmapFormat::RGBA32, size);
+    m_bitmap = Gfx::Bitmap::create(Gfx::BitmapFormat::BGRA8888, size);
 }
 
 Layer::Layer(Image& image, const Gfx::Bitmap& bitmap, const String& name)

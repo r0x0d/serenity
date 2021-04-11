@@ -26,12 +26,12 @@
 
 #pragma once
 
-#include <AK/LogStream.h>
+#include <AK/Format.h>
 #include <AK/Types.h>
 
 class PhysicalAddress {
 public:
-    PhysicalAddress() { }
+    PhysicalAddress() = default;
     explicit PhysicalAddress(FlatPtr address)
         : m_address(address)
     {
@@ -60,11 +60,6 @@ public:
 private:
     FlatPtr m_address { 0 };
 };
-
-inline const LogStream& operator<<(const LogStream& stream, PhysicalAddress value)
-{
-    return stream << 'P' << value.as_ptr();
-}
 
 template<>
 struct AK::Formatter<PhysicalAddress> : AK::Formatter<FormatString> {

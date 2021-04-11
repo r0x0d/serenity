@@ -54,9 +54,13 @@ private:
     virtual void handle(const Messages::WebContentClient::DidFinishLoading&) override;
     virtual void handle(const Messages::WebContentClient::DidInvalidateContentRect&) override;
     virtual void handle(const Messages::WebContentClient::DidChangeSelection&) override;
+    virtual void handle(const Messages::WebContentClient::DidRequestCursorChange&) override;
     virtual void handle(const Messages::WebContentClient::DidLayout&) override;
     virtual void handle(const Messages::WebContentClient::DidChangeTitle&) override;
+    virtual void handle(const Messages::WebContentClient::DidRequestScroll&) override;
     virtual void handle(const Messages::WebContentClient::DidRequestScrollIntoView&) override;
+    virtual void handle(const Messages::WebContentClient::DidEnterTooltipArea&) override;
+    virtual void handle(const Messages::WebContentClient::DidLeaveTooltipArea&) override;
     virtual void handle(const Messages::WebContentClient::DidHoverLink&) override;
     virtual void handle(const Messages::WebContentClient::DidUnhoverLink&) override;
     virtual void handle(const Messages::WebContentClient::DidClickLink&) override;
@@ -64,7 +68,10 @@ private:
     virtual void handle(const Messages::WebContentClient::DidStartLoading&) override;
     virtual void handle(const Messages::WebContentClient::DidRequestContextMenu&) override;
     virtual void handle(const Messages::WebContentClient::DidRequestLinkContextMenu&) override;
-    virtual void handle(const Messages::WebContentClient::DidGetSource& message);
+    virtual void handle(const Messages::WebContentClient::DidRequestImageContextMenu&) override;
+    virtual void handle(const Messages::WebContentClient::DidGetSource&) override;
+    virtual void handle(const Messages::WebContentClient::DidJSConsoleOutput&) override;
+    virtual void handle(const Messages::WebContentClient::DidChangeFavicon&) override;
     virtual OwnPtr<Messages::WebContentClient::DidRequestAlertResponse> handle(const Messages::WebContentClient::DidRequestAlert&) override;
     virtual OwnPtr<Messages::WebContentClient::DidRequestConfirmResponse> handle(const Messages::WebContentClient::DidRequestConfirm&) override;
     virtual OwnPtr<Messages::WebContentClient::DidRequestPromptResponse> handle(const Messages::WebContentClient::DidRequestPrompt&) override;

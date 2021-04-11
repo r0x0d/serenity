@@ -29,7 +29,7 @@
 #include <AK/PrintfImplementation.h>
 #include <AK/ScopedValueRollback.h>
 #include <AK/StdLibExtras.h>
-#include <AK/kmalloc.h>
+#include <AK/String.h>
 #include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -175,12 +175,12 @@ bool FILE::flush()
     }
     if (m_mode & O_RDONLY) {
         // When open for reading, just drop the buffered data.
-        size_t had_buffered = m_buffer.buffered_size();
+        VERIFY(m_buffer.buffered_size() <= NumericLimits<off_t>::max());
+        off_t had_buffered = m_buffer.buffered_size();
         m_buffer.drop();
         // Attempt to reset the underlying file position to what the user
         // expects.
-        int rc = lseek(m_fd, -had_buffered, SEEK_CUR);
-        if (rc < 0) {
+        if (lseek(m_fd, -had_buffered, SEEK_CUR) < 0) {
             if (errno == ESPIPE) {
                 // We can't set offset on this file; oh well, the user will just
                 // have to cope.
@@ -881,6 +881,29 @@ int printf(const char* fmt, ...)
     return ret;
 }
 
+int vasprintf(char** strp, const char* fmt, va_list ap)
+{
+    StringBuilder builder;
+    builder.appendvf(fmt, ap);
+    VERIFY(builder.length() <= NumericLimits<int>::max());
+    int length = builder.length();
+    *strp = strdup(builder.to_string().characters());
+    return length;
+}
+
+int asprintf(char** strp, const char* fmt, ...)
+{
+    StringBuilder builder;
+    va_list ap;
+    va_start(ap, fmt);
+    builder.appendvf(fmt, ap);
+    va_end(ap);
+    VERIFY(builder.length() <= NumericLimits<int>::max());
+    int length = builder.length();
+    *strp = strdup(builder.to_string().characters());
+    return length;
+}
+
 static void buffer_putch(char*& bufptr, char ch)
 {
     *bufptr++ = ch;
@@ -1049,10 +1072,9 @@ void dbgputch(char ch)
     syscall(SC_dbgputch, ch);
 }
 
-int dbgputstr(const char* characters, ssize_t length)
+void dbgputstr(const char* characters, size_t length)
 {
-    int rc = syscall(SC_dbgputstr, characters, length);
-    __RETURN_WITH_ERRNO(rc, rc, -1);
+    syscall(SC_dbgputstr, characters, length);
 }
 
 char* tmpnam(char*)

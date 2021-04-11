@@ -30,5 +30,6 @@ namespace WebContent {
 
 class ClientConnection;
 class PageHost;
+class WebContentConsoleClient;
 
 }

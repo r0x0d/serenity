@@ -62,7 +62,7 @@ public:
         auto* memory = allocate_cell(sizeof(T));
         new (memory) T(forward<Args>(args)...);
         auto* cell = static_cast<T*>(memory);
-        constexpr bool is_object = IsBaseOf<Object, T>::value;
+        constexpr bool is_object = IsBaseOf<Object, T>;
         if constexpr (is_object)
             static_cast<Object*>(cell)->disable_transitions();
         cell->initialize(global_object);
@@ -112,7 +112,7 @@ private:
     }
 
     size_t m_max_allocations_between_gc { 10000 };
-    size_t m_allocations_since_last_gc { false };
+    size_t m_allocations_since_last_gc { 0 };
 
     bool m_should_collect_on_every_allocation { false };
 

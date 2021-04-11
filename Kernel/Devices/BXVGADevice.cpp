@@ -25,6 +25,7 @@
  */
 
 #include <AK/Checked.h>
+#include <AK/Format.h>
 #include <AK/Singleton.h>
 #include <Kernel/Debug.h>
 #include <Kernel/Devices/BXVGADevice.h>
@@ -166,13 +167,13 @@ UNMAP_AFTER_INIT u32 BXVGADevice::find_framebuffer_address()
     PCI::enumerate([&framebuffer_address](const PCI::Address& address, PCI::ID id) {
         if (id == bochs_vga_id || id == virtualbox_vga_id) {
             framebuffer_address = PCI::get_BAR0(address) & 0xfffffff0;
-            klog() << "BXVGA: framebuffer @ " << PhysicalAddress(framebuffer_address);
+            dbgln("BXVGA: framebuffer @ {}", PhysicalAddress(framebuffer_address));
         }
     });
     return framebuffer_address;
 }
 
-KResultOr<Region*> BXVGADevice::mmap(Process& process, FileDescription&, const Range& range, size_t offset, int prot, bool shared)
+KResultOr<Region*> BXVGADevice::mmap(Process& process, FileDescription&, const Range& range, u64 offset, int prot, bool shared)
 {
     REQUIRE_PROMISE(video);
     if (!shared)

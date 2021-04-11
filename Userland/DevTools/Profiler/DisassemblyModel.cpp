@@ -38,7 +38,7 @@ static const Gfx::Bitmap& heat_gradient()
 {
     static RefPtr<Gfx::Bitmap> bitmap;
     if (!bitmap) {
-        bitmap = Gfx::Bitmap::create(Gfx::BitmapFormat::RGB32, { 101, 1 });
+        bitmap = Gfx::Bitmap::create(Gfx::BitmapFormat::BGRx8888, { 101, 1 });
         GUI::Painter painter(*bitmap);
         painter.fill_rect_with_gradient(Orientation::Horizontal, bitmap->rect(), Color::from_rgb(0xffc080), Color::from_rgb(0xff3000));
     }
@@ -68,12 +68,13 @@ DisassemblyModel::DisassemblyModel(Profile& profile, ProfileNode& node)
         kernel_elf = make<ELF::Image>((const u8*)m_kernel_file->data(), m_kernel_file->size());
         elf = kernel_elf.ptr();
     } else {
-        auto library_data = profile.libraries().library_containing(node.address());
+        // FIXME: This is kinda rickety looking with all the -> -> ->
+        auto library_data = node.process(profile)->library_metadata->library_containing(node.address());
         if (!library_data) {
             dbgln("no library data");
             return;
         }
-        elf = &library_data->elf;
+        elf = &library_data->object->elf;
         base_address = library_data->base;
     }
 

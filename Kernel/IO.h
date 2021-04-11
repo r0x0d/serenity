@@ -27,10 +27,9 @@
 #pragma once
 
 #include <AK/Assertions.h>
-#include <AK/LogStream.h>
 #include <AK/String.h>
 #include <AK/Types.h>
-#include <Kernel/Arch/i386/CPU.h>
+#include <Kernel/Arch/x86/CPU.h>
 
 namespace IO {
 
@@ -61,14 +60,6 @@ inline u32 in32(u16 port)
     return value;
 }
 
-inline void repeated_in16(u16 port, u16* buffer, int buffer_size)
-{
-    asm volatile("rep insw"
-                 : "+D"(buffer), "+c"(buffer_size)
-                 : "d"(port)
-                 : "memory");
-}
-
 inline void out8(u16 port, u8 value)
 {
     asm volatile("outb %0, %1" ::"a"(value), "Nd"(port));
@@ -84,13 +75,6 @@ inline void out32(u16 port, u32 value)
     asm volatile("outl %0, %1" ::"a"(value), "Nd"(port));
 }
 
-inline void repeated_out16(u16 port, const u16* data, int data_size)
-{
-    asm volatile("rep outsw"
-                 : "+S"(data), "+c"(data_size)
-                 : "d"(port));
-}
-
 inline void delay(size_t microseconds)
 {
     for (size_t i = 0; i < microseconds; ++i)
@@ -101,7 +85,7 @@ inline void delay(size_t microseconds)
 
 class IOAddress {
 public:
-    IOAddress() { }
+    IOAddress() = default;
     explicit IOAddress(u16 address)
         : m_address(address)
     {
@@ -171,11 +155,6 @@ public:
 private:
     u16 m_address { 0 };
 };
-
-inline const LogStream& operator<<(const LogStream& stream, IOAddress value)
-{
-    return stream << "IO " << String::formatted("{:x}", value.get());
-}
 
 template<>
 struct AK::Formatter<IOAddress> : AK::Formatter<FormatString> {

@@ -60,6 +60,14 @@ bool FormattingContext::creates_block_formatting_context(const Box& box)
     if (is<TableCellBox>(box))
         return true;
 
+    CSS::Overflow overflow_x = box.computed_values().overflow_x();
+    if ((overflow_x != CSS::Overflow::Visible) && (overflow_x != CSS::Overflow::Clip))
+        return true;
+
+    CSS::Overflow overflow_y = box.computed_values().overflow_y();
+    if ((overflow_y != CSS::Overflow::Visible) && (overflow_y != CSS::Overflow::Clip))
+        return true;
+
     // FIXME: inline-flex as well
     if (box.parent() && box.parent()->computed_values().display() == CSS::Display::Flex) {
         // FIXME: Flex items (direct children of the element with display: flex or inline-flex) if they are neither flex nor grid nor table containers themselves.
@@ -69,7 +77,6 @@ bool FormattingContext::creates_block_formatting_context(const Box& box)
 
     // FIXME: table-caption
     // FIXME: anonymous table cells
-    // FIXME: Block elements where overflow has a value other than visible and clip.
     // FIXME: display: flow-root
     // FIXME: Elements with contain: layout, content, or paint.
     // FIXME: grid
@@ -460,6 +467,8 @@ void FormattingContext::compute_height_for_absolutely_positioned_non_replaced_el
     auto& computed_values = box.computed_values();
     auto& containing_block = *box.containing_block();
 
+    CSS::Length specified_top = computed_values.offset().top.resolved_or_auto(box, containing_block.height());
+    CSS::Length specified_bottom = computed_values.offset().bottom.resolved_or_auto(box, containing_block.height());
     CSS::Length specified_height;
 
     if (computed_values.height().is_percentage() && !containing_block.computed_values().height().is_absolute()) {
@@ -476,6 +485,14 @@ void FormattingContext::compute_height_for_absolutely_positioned_non_replaced_el
     box.box_model().border.bottom = computed_values.border_bottom().width;
     box.box_model().padding.top = computed_values.padding().top.resolved_or_zero(box, containing_block.width()).to_px(box);
     box.box_model().padding.bottom = computed_values.padding().bottom.resolved_or_zero(box, containing_block.width()).to_px(box);
+
+    if (specified_height.is_auto() && !specified_top.is_auto() && !specified_bottom.is_auto()) {
+        const auto& margin = box.box_model().margin;
+        const auto& padding = box.box_model().padding;
+        const auto& border = box.box_model().border;
+
+        specified_height = CSS::Length(containing_block.height() - specified_top.to_px(box) - margin.top - padding.top - border.top - specified_bottom.to_px(box) - margin.bottom - padding.bottom - border.bottom, CSS::Length::Type::Px);
+    }
 
     if (!specified_height.is_auto()) {
         float used_height = specified_height.to_px(box);

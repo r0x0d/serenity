@@ -30,7 +30,7 @@
 #include <AK/Atomic.h>
 #include <AK/HashMap.h>
 #include <AK/Types.h>
-#include <Kernel/Arch/i386/CPU.h>
+#include <Kernel/Arch/x86/CPU.h>
 #include <Kernel/Forward.h>
 #include <Kernel/LockMode.h>
 #include <Kernel/WaitQueue.h>
@@ -48,7 +48,7 @@ public:
         : m_name(name)
     {
     }
-    ~Lock() { }
+    ~Lock() = default;
 
     void lock(Mode = Mode::Exclusive);
 #if LOCK_DEBUG
@@ -144,7 +144,7 @@ private:
 template<typename T>
 class Lockable {
 public:
-    Lockable() { }
+    Lockable() = default;
     Lockable(T&& resource)
         : m_resource(move(resource))
     {

@@ -27,7 +27,7 @@
 #include <AK/Optional.h>
 #include <AK/StringView.h>
 #include <Kernel/ACPI/MultiProcessorParser.h>
-#include <Kernel/Arch/i386/CPU.h>
+#include <Kernel/Arch/x86/CPU.h>
 #include <Kernel/Debug.h>
 #include <Kernel/Interrupts/APIC.h>
 #include <Kernel/Interrupts/IOAPIC.h>
@@ -54,9 +54,9 @@ UNMAP_AFTER_INIT IOAPIC::IOAPIC(PhysicalAddress address, u32 gsi_base)
     , m_redirection_entries_count((read_register(0x1) >> 16) + 1)
 {
     InterruptDisabler disabler;
-    klog() << "IOAPIC ID: 0x" << String::format("%x", m_id);
-    klog() << "IOAPIC Version: 0x" << String::format("%x", m_version) << ", Redirection Entries count - " << m_redirection_entries_count;
-    klog() << "IOAPIC Arbitration ID 0x" << String::format("%x", read_register(0x2));
+    dmesgln("IOAPIC ID: {:#x}", m_id);
+    dmesgln("IOAPIC Version: {:#x}, redirection entries: {}", m_version, m_redirection_entries_count);
+    dmesgln("IOAPIC Arbitration ID {:#x}", read_register(0x2));
     mask_all_redirection_entries();
 }
 
@@ -129,7 +129,7 @@ void IOAPIC::spurious_eoi(const GenericInterruptHandler& handler) const
     InterruptDisabler disabler;
     VERIFY(handler.type() == HandlerType::SpuriousInterruptHandler);
     VERIFY(handler.interrupt_number() == APIC::spurious_interrupt_vector());
-    klog() << "IOAPIC::spurious_eoi - Spurious Interrupt occurred";
+    dbgln("IOAPIC: Spurious interrupt");
 }
 
 void IOAPIC::map_isa_interrupts()

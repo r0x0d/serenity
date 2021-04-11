@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2020, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2020-2021, Linus Groh <mail@linusgroh.de>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -27,6 +28,7 @@
 #pragma once
 
 #include <AK/FlyString.h>
+#include <AK/Function.h>
 #include <AK/HashMap.h>
 #include <AK/RefCounted.h>
 #include <AK/StackInfo.h>
@@ -36,6 +38,7 @@
 #include <LibJS/Runtime/ErrorTypes.h>
 #include <LibJS/Runtime/Exception.h>
 #include <LibJS/Runtime/MarkedValueList.h>
+#include <LibJS/Runtime/Promise.h>
 #include <LibJS/Runtime/Value.h>
 
 namespace JS {
@@ -56,7 +59,9 @@ struct ScopeFrame {
 };
 
 struct CallFrame {
+    const ASTNode* current_node;
     FlyString function_name;
+    Value callee;
     Value this_value;
     Vector<Value> arguments;
     Array* arguments_object { nullptr };
@@ -126,14 +131,10 @@ public:
 
     void pop_call_frame() { m_call_stack.take_last(); }
 
-    void push_ast_node(const ASTNode& node) { m_ast_nodes.append(&node); }
-    void pop_ast_node() { m_ast_nodes.take_last(); }
-
     CallFrame& call_frame() { return *m_call_stack.last(); }
     const CallFrame& call_frame() const { return *m_call_stack.last(); }
     const Vector<CallFrame*>& call_stack() const { return m_call_stack; }
     Vector<CallFrame*>& call_stack() { return m_call_stack; }
-    const Vector<const ASTNode*>& node_stack() const { return m_ast_nodes; }
 
     const ScopeObject* current_scope() const { return call_frame().scope; }
     ScopeObject* current_scope() { return call_frame().scope; }
@@ -242,6 +243,14 @@ public:
 
     Shape& scope_object_shape() { return *m_scope_object_shape; }
 
+    void run_queued_promise_jobs();
+    void enqueue_promise_job(NativeFunction&);
+
+    void promise_rejection_tracker(const Promise&, Promise::RejectionOperation) const;
+
+    AK::Function<void(const Promise&)> on_promise_unhandled_rejection;
+    AK::Function<void(const Promise&)> on_promise_rejection_handled;
+
 private:
     VM();
 
@@ -253,7 +262,6 @@ private:
     Vector<Interpreter*> m_interpreters;
 
     Vector<CallFrame*> m_call_stack;
-    Vector<const ASTNode*> m_ast_nodes;
 
     Value m_last_value;
     ScopeType m_unwind_until { ScopeType::None };
@@ -261,9 +269,9 @@ private:
 
     StackInfo m_stack_info;
 
-    bool m_underscore_is_last_value { false };
-
     HashMap<String, Symbol*> m_global_symbol_map;
+
+    Vector<NativeFunction*> m_promise_jobs;
 
     PrimitiveString* m_empty_string { nullptr };
     PrimitiveString* m_single_ascii_character_strings[128] {};
@@ -275,6 +283,7 @@ private:
 
     Shape* m_scope_object_shape { nullptr };
 
+    bool m_underscore_is_last_value { false };
     bool m_should_log_exceptions { false };
 };
 
@@ -286,5 +295,15 @@ template<>
 
 template<>
 [[nodiscard]] ALWAYS_INLINE Value VM::call(Function& function, Value this_value) { return call(function, this_value, Optional<MarkedValueList> {}); }
+
+ALWAYS_INLINE Heap& Cell::heap() const
+{
+    return HeapBlock::from_cell(this)->heap();
+}
+
+ALWAYS_INLINE VM& Cell::vm() const
+{
+    return heap().vm();
+}
 
 }

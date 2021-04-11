@@ -76,6 +76,7 @@ class UserOrKernelBuffer;
 class VFS;
 class VMObject;
 class WaitQueue;
+class WorkQueue;
 
 template<typename T>
 class KResultOr;

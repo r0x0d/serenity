@@ -81,13 +81,14 @@ public:
     void set_visualize_trailing_whitespace(bool);
     bool visualize_trailing_whitespace() const { return m_visualize_trailing_whitespace; }
 
-    bool has_visible_list() const { return m_has_visible_list; }
-    void set_has_visible_list(bool);
+    void set_visualize_leading_whitespace(bool);
+    bool visualize_leading_whitespace() const { return m_visualize_leading_whitespace; }
 
     virtual bool is_automatic_indentation_enabled() const final { return m_automatic_indentation_enabled; }
     void set_automatic_indentation_enabled(bool enabled) { m_automatic_indentation_enabled = enabled; }
 
     virtual int soft_tab_width() const final { return m_soft_tab_width; }
+    void set_soft_tab_width(int width) { m_soft_tab_width = width; };
 
     WrappingMode wrapping_mode() const { return m_wrapping_mode; }
     bool is_wrapping_enabled() const { return m_wrapping_mode != WrappingMode::NoWrap; }
@@ -107,7 +108,7 @@ public:
     void set_mode(const Mode);
 
     bool is_ruler_visible() const { return m_ruler_visible; }
-    void set_ruler_visible(bool b) { m_ruler_visible = b; }
+    void set_ruler_visible(bool);
 
     void set_icon(const Gfx::Bitmap*);
     const Gfx::Bitmap* icon() const { return m_icon; }
@@ -320,8 +321,8 @@ private:
     bool m_has_pending_change_notification { false };
     bool m_automatic_indentation_enabled { false };
     WrappingMode m_wrapping_mode { WrappingMode::NoWrap };
-    bool m_has_visible_list { false };
     bool m_visualize_trailing_whitespace { true };
+    bool m_visualize_leading_whitespace { false };
     int m_line_spacing { 4 };
     size_t m_soft_tab_width { 4 };
     int m_horizontal_content_padding { 3 };

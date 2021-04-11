@@ -43,13 +43,16 @@
     M(Convert, "Cannot convert {} to {}")                                                                                               \
     M(ConvertUndefinedToObject, "Cannot convert undefined to object")                                                                   \
     M(DescChangeNonConfigurable, "Cannot change attributes of non-configurable property '{}'")                                          \
+    M(DivisionByZero, "Division by zero")                                                                                               \
     M(FunctionArgsNotObject, "Argument array must be an object")                                                                        \
+    M(GetCapabilitiesExecutorCalledMultipleTimes, "GetCapabilitiesExecutor was called multiple times")                                  \
     M(InOperatorWithObject, "'in' operator must be used on an object")                                                                  \
     M(InstanceOfOperatorBadPrototype, "'prototype' property of {} is not an object")                                                    \
     M(InvalidAssignToConst, "Invalid assignment to const variable")                                                                     \
     M(InvalidIndex, "Index must be a positive integer")                                                                                 \
     M(InvalidLeftHandAssignment, "Invalid left-hand side in assignment")                                                                \
     M(InvalidLength, "Invalid {} length")                                                                                               \
+    M(InvalidTimeValue, "Invalid time value")                                                                                           \
     M(InvalidRadix, "Radix must be an integer no less than 2, and no greater than 36")                                                  \
     M(IsNotA, "{} is not a {}")                                                                                                         \
     M(IsNotAEvaluatedFrom, "{} is not a {} (evaluated from '{}')")                                                                      \
@@ -59,6 +62,7 @@
     M(JsonBigInt, "Cannot serialize BigInt value to JSON")                                                                              \
     M(JsonCircular, "Cannot stringify circular object")                                                                                 \
     M(JsonMalformed, "Malformed JSON string")                                                                                           \
+    M(NegativeExponent, "Exponent must be positive")                                                                                    \
     M(NotA, "Not a {} object")                                                                                                          \
     M(NotAConstructor, "{} is not a constructor")                                                                                       \
     M(NotAFunction, "{} is not a function")                                                                                             \
@@ -70,12 +74,15 @@
     M(NonExtensibleDefine, "Cannot define property {} on non-extensible object")                                                        \
     M(NumberIncompatibleThis, "Number.prototype.{} method called with incompatible this target")                                        \
     M(ObjectDefinePropertyReturnedFalse, "Object's [[DefineProperty]] method returned false")                                           \
+    M(ObjectFreezeFailed, "Could not freeze object")                                                                                    \
+    M(ObjectSealFailed, "Could not seal object")                                                                                        \
     M(ObjectSetPrototypeOfReturnedFalse, "Object's [[SetPrototypeOf]] method returned false")                                           \
     M(ObjectSetPrototypeOfTwoArgs, "Object.setPrototypeOf requires at least two arguments")                                             \
     M(ObjectPreventExtensionsReturnedFalse, "Object's [[PreventExtensions]] method returned false")                                     \
     M(ObjectPrototypeNullOrUndefinedOnSuperPropertyAccess,                                                                              \
         "Object prototype must not be {} on a super property access")                                                                   \
     M(ObjectPrototypeWrongType, "Prototype must be an object or null")                                                                  \
+    M(PromiseExecutorNotAFunction, "Promise executor must be a function")                                                               \
     M(ProxyConstructBadReturnType, "Proxy handler's construct trap violates invariant: must return "                                    \
                                    "an object")                                                                                         \
     M(ProxyConstructorBadType, "Expected {} argument of Proxy constructor to be object, got {}")                                        \
@@ -125,7 +132,6 @@
     M(ProxyHasExistingNonExtensible, "Proxy handler's has trap violates invariant: a property "                                         \
                                      "cannot be reported as non-existent if it exists on the target and the target is "                 \
                                      "non-extensible")                                                                                  \
-    M(ProxyInvalidTrap, "Proxy handler's {} trap wasn't undefined, null, or callable")                                                  \
     M(ProxyIsExtensibleReturn, "Proxy handler's isExtensible trap violates invariant: "                                                 \
                                "return value must match the target's extensibility")                                                    \
     M(ProxyPreventExtensionsReturn, "Proxy handler's preventExtensions trap violates "                                                  \
@@ -142,7 +148,8 @@
                                         "target is non-extensible")                                                                     \
     M(ProxyTwoArguments, "Proxy constructor requires at least two arguments")                                                           \
     M(ReduceNoInitial, "Reduce of empty array with no initial value")                                                                   \
-    M(ReferencePrimitiveAssignment, "Cannot assign property {} to primitive value")                                                     \
+    M(ReferenceNullishAssignment, "Cannot set property '{}' of {}")                                                                     \
+    M(ReferencePrimitiveAssignment, "Cannot set property '{}' of {} '{}'")                                                              \
     M(ReferenceUnresolvable, "Unresolvable reference")                                                                                  \
     M(ReflectArgumentMustBeAFunction, "First argument of Reflect.{}() must be a function")                                              \
     M(ReflectArgumentMustBeAnObject, "First argument of Reflect.{}() must be an object")                                                \
@@ -157,6 +164,7 @@
     M(ThisHasNotBeenInitialized, "|this| has not been initialized")                                                                     \
     M(ThisIsAlreadyInitialized, "|this| is already initialized")                                                                        \
     M(ToObjectNullOrUndefined, "ToObject on null or undefined")                                                                         \
+    M(ToPrimitiveReturnedObject, "Can't convert {} to primitive with hint \"{}\", its @@toPrimitive method returned an object")         \
     M(TypedArrayInvalidBufferLength, "Invalid buffer length for {}: must be a multiple of {}, got {}")                                  \
     M(TypedArrayInvalidByteOffset, "Invalid byte offset for {}: must be a multiple of {}, got {}")                                      \
     M(TypedArrayOutOfRangeByteOffset, "Typed array byte offset {} is out of range for buffer with length {}")                           \

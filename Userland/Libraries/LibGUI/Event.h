@@ -71,12 +71,14 @@ public:
         DragMove,
         Drop,
         ThemeChange,
+        ScreenRectChange,
 
         __Begin_WM_Events,
         WM_WindowRemoved,
         WM_WindowStateChanged,
         WM_WindowRectChanged,
         WM_WindowIconBitmapChanged,
+        WM_AppletAreaSizeChanged,
         __End_WM_Events,
     };
 
@@ -106,6 +108,20 @@ public:
 private:
     int m_client_id { -1 };
     int m_window_id { -1 };
+};
+
+class WMAppletAreaSizeChangedEvent : public WMEvent {
+public:
+    explicit WMAppletAreaSizeChangedEvent(const Gfx::IntSize& size)
+        : WMEvent(Event::Type::WM_AppletAreaSizeChanged, 0, 0)
+        , m_size(size)
+    {
+    }
+
+    const Gfx::IntSize& size() const { return m_size; }
+
+private:
+    Gfx::IntSize m_size;
 };
 
 class WMWindowRemovedEvent : public WMEvent {
@@ -290,7 +306,7 @@ public:
     bool ctrl() const { return m_modifiers & Mod_Ctrl; }
     bool alt() const { return m_modifiers & Mod_Alt; }
     bool shift() const { return m_modifiers & Mod_Shift; }
-    bool logo() const { return m_modifiers & Mod_Logo; }
+    bool super() const { return m_modifiers & Mod_Super; }
     u8 modifiers() const { return m_modifiers; }
     u32 code_point() const { return m_code_point; }
     String text() const
@@ -331,7 +347,7 @@ public:
     bool ctrl() const { return m_modifiers & Mod_Ctrl; }
     bool alt() const { return m_modifiers & Mod_Alt; }
     bool shift() const { return m_modifiers & Mod_Shift; }
-    bool logo() const { return m_modifiers & Mod_Logo; }
+    bool super() const { return m_modifiers & Mod_Super; }
     unsigned modifiers() const { return m_modifiers; }
     int wheel_delta() const { return m_wheel_delta; }
 
@@ -382,6 +398,20 @@ public:
         : Event(Type::ThemeChange)
     {
     }
+};
+
+class ScreenRectChangeEvent final : public Event {
+public:
+    explicit ScreenRectChangeEvent(const Gfx::IntRect& rect)
+        : Event(Type::ScreenRectChange)
+        , m_rect(rect)
+    {
+    }
+
+    const Gfx::IntRect& rect() const { return m_rect; }
+
+private:
+    Gfx::IntRect m_rect;
 };
 
 class FocusEvent final : public Event {

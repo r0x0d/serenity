@@ -31,8 +31,8 @@
 
 TEST_CASE(is_integral_works_properly)
 {
-    EXPECT(!IsIntegral<const char*>::value);
-    EXPECT(IsIntegral<unsigned long>::value);
+    EXPECT(!IsIntegral<const char*>);
+    EXPECT(IsIntegral<unsigned long>);
 }
 
 TEST_CASE(format_string_literals)
@@ -252,11 +252,11 @@ TEST_CASE(file_descriptor)
 
 TEST_CASE(floating_point_numbers)
 {
-    EXPECT_EQ(String::formatted("{}", 1.12), "1.120000");
-    EXPECT_EQ(String::formatted("{}", 1.), "1.000000");
-    EXPECT_EQ(String::formatted("{:.3}", 1.12), "1.120");
+    EXPECT_EQ(String::formatted("{}", 1.12), "1.12");
+    EXPECT_EQ(String::formatted("{}", 1.), "1");
+    EXPECT_EQ(String::formatted("{:.3}", 1.12), "1.12");
     EXPECT_EQ(String::formatted("{:.1}", 1.12), "1.1");
-    EXPECT_EQ(String::formatted("{}", -1.12), "-1.120000");
+    EXPECT_EQ(String::formatted("{}", -1.12), "-1.12");
 
     // FIXME: There is always the question what we mean with the width field. Do we mean significant digits?
     //        Do we mean the whole width? This is what was the simplest to implement:
@@ -265,12 +265,12 @@ TEST_CASE(floating_point_numbers)
 
 TEST_CASE(no_precision_no_trailing_number)
 {
-    EXPECT_EQ(String::formatted("{:.0}", 0.1), "0.");
+    EXPECT_EQ(String::formatted("{:.0}", 0.1), "0");
 }
 
 TEST_CASE(yay_this_implementation_sucks)
 {
-    EXPECT_EQ(String::formatted("{:.0}", .99999999999), "0.");
+    EXPECT_EQ(String::formatted("{:.0}", .99999999999), "0");
 }
 
 TEST_CASE(format_nullptr)
@@ -292,6 +292,17 @@ struct AK::Formatter<C> : AK::Formatter<FormatString> {
 TEST_CASE(use_format_string_formatter)
 {
     EXPECT_EQ(String::formatted("{:*<10}", C { 42 }), "C(i=42)***");
+}
+
+TEST_CASE(long_long_regression)
+{
+    EXPECT_EQ(String::formatted("{}", 0x0123456789abcdefLL), "81985529216486895");
+
+    StringBuilder builder;
+    AK::FormatBuilder fmtbuilder { builder };
+    fmtbuilder.put_i64(0x0123456789abcdefLL);
+
+    EXPECT_EQ(builder.string_view(), "81985529216486895");
 }
 
 TEST_MAIN(Format)

@@ -25,7 +25,8 @@
  */
 
 #include <AK/Debug.h>
-#include <LibCore/Gzip.h>
+#include <LibCompress/Gzip.h>
+#include <LibCompress/Zlib.h>
 #include <LibCore/TCPSocket.h>
 #include <LibHTTP/HttpResponse.h>
 #include <LibHTTP/Job.h>
@@ -39,13 +40,13 @@ static ByteBuffer handle_content_encoding(const ByteBuffer& buf, const String& c
     dbgln_if(JOB_DEBUG, "Job::handle_content_encoding: buf has content_encoding={}", content_encoding);
 
     if (content_encoding == "gzip") {
-        if (!Core::Gzip::is_compressed(buf)) {
+        if (!Compress::GzipDecompressor::is_likely_compressed(buf)) {
             dbgln("Job::handle_content_encoding: buf is not gzip compressed!");
         }
 
         dbgln_if(JOB_DEBUG, "Job::handle_content_encoding: buf is gzip compressed!");
 
-        auto uncompressed = Core::Gzip::decompress(buf);
+        auto uncompressed = Compress::GzipDecompressor::decompress_all(buf);
         if (!uncompressed.has_value()) {
             dbgln("Job::handle_content_encoding: Gzip::decompress() failed. Returning original buffer.");
             return buf;
@@ -53,6 +54,32 @@ static ByteBuffer handle_content_encoding(const ByteBuffer& buf, const String& c
 
         if constexpr (JOB_DEBUG) {
             dbgln("Job::handle_content_encoding: Gzip::decompress() successful.");
+            dbgln("  Input size: {}", buf.size());
+            dbgln("  Output size: {}", uncompressed.value().size());
+        }
+
+        return uncompressed.value();
+    } else if (content_encoding == "deflate") {
+        dbgln_if(JOB_DEBUG, "Job::handle_content_encoding: buf is deflate compressed!");
+
+        // Even though the content encoding is "deflate", it's actually deflate with the zlib wrapper.
+        // https://tools.ietf.org/html/rfc7230#section-4.2.2
+        auto uncompressed = Compress::Zlib::decompress_all(buf);
+        if (!uncompressed.has_value()) {
+            // From the RFC:
+            // "Note: Some non-conformant implementations send the "deflate"
+            //        compressed data without the zlib wrapper."
+            dbgln_if(JOB_DEBUG, "Job::handle_content_encoding: Zlib::decompress_all() failed. Trying DeflateDecompressor::decompress_all()");
+            uncompressed = Compress::DeflateDecompressor::decompress_all(buf);
+
+            if (!uncompressed.has_value()) {
+                dbgln("Job::handle_content_encoding: DeflateDecompressor::decompress_all() failed, returning original buffer.");
+                return buf;
+            }
+        }
+
+        if constexpr (JOB_DEBUG) {
+            dbgln("Job::handle_content_encoding: Deflate decompression successful.");
             dbgln("  Input size: {}", buf.size());
             dbgln("  Output size: {}", uncompressed.value().size());
         }
@@ -352,6 +379,7 @@ void Job::finish_up()
         m_received_buffers.clear();
 
         // For the time being, we cannot stream stuff with content-encoding set to _anything_.
+        // FIXME: LibCompress exposes a streaming interface, so this can be resolved
         auto content_encoding = m_headers.get("Content-Encoding");
         if (content_encoding.has_value()) {
             flattened_buffer = handle_content_encoding(flattened_buffer, content_encoding.value());

@@ -26,6 +26,7 @@
 
 #pragma once
 
+#include <AK/FlyString.h>
 #include <AK/HashMap.h>
 #include <AK/Optional.h>
 #include <AK/String.h>
@@ -36,19 +37,28 @@ namespace Cpp {
 class Preprocessor {
 
 public:
-    explicit Preprocessor(const StringView&);
+    explicit Preprocessor(const String& filename, const StringView& program);
     const String& process();
     const String& processed_text();
     Vector<StringView> included_paths() const { return m_included_paths; }
 
-private:
     struct DefinedValue {
         Optional<StringView> value;
+        FlyString filename;
+        size_t line { 0 };
+        size_t column { 0 };
     };
+    using Definitions = HashMap<StringView, DefinedValue>;
 
+    const Definitions& definitions() const { return m_definitions; }
+
+    void set_ignore_unsupported_keywords(bool ignore) { m_options.ignore_unsupported_keywords = ignore; }
+
+private:
     void handle_preprocessor_line(const StringView&);
 
-    HashMap<StringView, DefinedValue> m_definitions;
+    Definitions m_definitions;
+    const String m_filename;
     const StringView m_program;
     StringBuilder m_builder;
     Vector<StringView> m_lines;
@@ -66,5 +76,9 @@ private:
 
     Vector<StringView> m_included_paths;
     String m_processed_text;
+
+    struct Options {
+        bool ignore_unsupported_keywords { false };
+    } m_options;
 };
 }

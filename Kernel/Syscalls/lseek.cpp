@@ -29,13 +29,21 @@
 
 namespace Kernel {
 
-int Process::sys$lseek(int fd, off_t offset, int whence)
+KResultOr<int> Process::sys$lseek(int fd, Userspace<off_t*> userspace_offset, int whence)
 {
     REQUIRE_PROMISE(stdio);
     auto description = file_description(fd);
     if (!description)
-        return -EBADF;
-    return description->seek(offset, whence);
+        return EBADF;
+    off_t offset;
+    if (!copy_from_user(&offset, userspace_offset))
+        return EFAULT;
+    auto seek_result = description->seek(offset, whence);
+    if (seek_result.is_error())
+        return seek_result.error();
+    if (!copy_to_user(userspace_offset, &seek_result.value()))
+        return EFAULT;
+    return KSuccess;
 }
 
 }

@@ -42,6 +42,7 @@ public:
 
     enum class CompletionKind {
         Identifier,
+        PreprocessorDefinition,
     };
 
     enum class Language {
@@ -66,13 +67,15 @@ public:
         Function,
         Struct,
         Class,
-        Variable
+        Variable,
+        PreprocessorDefinition,
     };
 
     struct Declaration {
         String name;
         ProjectLocation position;
         DeclarationType type;
+        String scope;
     };
 
     virtual void provide_completions(Function<void(Vector<Entry>)>) = 0;
@@ -97,7 +100,7 @@ public:
 
     void update_suggestions(Vector<AutocompleteProvider::Entry>&& suggestions);
     bool is_visible() const;
-    void show(Gfx::IntPoint suggstion_box_location);
+    void show(Gfx::IntPoint suggestion_box_location);
     void close();
 
     void next_suggestion();

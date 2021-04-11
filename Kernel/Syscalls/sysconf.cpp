@@ -24,13 +24,14 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <Kernel/Arch/i386/CPU.h>
+#include <Kernel/Arch/x86/CPU.h>
 #include <Kernel/Process.h>
+#include <Kernel/Time/TimeManagement.h>
 #include <limits.h>
 
 namespace Kernel {
 
-long Process::sys$sysconf(int name)
+KResultOr<long> Process::sys$sysconf(int name)
 {
     switch (name) {
     case _SC_NPROCESSORS_CONF:
@@ -44,8 +45,10 @@ long Process::sys$sysconf(int name)
         return TTY_NAME_MAX;
     case _SC_GETPW_R_SIZE_MAX:
         return 4096; // idk
+    case _SC_CLK_TCK:
+        return TimeManagement::the().ticks_per_second();
     default:
-        return -EINVAL;
+        return EINVAL;
     }
 }
 

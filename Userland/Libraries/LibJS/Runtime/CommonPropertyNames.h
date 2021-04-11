@@ -62,18 +62,23 @@ namespace JS {
     P(abs)                                   \
     P(acos)                                  \
     P(acosh)                                 \
+    P(all)                                   \
+    P(allSettled)                            \
+    P(any)                                   \
     P(apply)                                 \
     P(arguments)                             \
     P(asIntN)                                \
     P(asUintN)                               \
     P(asin)                                  \
     P(asinh)                                 \
+    P(at)                                    \
     P(atan)                                  \
     P(atan2)                                 \
     P(atanh)                                 \
     P(bind)                                  \
     P(byteLength)                            \
     P(call)                                  \
+    P(callee)                                \
     P(cbrt)                                  \
     P(ceil)                                  \
     P(charAt)                                \
@@ -89,7 +94,9 @@ namespace JS {
     P(cosh)                                  \
     P(count)                                 \
     P(countReset)                            \
+    P(create)                                \
     P(debug)                                 \
+    P(defineProperties)                      \
     P(defineProperty)                        \
     P(deleteProperty)                        \
     P(description)                           \
@@ -99,18 +106,21 @@ namespace JS {
     P(entries)                               \
     P(enumerable)                            \
     P(error)                                 \
+    P(eval)                                  \
     P(every)                                 \
     P(exec)                                  \
     P(exp)                                   \
     P(expm1)                                 \
     P(fill)                                  \
     P(filter)                                \
+    P(finally)                               \
     P(find)                                  \
     P(findIndex)                             \
     P(flags)                                 \
     P(flat)                                  \
     P(floor)                                 \
     P(forEach)                               \
+    P(freeze)                                \
     P(from)                                  \
     P(fromCharCode)                          \
     P(fround)                                \
@@ -153,10 +163,12 @@ namespace JS {
     P(isArray)                               \
     P(isExtensible)                          \
     P(isFinite)                              \
+    P(isFrozen)                              \
     P(isInteger)                             \
     P(isNaN)                                 \
     P(isPrototypeOf)                         \
     P(isSafeInteger)                         \
+    P(isSealed)                              \
     P(isView)                                \
     P(join)                                  \
     P(keyFor)                                \
@@ -189,15 +201,24 @@ namespace JS {
     P(propertyIsEnumerable)                  \
     P(prototype)                             \
     P(push)                                  \
+    P(race)                                  \
     P(random)                                \
     P(raw)                                   \
     P(reduce)                                \
     P(reduceRight)                           \
+    P(reject)                                \
     P(repeat)                                \
+    P(resolve)                               \
     P(reverse)                               \
     P(round)                                 \
+    P(seal)                                  \
     P(set)                                   \
+    P(setFullYear)                           \
+    P(setHours)                              \
+    P(setMilliseconds)                       \
+    P(setMinutes)                            \
     P(setPrototypeOf)                        \
+    P(setSeconds)                            \
     P(shift)                                 \
     P(sign)                                  \
     P(sin)                                   \
@@ -216,7 +237,9 @@ namespace JS {
     P(tan)                                   \
     P(tanh)                                  \
     P(test)                                  \
+    P(then)                                  \
     P(toDateString)                          \
+    P(toGMTString)                           \
     P(toISOString)                           \
     P(toJSON)                                \
     P(toLocaleDateString)                    \
@@ -226,6 +249,7 @@ namespace JS {
     P(toString)                              \
     P(toTimeString)                          \
     P(toUpperCase)                           \
+    P(toUTCString)                           \
     P(trace)                                 \
     P(trim)                                  \
     P(trimEnd)                               \
@@ -241,6 +265,7 @@ namespace JS {
     P(writable)
 
 struct CommonPropertyNames {
+    FlyString catch_ { "catch" };
     FlyString for_ { "for" };
 #define __ENUMERATE(x) FlyString x { #x };
     ENUMERATE_STANDARD_PROPERTY_NAMES(__ENUMERATE)

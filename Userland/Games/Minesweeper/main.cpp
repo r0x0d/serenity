@@ -37,6 +37,7 @@
 #include <LibGUI/MenuBar.h>
 #include <LibGUI/Window.h>
 #include <stdio.h>
+#include <unistd.h>
 
 int main(int argc, char** argv)
 {
@@ -90,8 +91,9 @@ int main(int argc, char** argv)
 
     auto& flag_label = container.add<GUI::Label>();
     auto& face_button = container.add<GUI::Button>();
+    face_button.set_focus_policy(GUI::FocusPolicy::TabFocus);
     face_button.set_button_style(Gfx::ButtonStyle::CoolBar);
-    face_button.set_fixed_width(36);
+    face_button.set_fixed_size(36, 36);
 
     auto& time_image = container.add<GUI::ImageWidget>();
     time_image.load_from_file("/res/icons/minesweeper/timer.png");
@@ -104,7 +106,7 @@ int main(int argc, char** argv)
 
     auto menubar = GUI::MenuBar::construct();
 
-    auto& app_menu = menubar->add_menu("Minesweeper");
+    auto& app_menu = menubar->add_menu("Game");
 
     app_menu.add_action(GUI::Action::create("New game", { Mod_None, Key_F2 }, [&](auto&) {
         field.reset();
@@ -142,7 +144,7 @@ int main(int argc, char** argv)
     auto& help_menu = menubar->add_menu("Help");
     help_menu.add_action(GUI::CommonActions::make_about_action("Minesweeper", app_icon, window));
 
-    app->set_menubar(move(menubar));
+    window->set_menubar(move(menubar));
 
     window->show();
 

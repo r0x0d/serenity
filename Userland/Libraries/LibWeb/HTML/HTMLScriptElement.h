@@ -45,10 +45,15 @@ public:
     void set_parser_document(Badge<HTMLDocumentParser>, DOM::Document&);
     void set_non_blocking(Badge<HTMLDocumentParser>, bool);
     void set_already_started(Badge<HTMLDocumentParser>, bool b) { m_already_started = b; }
-    void prepare_script(Badge<HTMLDocumentParser>);
+    void prepare_script(Badge<HTMLDocumentParser>) { prepare_script(); }
     void execute_script();
 
+    bool is_parser_inserted() const { return !!m_parser_document; }
+
+    virtual void inserted() override;
+
 private:
+    void prepare_script();
     void script_became_ready();
     void when_the_script_is_ready(Function<void()>);
 
@@ -56,7 +61,6 @@ private:
     WeakPtr<DOM::Document> m_preparation_time_document;
     bool m_non_blocking { false };
     bool m_already_started { false };
-    bool m_parser_inserted { false };
     bool m_from_an_external_file { false };
     bool m_script_ready { false };
     bool m_ready_to_be_parser_executed { false };
@@ -72,6 +76,7 @@ private:
     Function<void()> m_script_ready_callback;
 
     String m_script_source;
+    String m_script_filename;
 };
 
 }

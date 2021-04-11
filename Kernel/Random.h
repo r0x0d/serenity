@@ -30,7 +30,7 @@
 #include <AK/Assertions.h>
 #include <AK/ByteBuffer.h>
 #include <AK/Types.h>
-#include <Kernel/Arch/i386/CPU.h>
+#include <Kernel/Arch/x86/CPU.h>
 #include <Kernel/Lock.h>
 #include <Kernel/StdLib.h>
 #include <LibCrypto/Cipher/AES.h>
@@ -46,9 +46,9 @@ public:
     constexpr static size_t reseed_threshold = 16;
 
     using CipherType = CipherT;
-    using BlockType = CipherT::BlockType;
+    using BlockType = typename CipherT::BlockType;
     using HashType = HashT;
-    using DigestType = HashT::DigestType;
+    using DigestType = typename HashT::DigestType;
 
     FortunaPRNG()
         : m_counter(ByteBuffer::create_zeroed(BlockType::block_size()))

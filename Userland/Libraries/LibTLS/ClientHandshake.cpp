@@ -117,82 +117,95 @@ ssize_t TLSv12::handle_hello(ReadonlyBytes buffer, WritePacketStage& write_packe
     // The handshake hash function is _always_ SHA256
     m_context.handshake_hash.initialize(Crypto::Hash::HashKind::SHA256);
 
-    if (buffer.size() - res < 1) {
-        dbgln("not enough data for compression spec");
+    // Compression method
+    if (buffer.size() - res < 1)
         return (i8)Error::NeedMoreData;
-    }
     u8 compression = buffer[res++];
-    if (compression != 0) {
-        dbgln("Server told us to compress, we will not!");
+    if (compression != 0)
         return (i8)Error::CompressionNotSupported;
+
+    if (m_context.connection_status != ConnectionStatus::Renegotiating)
+        m_context.connection_status = ConnectionStatus::Negotiating;
+    if (m_context.is_server) {
+        dbgln("unsupported: server mode");
+        write_packets = WritePacketStage::ServerHandshake;
     }
 
-    if (res > 0) {
-        if (m_context.connection_status != ConnectionStatus::Renegotiating)
-            m_context.connection_status = ConnectionStatus::Negotiating;
-        if (m_context.is_server) {
-            dbgln("unsupported: server mode");
-            write_packets = WritePacketStage::ServerHandshake;
-        }
+    // Presence of extensions is determined by availability of bytes after compression_method
+    if (buffer.size() - res >= 2) {
+        auto extensions_bytes_total = AK::convert_between_host_and_network_endian(*(const u16*)buffer.offset_pointer(res += 2));
+        dbgln_if(TLS_DEBUG, "Extensions bytes total: {}", extensions_bytes_total);
     }
 
-    if (res > 2) {
-        res += 2;
-    }
-
-    while ((ssize_t)buffer.size() - res >= 4) {
+    while (buffer.size() - res >= 4) {
         auto extension_type = (HandshakeExtension)AK::convert_between_host_and_network_endian(*(const u16*)buffer.offset_pointer(res));
         res += 2;
         u16 extension_length = AK::convert_between_host_and_network_endian(*(const u16*)buffer.offset_pointer(res));
         res += 2;
 
-        dbgln_if(TLS_DEBUG, "extension {} with length {}", (u16)extension_type, extension_length);
+        dbgln_if(TLS_DEBUG, "Extension {} with length {}", (u16)extension_type, extension_length);
 
-        if (extension_length) {
-            if (buffer.size() - res < extension_length) {
-                dbgln("not enough data for extension");
-                return (i8)Error::NeedMoreData;
-            }
+        if (buffer.size() - res < extension_length)
+            return (i8)Error::NeedMoreData;
 
-            // SNI
-            if (extension_type == HandshakeExtension::ServerName) {
-                u16 sni_host_length = AK::convert_between_host_and_network_endian(*(const u16*)buffer.offset_pointer(res + 3));
-                if (buffer.size() - res - 5 < sni_host_length) {
-                    dbgln("Not enough data for sni {} < {}", (buffer.size() - res - 5), sni_host_length);
+        if (extension_type == HandshakeExtension::ServerName) {
+            // RFC6066 section 3: SNI extension_data can be empty in the server hello
+            if (extension_length > 0) {
+                // ServerNameList total size
+                if (buffer.size() - res < 2)
                     return (i8)Error::NeedMoreData;
-                }
+                auto sni_name_list_bytes = AK::convert_between_host_and_network_endian(*(const u16*)buffer.offset_pointer(res += 2));
+                dbgln_if(TLS_DEBUG, "SNI: expecting ServerNameList of {} bytes", sni_name_list_bytes);
 
-                if (sni_host_length) {
-                    m_context.SNI = String { (const char*)buffer.offset_pointer(res + 5), sni_host_length };
-                    dbgln("server name indicator: {}", m_context.SNI);
-                }
-            } else if (extension_type == HandshakeExtension::ApplicationLayerProtocolNegotiation && m_context.alpn.size()) {
-                if (buffer.size() - res > 2) {
-                    auto alpn_length = AK::convert_between_host_and_network_endian(*(const u16*)buffer.offset_pointer(res));
-                    if (alpn_length && alpn_length <= extension_length - 2) {
-                        const u8* alpn = buffer.offset_pointer(res + 2);
-                        size_t alpn_position = 0;
-                        while (alpn_position < alpn_length) {
-                            u8 alpn_size = alpn[alpn_position++];
-                            if (alpn_size + alpn_position >= extension_length)
-                                break;
-                            String alpn_str { (const char*)alpn + alpn_position, alpn_length };
-                            if (alpn_size && m_context.alpn.contains_slow(alpn_str)) {
-                                m_context.negotiated_alpn = alpn_str;
-                                dbgln("negotiated alpn: {}", alpn_str);
-                                break;
-                            }
-                            alpn_position += alpn_length;
-                            if (!m_context.is_server) // server hello must contain one ALPN
-                                break;
+                // Exactly one ServerName should be present
+                if (buffer.size() - res < 3)
+                    return (i8)Error::NeedMoreData;
+                auto sni_name_type = (NameType)(*(const u8*)buffer.offset_pointer(res++));
+                auto sni_name_length = AK::convert_between_host_and_network_endian(*(const u16*)buffer.offset_pointer(res += 2));
+
+                if (sni_name_type != NameType::HostName)
+                    return (i8)Error::NotUnderstood;
+
+                if (sizeof(sni_name_type) + sizeof(sni_name_length) + sni_name_length != sni_name_list_bytes)
+                    return (i8)Error::BrokenPacket;
+
+                // Read out the host_name
+                if (buffer.size() - res < sni_name_length)
+                    return (i8)Error::NeedMoreData;
+                m_context.extensions.SNI = String { (const char*)buffer.offset_pointer(res), sni_name_length };
+                res += sni_name_length;
+                dbgln("SNI host_name: {}", m_context.extensions.SNI);
+            }
+        } else if (extension_type == HandshakeExtension::ApplicationLayerProtocolNegotiation && m_context.alpn.size()) {
+            if (buffer.size() - res > 2) {
+                auto alpn_length = AK::convert_between_host_and_network_endian(*(const u16*)buffer.offset_pointer(res));
+                if (alpn_length && alpn_length <= extension_length - 2) {
+                    const u8* alpn = buffer.offset_pointer(res + 2);
+                    size_t alpn_position = 0;
+                    while (alpn_position < alpn_length) {
+                        u8 alpn_size = alpn[alpn_position++];
+                        if (alpn_size + alpn_position >= extension_length)
+                            break;
+                        String alpn_str { (const char*)alpn + alpn_position, alpn_length };
+                        if (alpn_size && m_context.alpn.contains_slow(alpn_str)) {
+                            m_context.negotiated_alpn = alpn_str;
+                            dbgln("negotiated alpn: {}", alpn_str);
+                            break;
                         }
+                        alpn_position += alpn_length;
+                        if (!m_context.is_server) // server hello must contain one ALPN
+                            break;
                     }
                 }
-            } else if (extension_type == HandshakeExtension::SignatureAlgorithms) {
-                dbgln("supported signatures: ");
-                print_buffer(buffer.slice(res, extension_length));
-                // FIXME: what are we supposed to do here?
             }
+            res += extension_length;
+        } else if (extension_type == HandshakeExtension::SignatureAlgorithms) {
+            dbgln("supported signatures: ");
+            print_buffer(buffer.slice(res, extension_length));
+            res += extension_length;
+            // FIXME: what are we supposed to do here?
+        } else {
+            dbgln("Encountered unknown extension {} with length {}", (u16)extension_type, extension_length);
             res += extension_length;
         }
     }
@@ -227,10 +240,8 @@ ssize_t TLSv12::handle_finished(ReadonlyBytes buffer, WritePacketStage& write_pa
         return (i8)Error::NeedMoreData;
     }
 
-// TODO: Compare Hashes
-#if TLS_DEBUG
-    dbgln("FIXME: handle_finished :: Check message validity");
-#endif
+    // TODO: Compare Hashes
+    dbgln_if(TLS_DEBUG, "FIXME: handle_finished :: Check message validity");
     m_context.connection_status = ConnectionStatus::Established;
 
     if (m_handshake_timeout_timer) {
@@ -268,7 +279,8 @@ void TLSv12::build_random(PacketBuilder& builder)
 
     m_context.premaster_key = ByteBuffer::copy(random_bytes, bytes);
 
-    const auto& certificate_option = verify_chain_and_get_matching_certificate(m_context.SNI); // if the SNI is empty, we'll make a special case and match *a* leaf certificate.
+    // const auto& certificate_option = verify_chain_and_get_matching_certificate(m_context.extensions.SNI); // if the SNI is empty, we'll make a special case and match *a* leaf certificate.
+    Optional<size_t> certificate_option = 0;
     if (!certificate_option.has_value()) {
         dbgln("certificate verification failed :(");
         alert(AlertLevel::Critical, AlertDescription::BadCertificate);
@@ -305,9 +317,7 @@ void TLSv12::build_random(PacketBuilder& builder)
 ssize_t TLSv12::handle_payload(ReadonlyBytes vbuffer)
 {
     if (m_context.connection_status == ConnectionStatus::Established) {
-#if TLS_DEBUG
-        dbgln("Renegotiation attempt ignored");
-#endif
+        dbgln_if(TLS_DEBUG, "Renegotiation attempt ignored");
         // FIXME: We should properly say "NoRenegotiation", but that causes a handshake failure
         //        so we just roll with it and pretend that we _did_ renegotiate
         //        This will cause issues when we decide to have long-lasting connections, but
@@ -359,15 +369,12 @@ ssize_t TLSv12::handle_payload(ReadonlyBytes vbuffer)
                 break;
             }
             ++m_context.handshake_messages[2];
-#if TLS_DEBUG
-            dbgln("server hello");
-#endif
+            dbgln_if(TLS_DEBUG, "server hello");
             if (m_context.is_server) {
                 dbgln("unsupported: server mode");
                 VERIFY_NOT_REACHED();
-            } else {
-                payload_res = handle_hello(buffer.slice(1, payload_size), write_packets);
             }
+            payload_res = handle_hello(buffer.slice(1, payload_size), write_packets);
             break;
         case HelloVerifyRequest:
             dbgln("unsupported: DTLS");
@@ -380,9 +387,7 @@ ssize_t TLSv12::handle_payload(ReadonlyBytes vbuffer)
                 break;
             }
             ++m_context.handshake_messages[4];
-#if TLS_DEBUG
-            dbgln("certificate");
-#endif
+            dbgln_if(TLS_DEBUG, "certificate");
             if (m_context.connection_status == ConnectionStatus::Negotiating) {
                 if (m_context.is_server) {
                     dbgln("unsupported: server mode");
@@ -415,9 +420,7 @@ ssize_t TLSv12::handle_payload(ReadonlyBytes vbuffer)
                 break;
             }
             ++m_context.handshake_messages[5];
-#if TLS_DEBUG
-            dbgln("server key exchange");
-#endif
+            dbgln_if(TLS_DEBUG, "server key exchange");
             if (m_context.is_server) {
                 dbgln("unsupported: server mode");
                 VERIFY_NOT_REACHED();
@@ -451,9 +454,7 @@ ssize_t TLSv12::handle_payload(ReadonlyBytes vbuffer)
                 break;
             }
             ++m_context.handshake_messages[7];
-#if TLS_DEBUG
-            dbgln("server hello done");
-#endif
+            dbgln_if(TLS_DEBUG, "server hello done");
             if (m_context.is_server) {
                 dbgln("unsupported: server mode");
                 VERIFY_NOT_REACHED();
@@ -470,9 +471,7 @@ ssize_t TLSv12::handle_payload(ReadonlyBytes vbuffer)
                 break;
             }
             ++m_context.handshake_messages[8];
-#if TLS_DEBUG
-            dbgln("certificate verify");
-#endif
+            dbgln_if(TLS_DEBUG, "certificate verify");
             if (m_context.connection_status == ConnectionStatus::KeyExchange) {
                 payload_res = handle_verify(buffer.slice(1, payload_size));
             } else {
@@ -486,9 +485,7 @@ ssize_t TLSv12::handle_payload(ReadonlyBytes vbuffer)
                 break;
             }
             ++m_context.handshake_messages[9];
-#if TLS_DEBUG
-            dbgln("client key exchange");
-#endif
+            dbgln_if(TLS_DEBUG, "client key exchange");
             if (m_context.is_server) {
                 dbgln("unsupported: server mode");
                 VERIFY_NOT_REACHED();
@@ -506,9 +503,7 @@ ssize_t TLSv12::handle_payload(ReadonlyBytes vbuffer)
                 break;
             }
             ++m_context.handshake_messages[10];
-#if TLS_DEBUG
-            dbgln("finished");
-#endif
+            dbgln_if(TLS_DEBUG, "finished");
             payload_res = handle_finished(buffer.slice(1, payload_size), write_packets);
             if (payload_res > 0) {
                 memset(m_context.handshake_messages, 0, sizeof(m_context.handshake_messages));
@@ -520,7 +515,7 @@ ssize_t TLSv12::handle_payload(ReadonlyBytes vbuffer)
         }
 
         if (type != HelloRequest) {
-            update_hash(buffer.slice(0, payload_size + 1));
+            update_hash(buffer.slice(0, payload_size + 1), 0);
         }
 
         // if something went wrong, send an alert about it
@@ -578,6 +573,7 @@ ssize_t TLSv12::handle_payload(ReadonlyBytes vbuffer)
             }
             case Error::NeedMoreData:
                 // Ignore this, as it's not an "error"
+                dbgln_if(TLS_DEBUG, "More data needed");
                 break;
             default:
                 dbgln("Unknown TLS::Error with value {}", payload_res);
@@ -593,33 +589,25 @@ ssize_t TLSv12::handle_payload(ReadonlyBytes vbuffer)
             break;
         case WritePacketStage::ClientHandshake:
             if (m_context.client_verified == VerificationNeeded) {
-#if TLS_DEBUG
-                dbgln("> Client Certificate");
-#endif
+                dbgln_if(TLS_DEBUG, "> Client Certificate");
                 auto packet = build_certificate();
                 write_packet(packet);
                 m_context.client_verified = Verified;
             }
             {
-#if TLS_DEBUG
-                dbgln("> Key exchange");
-#endif
+                dbgln_if(TLS_DEBUG, "> Key exchange");
                 auto packet = build_client_key_exchange();
                 write_packet(packet);
             }
             {
-#if TLS_DEBUG
-                dbgln("> change cipher spec");
-#endif
+                dbgln_if(TLS_DEBUG, "> change cipher spec");
                 auto packet = build_change_cipher_spec();
                 write_packet(packet);
             }
             m_context.cipher_spec_set = 1;
             m_context.local_sequence_number = 0;
             {
-#if TLS_DEBUG
-                dbgln("> client finished");
-#endif
+                dbgln_if(TLS_DEBUG, "> client finished");
                 auto packet = build_finished();
                 write_packet(packet);
             }
@@ -633,16 +621,12 @@ ssize_t TLSv12::handle_payload(ReadonlyBytes vbuffer)
         case WritePacketStage::Finished:
             // finished
             {
-#if TLS_DEBUG
-                dbgln("> change cipher spec");
-#endif
+                dbgln_if(TLS_DEBUG, "> change cipher spec");
                 auto packet = build_change_cipher_spec();
                 write_packet(packet);
             }
             {
-#if TLS_DEBUG
-                dbgln("> client finished");
-#endif
+                dbgln_if(TLS_DEBUG, "> client finished");
                 auto packet = build_finished();
                 write_packet(packet);
             }
@@ -655,5 +639,4 @@ ssize_t TLSv12::handle_payload(ReadonlyBytes vbuffer)
     }
     return original_length;
 }
-
 }

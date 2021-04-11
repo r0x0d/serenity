@@ -37,8 +37,8 @@
 #include <LibJS/Forward.h>
 #include <LibWeb/Bindings/ScriptExecutionContext.h>
 #include <LibWeb/Bindings/WindowObject.h>
+#include <LibWeb/CSS/CSSStyleSheet.h>
 #include <LibWeb/CSS/StyleResolver.h>
-#include <LibWeb/CSS/StyleSheet.h>
 #include <LibWeb/CSS/StyleSheetList.h>
 #include <LibWeb/DOM/DOMImplementation.h>
 #include <LibWeb/DOM/ExceptionOr.h>
@@ -73,6 +73,9 @@ public:
 
     virtual ~Document() override;
 
+    String cookie() const;
+    void set_cookie(String);
+
     bool should_invalidate_styles_on_attribute_changes() const { return m_should_invalidate_styles_on_attribute_changes; }
     void set_should_invalidate_styles_on_attribute_changes(bool b) { m_should_invalidate_styles_on_attribute_changes = b; }
 
@@ -91,6 +94,8 @@ public:
 
     CSS::StyleSheetList& style_sheets() { return *m_style_sheets; }
     const CSS::StyleSheetList& style_sheets() const { return *m_style_sheets; }
+
+    NonnullRefPtr<CSS::StyleSheetList> style_sheets_for_bindings() { return *m_style_sheets; }
 
     virtual FlyString node_name() const override { return "#document"; }
 
@@ -124,6 +129,8 @@ public:
 
     Color background_color(const Gfx::Palette&) const;
     RefPtr<Gfx::Bitmap> background_image() const;
+    CSS::Repeat background_repeat_x() const;
+    CSS::Repeat background_repeat_y() const;
 
     Color link_color() const;
     void set_link_color(Color);
@@ -157,7 +164,7 @@ public:
 
     virtual JS::Interpreter& interpreter() override;
 
-    JS::Value run_javascript(const StringView&);
+    JS::Value run_javascript(const StringView& source, const StringView& filename = "(unknown)");
 
     NonnullRefPtr<Element> create_element(const String& tag_name);
     NonnullRefPtr<Element> create_element_ns(const String& namespace_, const String& qualifed_name);
@@ -165,6 +172,7 @@ public:
     NonnullRefPtr<Text> create_text_node(const String& data);
     NonnullRefPtr<Comment> create_comment(const String& data);
     NonnullRefPtr<Range> create_range();
+    NonnullRefPtr<Event> create_event(const String& interface);
 
     void set_pending_parsing_blocking_script(Badge<HTML::HTMLScriptElement>, HTML::HTMLScriptElement*);
     HTML::HTMLScriptElement* pending_parsing_blocking_script() { return m_pending_parsing_blocking_script; }
@@ -181,6 +189,7 @@ public:
     void set_quirks_mode(QuirksMode mode) { m_quirks_mode = mode; }
 
     void adopt_node(Node&);
+    NonnullRefPtr<Node> adopt_node_binding(NonnullRefPtr<Node>);
 
     const DocumentType* doctype() const;
     const String& compat_mode() const;

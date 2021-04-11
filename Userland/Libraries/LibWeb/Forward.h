@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2020-2021, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2021, the SerenityOS developers.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -27,12 +28,17 @@
 #pragma once
 
 namespace Web::CSS {
+class CSSRule;
+class CSSImportRule;
+class CSSStyleDeclaration;
+class CSSStyleRule;
+class CSSStyleSheet;
+class ElementInlineCSSStyleDeclaration;
 class Length;
+class Screen;
 class Selector;
-class StyleDeclaration;
 class StyleProperties;
 class StyleResolver;
-class StyleRule;
 class StyleSheet;
 enum class Display;
 }
@@ -54,6 +60,7 @@ class MouseEvent;
 class Node;
 class ParentNode;
 class Position;
+class ProcessingInstruction;
 class ShadowRoot;
 class Text;
 class Timer;
@@ -168,11 +175,15 @@ class CheckBox;
 class FormattingContext;
 class InitialContainingBlockBox;
 class InlineFormattingContext;
+class Label;
+class LabelableNode;
 class LineBox;
 class LineBoxFragment;
 class Node;
 class NodeWithStyle;
+class RadioButton;
 class ReplacedBox;
+class TextNode;
 }
 
 namespace Web {
@@ -199,7 +210,8 @@ class XMLHttpRequestEventTarget;
 }
 
 namespace Web::Bindings {
-
+class CSSStyleDeclarationWrapper;
+class CSSStyleSheetWrapper;
 class CanvasRenderingContext2DWrapper;
 class CharacterDataWrapper;
 class CommentWrapper;
@@ -289,7 +301,9 @@ class MouseEventWrapper;
 class NodeWrapper;
 class PerformanceTimingWrapper;
 class PerformanceWrapper;
+class ProcessingInstructionWrapper;
 class ProgressEventWrapper;
+class ScreenWrapper;
 class ScriptExecutionContext;
 class SubmitEventWrapper;
 class SVGElementWrapper;
@@ -297,6 +311,8 @@ class SVGGeometryElementWrapper;
 class SVGGraphicsElementWrapper;
 class SVGPathElementWrapper;
 class SVGSVGElementWrapper;
+class StyleSheetWrapper;
+class StyleSheetListWrapper;
 class TextWrapper;
 class UIEventWrapper;
 class WindowObject;

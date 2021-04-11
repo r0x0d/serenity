@@ -31,9 +31,20 @@
 
 namespace AK {
 
+static inline void atomic_signal_fence(MemoryOrder order) noexcept
+{
+    return __atomic_signal_fence(order);
+}
+
 static inline void atomic_thread_fence(MemoryOrder order) noexcept
 {
     return __atomic_thread_fence(order);
+}
+
+static inline void full_memory_barrier() noexcept
+{
+    atomic_signal_fence(AK::MemoryOrder::memory_order_acq_rel);
+    atomic_thread_fence(AK::MemoryOrder::memory_order_acq_rel);
 }
 
 template<typename T>
@@ -42,13 +53,13 @@ static inline T atomic_exchange(volatile T* var, T desired, MemoryOrder order = 
     return __atomic_exchange_n(var, desired, order);
 }
 
-template<typename T, typename V = typename RemoveVolatile<T>::Type>
+template<typename T, typename V = RemoveVolatile<T>>
 static inline V* atomic_exchange(volatile T** var, V* desired, MemoryOrder order = memory_order_seq_cst) noexcept
 {
     return __atomic_exchange_n(var, desired, order);
 }
 
-template<typename T, typename V = typename RemoveVolatile<T>::Type>
+template<typename T, typename V = RemoveVolatile<T>>
 static inline V* atomic_exchange(volatile T** var, std::nullptr_t, MemoryOrder order = memory_order_seq_cst) noexcept
 {
     return __atomic_exchange_n(const_cast<V**>(var), nullptr, order);
@@ -63,7 +74,7 @@ template<typename T>
         return __atomic_compare_exchange_n(var, &expected, desired, false, order, order);
 }
 
-template<typename T, typename V = typename RemoveVolatile<T>::Type>
+template<typename T, typename V = RemoveVolatile<T>>
 [[nodiscard]] static inline bool atomic_compare_exchange_strong(volatile T** var, V*& expected, V* desired, MemoryOrder order = memory_order_seq_cst) noexcept
 {
     if (order == memory_order_acq_rel || order == memory_order_release)
@@ -72,7 +83,7 @@ template<typename T, typename V = typename RemoveVolatile<T>::Type>
         return __atomic_compare_exchange_n(var, &expected, desired, false, order, order);
 }
 
-template<typename T, typename V = typename RemoveVolatile<T>::Type>
+template<typename T, typename V = RemoveVolatile<T>>
 [[nodiscard]] static inline bool atomic_compare_exchange_strong(volatile T** var, V*& expected, std::nullptr_t, MemoryOrder order = memory_order_seq_cst) noexcept
 {
     if (order == memory_order_acq_rel || order == memory_order_release)
@@ -117,7 +128,7 @@ static inline T atomic_load(volatile T* var, MemoryOrder order = memory_order_se
     return __atomic_load_n(var, order);
 }
 
-template<typename T, typename V = typename RemoveVolatile<T>::Type>
+template<typename T, typename V = RemoveVolatile<T>>
 static inline V* atomic_load(volatile T** var, MemoryOrder order = memory_order_seq_cst) noexcept
 {
     return __atomic_load_n(const_cast<V**>(var), order);
@@ -129,13 +140,13 @@ static inline void atomic_store(volatile T* var, T desired, MemoryOrder order = 
     __atomic_store_n(var, desired, order);
 }
 
-template<typename T, typename V = typename RemoveVolatile<T>::Type>
+template<typename T, typename V = RemoveVolatile<T>>
 static inline void atomic_store(volatile T** var, V* desired, MemoryOrder order = memory_order_seq_cst) noexcept
 {
     __atomic_store_n(var, desired, order);
 }
 
-template<typename T, typename V = typename RemoveVolatile<T>::Type>
+template<typename T, typename V = RemoveVolatile<T>>
 static inline void atomic_store(volatile T** var, std::nullptr_t, MemoryOrder order = memory_order_seq_cst) noexcept
 {
     __atomic_store_n(const_cast<V**>(var), nullptr, order);
@@ -376,3 +387,4 @@ public:
 }
 
 using AK::Atomic;
+using AK::full_memory_barrier;

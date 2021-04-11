@@ -32,15 +32,16 @@
 
 namespace JS {
 
-Date* Date::create(GlobalObject& global_object, Core::DateTime datetime, u16 milliseconds)
+Date* Date::create(GlobalObject& global_object, Core::DateTime datetime, u16 milliseconds, bool is_invalid)
 {
-    return global_object.heap().allocate<Date>(global_object, datetime, milliseconds, *global_object.date_prototype());
+    return global_object.heap().allocate<Date>(global_object, datetime, milliseconds, is_invalid, *global_object.date_prototype());
 }
 
-Date::Date(Core::DateTime datetime, u16 milliseconds, Object& prototype)
+Date::Date(Core::DateTime datetime, u16 milliseconds, bool is_invalid, Object& prototype)
     : Object(prototype)
     , m_datetime(datetime)
     , m_milliseconds(milliseconds)
+    , m_is_invalid(is_invalid)
 {
 }
 
@@ -89,6 +90,13 @@ int Date::utc_month() const
 int Date::utc_seconds() const
 {
     return to_utc_tm().tm_sec;
+}
+
+String Date::gmt_date_string() const
+{
+    // Mon, 18 Dec 1995 17:28:35 GMT
+    // FIXME: Note that we're totally cheating with the timezone part here..
+    return datetime().to_string("%a, %e %b %Y %T GMT");
 }
 
 String Date::iso_date_string() const

@@ -41,7 +41,9 @@ namespace WindowServer {
 
 class ClientConnection;
 class Cursor;
+class KeyEvent;
 class Menu;
+class MenuBar;
 class MenuItem;
 class MouseEvent;
 
@@ -145,6 +147,10 @@ public:
     float opacity() const { return m_opacity; }
     void set_opacity(float);
 
+    void set_hit_testing_enabled(bool value)
+    {
+        m_hit_testing_enabled = value;
+    }
     float alpha_hit_threshold() const { return m_alpha_hit_threshold; }
     void set_alpha_hit_threshold(float threshold)
     {
@@ -192,6 +198,7 @@ public:
 
     void invalidate(bool with_frame = true, bool re_render_frame = false);
     void invalidate(const Gfx::IntRect&, bool with_frame = false);
+    void invalidate_menubar();
     bool invalidate_no_notify(const Gfx::IntRect& rect, bool with_frame = false);
 
     void refresh_client_size();
@@ -200,11 +207,9 @@ public:
     void clear_dirty_rects();
     Gfx::DisjointRectSet& dirty_rects() { return m_dirty_rects; }
 
-    virtual void event(Core::Event&) override;
-
-    // Only used by WindowType::MenuApplet. Perhaps it could be a Window subclass? I don't know.
-    void set_rect_in_menubar(const Gfx::IntRect& rect) { m_rect_in_menubar = rect; }
-    const Gfx::IntRect& rect_in_menubar() const { return m_rect_in_menubar; }
+    // Only used by WindowType::Applet. Perhaps it could be a Window subclass? I don't know.
+    void set_rect_in_applet_area(const Gfx::IntRect& rect) { m_rect_in_applet_area = rect; }
+    const Gfx::IntRect& rect_in_applet_area() const { return m_rect_in_applet_area; }
 
     const Gfx::Bitmap* backing_store() const { return m_backing_store.ptr(); }
     Gfx::Bitmap* backing_store() { return m_backing_store.ptr(); }
@@ -302,6 +307,8 @@ public:
     void set_frameless(bool);
     bool is_frameless() const { return m_frameless; }
 
+    bool should_show_menubar() const { return m_should_show_menubar; }
+
     int progress() const { return m_progress; }
     void set_progress(int);
 
@@ -326,8 +333,14 @@ public:
     Gfx::DisjointRectSet& transparency_rects() { return m_transparency_rects; }
     Gfx::DisjointRectSet& transparency_wallpaper_rects() { return m_transparency_wallpaper_rects; }
 
+    MenuBar* menubar() { return m_menubar; }
+    const MenuBar* menubar() const { return m_menubar; }
+    void set_menubar(MenuBar*);
+
 private:
+    virtual void event(Core::Event&) override;
     void handle_mouse_event(const MouseEvent&);
+    void handle_keydown_event(const KeyEvent&);
     void update_menu_item_text(PopupMenuItem item);
     void update_menu_item_enabled(PopupMenuItem item);
     void add_child_window(Window&);
@@ -340,6 +353,8 @@ private:
     WeakPtr<Window> m_parent_window;
     Vector<WeakPtr<Window>> m_child_windows;
     Vector<WeakPtr<Window>> m_accessory_windows;
+
+    RefPtr<MenuBar> m_menubar;
 
     String m_title;
     Gfx::IntRect m_rect;
@@ -370,6 +385,7 @@ private:
     bool m_invalidated { true };
     bool m_invalidated_all { true };
     bool m_invalidated_frame { true };
+    bool m_hit_testing_enabled { true };
     WindowTileType m_tiled { WindowTileType::None };
     Gfx::IntRect m_untiled_rect;
     bool m_occluded { false };
@@ -391,13 +407,15 @@ private:
     unsigned m_wm_event_mask { 0 };
     Gfx::DisjointRectSet m_pending_paint_rects;
     Gfx::IntRect m_unmaximized_rect;
-    Gfx::IntRect m_rect_in_menubar;
+    Gfx::IntRect m_rect_in_applet_area;
     RefPtr<Menu> m_window_menu;
     MenuItem* m_window_menu_minimize_item { nullptr };
     MenuItem* m_window_menu_maximize_item { nullptr };
     MenuItem* m_window_menu_close_item { nullptr };
+    MenuItem* m_window_menu_menubar_visibility_item { nullptr };
     int m_minimize_animation_step { -1 };
     int m_progress { -1 };
+    bool m_should_show_menubar { true };
 };
 
 }

@@ -24,7 +24,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <Kernel/Arch/i386/CPU.h>
+#include <Kernel/Arch/x86/CPU.h>
 #include <Kernel/IO.h>
 #include <Kernel/Interrupts/PIC.h>
 #include <Kernel/Scheduler.h>
@@ -53,7 +53,7 @@ PIT::PIT(Function<void(const RegisterState&)> callback)
 {
     IO::out8(PIT_CTL, TIMER0_SELECT | WRITE_WORD | MODE_SQUARE_WAVE);
 
-    klog() << "PIT: " << OPTIMAL_TICKS_PER_SECOND_RATE << " Hz, square wave (" << String::formatted("{:x}", BASE_FREQUENCY / OPTIMAL_TICKS_PER_SECOND_RATE) << ")";
+    dmesgln("PIT: {} Hz, square wave ({:#08x})", OPTIMAL_TICKS_PER_SECOND_RATE, BASE_FREQUENCY / OPTIMAL_TICKS_PER_SECOND_RATE);
     reset_to_default_ticks_per_second();
     enable_irq();
 }

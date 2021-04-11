@@ -42,18 +42,7 @@ CodeDocument::CodeDocument(const String& file_path, Client* client)
     : TextDocument(client)
     , m_file_path(file_path)
 {
-    LexicalPath lexical_path(file_path);
-
-    if (lexical_path.has_extension(".cpp") || lexical_path.has_extension(".h"))
-        m_language = Language::Cpp;
-    else if (lexical_path.has_extension(".js"))
-        m_language = Language::JavaScript;
-    else if (lexical_path.has_extension(".gml"))
-        m_language = Language::GML;
-    else if (lexical_path.has_extension(".ini"))
-        m_language = Language::Ini;
-    else if (lexical_path.has_extension(".sh"))
-        m_language = Language::Shell;
+    m_language = language_from_file_extension(LexicalPath { file_path }.extension());
 }
 
 CodeDocument::CodeDocument(Client* client)

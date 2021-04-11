@@ -53,6 +53,7 @@ public:
     virtual void visit(const AST::HistoryEvent*);
     virtual void visit(const AST::Execute*);
     virtual void visit(const AST::IfCond*);
+    virtual void visit(const AST::ImmediateExpression*);
     virtual void visit(const AST::Join*);
     virtual void visit(const AST::MatchExpr*);
     virtual void visit(const AST::Or*);
@@ -62,12 +63,14 @@ public:
     virtual void visit(const AST::ReadWriteRedirection*);
     virtual void visit(const AST::Sequence*);
     virtual void visit(const AST::Subshell*);
+    virtual void visit(const AST::Slice*);
     virtual void visit(const AST::SimpleVariable*);
     virtual void visit(const AST::SpecialVariable*);
     virtual void visit(const AST::Juxtaposition*);
     virtual void visit(const AST::StringLiteral*);
     virtual void visit(const AST::StringPartCompose*);
     virtual void visit(const AST::SyntaxError*);
+    virtual void visit(const AST::SyntheticNode*);
     virtual void visit(const AST::Tilde*);
     virtual void visit(const AST::VariableDeclarations*);
     virtual void visit(const AST::WriteAppendRedirection*);

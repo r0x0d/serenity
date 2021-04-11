@@ -11,6 +11,8 @@ interface Document : Node {
 
     readonly attribute Window? defaultView;
 
+    attribute DOMString cookie;
+
     Element? getElementById(DOMString id);
     ArrayFromVector getElementsByName(DOMString name);
     ArrayFromVector getElementsByTagName(DOMString tagName);
@@ -28,6 +30,11 @@ interface Document : Node {
     Text createTextNode(DOMString data);
     Comment createComment(DOMString data);
     Range createRange();
+    Event createEvent(DOMString interface);
+
+    [CEReactions, ImplementedAs=adopt_node_binding] Node adoptNode(Node node);
+
+    [ImplementedAs=style_sheets_for_bindings] readonly attribute StyleSheetList styleSheets;
 
     readonly attribute DOMString compatMode;
     readonly attribute DocumentType? doctype;

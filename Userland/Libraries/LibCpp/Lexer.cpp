@@ -231,12 +231,8 @@ Vector<Token> Lexer::lex()
     size_t token_start_index = 0;
     Position token_start_position;
 
-    auto emit_token = [&](auto type) {
-        Token token;
-        token.m_type = type;
-        token.m_start = m_position;
-        token.m_end = m_position;
-        tokens.append(token);
+    auto emit_single_char_token = [&](auto type) {
+        tokens.empend(type, m_position, m_position, m_input.substring_view(m_index, 1));
         consume();
     };
 
@@ -245,11 +241,7 @@ Vector<Token> Lexer::lex()
         token_start_position = m_position;
     };
     auto commit_token = [&](auto type) {
-        Token token;
-        token.m_type = type;
-        token.m_start = token_start_position;
-        token.m_end = m_previous_position;
-        tokens.append(token);
+        tokens.empend(type, token_start_position, m_previous_position, m_input.substring_view(token_start_index, m_index - token_start_index));
     };
 
     auto emit_token_equals = [&](auto type, auto equals_type) {
@@ -260,7 +252,7 @@ Vector<Token> Lexer::lex()
             commit_token(equals_type);
             return;
         }
-        emit_token(type);
+        emit_single_char_token(type);
     };
 
     auto match_escape_sequence = [&]() -> size_t {
@@ -343,27 +335,27 @@ Vector<Token> Lexer::lex()
             continue;
         }
         if (ch == '(') {
-            emit_token(Token::Type::LeftParen);
+            emit_single_char_token(Token::Type::LeftParen);
             continue;
         }
         if (ch == ')') {
-            emit_token(Token::Type::RightParen);
+            emit_single_char_token(Token::Type::RightParen);
             continue;
         }
         if (ch == '{') {
-            emit_token(Token::Type::LeftCurly);
+            emit_single_char_token(Token::Type::LeftCurly);
             continue;
         }
         if (ch == '}') {
-            emit_token(Token::Type::RightCurly);
+            emit_single_char_token(Token::Type::RightCurly);
             continue;
         }
         if (ch == '[') {
-            emit_token(Token::Type::LeftBracket);
+            emit_single_char_token(Token::Type::LeftBracket);
             continue;
         }
         if (ch == ']') {
-            emit_token(Token::Type::RightBracket);
+            emit_single_char_token(Token::Type::RightBracket);
             continue;
         }
         if (ch == '<') {
@@ -414,7 +406,7 @@ Vector<Token> Lexer::lex()
             continue;
         }
         if (ch == ',') {
-            emit_token(Token::Type::Comma);
+            emit_single_char_token(Token::Type::Comma);
             continue;
         }
         if (ch == '+') {
@@ -512,11 +504,11 @@ Vector<Token> Lexer::lex()
             continue;
         }
         if (ch == '~') {
-            emit_token(Token::Type::Tilde);
+            emit_single_char_token(Token::Type::Tilde);
             continue;
         }
         if (ch == '?') {
-            emit_token(Token::Type::QuestionMark);
+            emit_single_char_token(Token::Type::QuestionMark);
             continue;
         }
         if (ch == ':') {
@@ -536,7 +528,7 @@ Vector<Token> Lexer::lex()
             continue;
         }
         if (ch == ';') {
-            emit_token(Token::Type::Semicolon);
+            emit_single_char_token(Token::Type::Semicolon);
             continue;
         }
         if (ch == '.') {
@@ -786,22 +778,9 @@ Vector<Token> Lexer::lex()
             continue;
         }
         dbgln("Unimplemented token character: {}", ch);
-        emit_token(Token::Type::Unknown);
+        emit_single_char_token(Token::Type::Unknown);
     }
     return tokens;
-}
-
-bool Position::operator<(const Position& other) const
-{
-    return line < other.line || (line == other.line && column < other.column);
-}
-bool Position::operator>(const Position& other) const
-{
-    return !(*this < other) && !(*this == other);
-}
-bool Position::operator==(const Position& other) const
-{
-    return line == other.line && column == other.column;
 }
 
 }

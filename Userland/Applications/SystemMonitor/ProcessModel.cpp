@@ -43,7 +43,6 @@ ProcessModel::ProcessModel()
 {
     VERIFY(!s_the);
     s_the = this;
-    m_generic_process_icon = Gfx::Bitmap::load_from_file("/res/icons/16x16/gear.png");
 
     auto file = Core::File::construct("/proc/cpuinfo");
     if (file->open(Core::IODevice::ReadOnly)) {
@@ -58,6 +57,8 @@ ProcessModel::ProcessModel()
 
     if (m_cpus.is_empty())
         m_cpus.append(make<CpuInfo>(0));
+
+    m_kernel_process_icon = GUI::Icon::default_icon("gear");
 }
 
 ProcessModel::~ProcessModel()
@@ -100,7 +101,7 @@ String ProcessModel::column_name(int column) const
     case Column::Physical:
         return "Physical";
     case Column::DirtyPrivate:
-        return "DirtyP";
+        return "Private";
     case Column::CleanInode:
         return "CleanI";
     case Column::PurgeableVolatile:
@@ -262,10 +263,9 @@ GUI::Variant ProcessModel::data(const GUI::ModelIndex& index, GUI::ModelRole rol
     if (role == GUI::ModelRole::Display) {
         switch (index.column()) {
         case Column::Icon: {
-            auto icon = GUI::FileIconProvider::icon_for_executable(thread.current_state.executable);
-            if (auto* bitmap = icon.bitmap_for_size(16))
-                return *bitmap;
-            return *m_generic_process_icon;
+            if (thread.current_state.kernel)
+                return m_kernel_process_icon;
+            return GUI::FileIconProvider::icon_for_executable(thread.current_state.executable);
         }
         case Column::PID:
             return thread.current_state.pid;
@@ -300,6 +300,8 @@ GUI::Variant ProcessModel::data(const GUI::ModelIndex& index, GUI::ModelRole rol
         case Column::Processor:
             return thread.current_state.cpu;
         case Column::Name:
+            if (thread.current_state.kernel)
+                return String::formatted("{} (*)", thread.current_state.name);
             return thread.current_state.name;
         case Column::Syscalls:
             return thread.current_state.syscall_count;
@@ -349,6 +351,7 @@ void ProcessModel::update()
         for (auto& it : all_processes.value()) {
             for (auto& thread : it.value.threads) {
                 ThreadState state;
+                state.kernel = it.value.kernel;
                 state.pid = it.value.pid;
                 state.user = it.value.username;
                 state.pledge = it.value.pledge;
@@ -429,6 +432,9 @@ void ProcessModel::update()
 
     if (on_cpu_info_change)
         on_cpu_info_change(m_cpus);
+
+    if (on_state_update)
+        on_state_update(all_processes->size(), m_threads.size());
 
     // FIXME: This is a rather hackish way of invalidating indexes.
     //        It would be good if GUI::Model had a way to orchestrate removal/insertion while preserving indexes.

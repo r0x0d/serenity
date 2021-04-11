@@ -1,5 +1,11 @@
 add_compile_options(-Os)
 
+if ("${SERENITY_ARCH}" STREQUAL "i686")
+    set(KERNEL_ARCH i386)
+elseif("${SERENITY_ARCH}" STREQUAL "x86_64")
+    set(KERNEL_ARCH x86_64)
+endif()
+
 set(KERNEL_HEAP_SOURCES
     Heap/SlabAllocator.cpp
     Heap/kmalloc.cpp
@@ -14,9 +20,6 @@ set(KERNEL_SOURCES
     ACPI/Parser.cpp
     AddressSanitizer.cpp
     Arch/PC/BIOS.cpp
-    Arch/i386/CPU.cpp
-    Arch/i386/ProcessorInfo.cpp
-    Arch/i386/SafeMem.cpp
     Arch/x86/SmapDisabler.h
     CMOS.cpp
     CommandLine.cpp
@@ -29,19 +32,23 @@ set(KERNEL_SOURCES
     Devices/CharacterDevice.cpp
     Devices/Device.cpp
     Devices/FullDevice.cpp
-    Devices/I8042Controller.cpp
-    Devices/KeyboardDevice.cpp
     Devices/MBVGADevice.cpp
     Devices/MemoryDevice.cpp
     Devices/NullDevice.cpp
     Devices/PCSpeaker.cpp
-    Devices/PS2MouseDevice.cpp
     Devices/RandomDevice.cpp
     Devices/SB16.cpp
     Devices/SerialDevice.cpp
     Devices/USB/UHCIController.cpp
     Devices/VMWareBackdoor.cpp
     Devices/ZeroDevice.cpp
+    Devices/HID/I8042Controller.cpp
+    Devices/HID/HIDManagement.cpp
+    Devices/HID/KeyboardDevice.cpp
+    Devices/HID/MouseDevice.cpp
+    Devices/HID/PS2KeyboardDevice.cpp
+    Devices/HID/PS2MouseDevice.cpp
+    Devices/HID/VMWareMouseDevice.cpp
     Storage/Partition/DiskPartition.cpp
     Storage/Partition/DiskPartitionMetadata.cpp
     Storage/Partition/EBRPartitionTable.cpp
@@ -49,6 +56,11 @@ set(KERNEL_SOURCES
     Storage/Partition/MBRPartitionTable.cpp
     Storage/Partition/PartitionTable.cpp
     Storage/StorageDevice.cpp
+    Storage/AHCIController.cpp
+    Storage/AHCIPort.cpp
+    Storage/AHCIPortHandler.cpp
+    Storage/SATADiskDevice.cpp
+    Storage/BMIDEChannel.cpp
     Storage/IDEController.cpp
     Storage/IDEChannel.cpp
     Storage/PATADiskDevice.cpp
@@ -103,8 +115,9 @@ set(KERNEL_SOURCES
     PCI/Device.cpp
     PCI/DeviceController.cpp
     PCI/IOAccess.cpp
-    PCI/Initializer.cpp
     PCI/MMIOAccess.cpp
+    PCI/Initializer.cpp
+    PCI/WindowedMMIOAccess.cpp
     Panic.cpp
     PerformanceEventBuffer.cpp
     Process.cpp
@@ -127,6 +140,7 @@ set(KERNEL_SOURCES
     Syscalls/debug.cpp
     Syscalls/disown.cpp
     Syscalls/dup2.cpp
+    Syscalls/emuctl.cpp
     Syscalls/execve.cpp
     Syscalls/exit.cpp
     Syscalls/fcntl.cpp
@@ -220,8 +234,17 @@ set(KERNEL_SOURCES
     VM/Space.cpp
     VM/VMObject.cpp
     WaitQueue.cpp
+    WorkQueue.cpp
     init.cpp
     kprintf.cpp
+)
+
+set(KERNEL_SOURCES
+    ${KERNEL_SOURCES}
+    ${CMAKE_CURRENT_SOURCE_DIR}/Arch/${KERNEL_ARCH}/CPU.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Arch/${KERNEL_ARCH}/InterruptEntry.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Arch/${KERNEL_ARCH}/ProcessorInfo.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Arch/${KERNEL_ARCH}/SafeMem.cpp
 )
 
 set(AK_SOURCES
@@ -232,7 +255,6 @@ set(AK_SOURCES
     ../AK/JsonParser.cpp
     ../AK/JsonValue.cpp
     ../AK/LexicalPath.cpp
-    ../AK/LogStream.cpp
     ../AK/String.cpp
     ../AK/StringBuilder.cpp
     ../AK/StringImpl.cpp
@@ -276,13 +298,17 @@ set(SOURCES
     ${C_SOURCES}
 )
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unknown-warning-option")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unknown-warning-option -Wvla")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pie -fPIE -fno-rtti -ffreestanding -fbuiltin")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mno-80387 -mno-mmx -mno-sse -mno-sse2")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-asynchronous-unwind-tables")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fstack-protector-strong")
 if (NOT ${CMAKE_HOST_SYSTEM_NAME} MATCHES SerenityOS)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -nostdlib -nostdinc -nostdinc++")
+endif()
+
+if ("${SERENITY_ARCH}" STREQUAL "x86_64")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mcmodel=large -mno-red-zone")
 endif()
 
 # Kernel Undefined Behavior Sanitizer (KUBSAN)
@@ -307,9 +333,10 @@ add_link_options(LINKER:-T ${CMAKE_CURRENT_BINARY_DIR}/linker.ld -nostdlib)
 #       kernel won't re-link when boot.S changes without this.
 set_source_files_properties(init.cpp
     PROPERTIES
-    OBJECT_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/Arch/i386/Boot/boot.S
+    OBJECT_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/Arch/${KERNEL_ARCH}/Boot/boot.S
 )
-add_library(boot OBJECT Arch/i386/Boot/boot.S)
+
+add_library(boot OBJECT Arch/${KERNEL_ARCH}/Boot/boot.S)
 
 add_library(kernel_heap STATIC ${KERNEL_HEAP_SOURCES})
 file(GENERATE OUTPUT linker.ld INPUT linker.ld)

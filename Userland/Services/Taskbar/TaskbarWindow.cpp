@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2018-2021, Andreas Kling <kling@serenityos.org>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -25,6 +25,7 @@
  */
 
 #include "TaskbarWindow.h"
+#include "ClockWidget.h"
 #include "TaskbarButton.h"
 #include <AK/Debug.h>
 #include <LibCore/ConfigFile.h>
@@ -35,9 +36,11 @@
 #include <LibGUI/Desktop.h>
 #include <LibGUI/Frame.h>
 #include <LibGUI/Icon.h>
+#include <LibGUI/Menu.h>
 #include <LibGUI/Painter.h>
 #include <LibGUI/Window.h>
 #include <LibGUI/WindowServerConnection.h>
+#include <LibGfx/FontDatabase.h>
 #include <LibGfx/Palette.h>
 #include <serenity.h>
 #include <stdio.h>
@@ -68,23 +71,40 @@ private:
     }
 };
 
-TaskbarWindow::TaskbarWindow()
+TaskbarWindow::TaskbarWindow(NonnullRefPtr<GUI::Menu> start_menu)
+    : m_start_menu(move(start_menu))
 {
     set_window_type(GUI::WindowType::Taskbar);
     set_title("Taskbar");
 
     on_screen_rect_change(GUI::Desktop::the().rect());
 
-    GUI::Desktop::the().on_rect_change = [this](const Gfx::IntRect& rect) { on_screen_rect_change(rect); };
+    auto& main_widget = set_main_widget<TaskbarWidget>();
+    main_widget.set_layout<GUI::HorizontalBoxLayout>();
+    main_widget.layout()->set_margins({ 3, 3, 3, 1 });
 
-    auto& widget = set_main_widget<TaskbarWidget>();
-    widget.set_layout<GUI::HorizontalBoxLayout>();
-    widget.layout()->set_margins({ 3, 2, 3, 2 });
-    widget.layout()->set_spacing(3);
+    auto& start_button = main_widget.add<GUI::Button>("Serenity");
+    start_button.set_font(Gfx::FontDatabase::default_bold_font());
+    start_button.set_icon_spacing(0);
+    start_button.set_fixed_size(80, 22);
+    auto app_icon = GUI::Icon::default_icon("ladybug");
+    start_button.set_icon(app_icon.bitmap_for_size(16));
+    start_button.set_menu(m_start_menu);
+
+    create_quick_launch_bar();
+
+    m_task_button_container = main_widget.add<GUI::Widget>();
+    m_task_button_container->set_layout<GUI::HorizontalBoxLayout>();
+    m_task_button_container->layout()->set_spacing(3);
 
     m_default_icon = Gfx::Bitmap::load_from_file("/res/icons/16x16/window.png");
 
-    create_quick_launch_bar();
+    m_applet_area_container = main_widget.add<GUI::Frame>();
+    m_applet_area_container->set_frame_thickness(1);
+    m_applet_area_container->set_frame_shape(Gfx::FrameShape::Box);
+    m_applet_area_container->set_frame_shadow(Gfx::FrameShadow::Sunken);
+
+    main_widget.add<Taskbar::ClockWidget>();
 }
 
 TaskbarWindow::~TaskbarWindow()
@@ -150,13 +170,26 @@ void TaskbarWindow::on_screen_rect_change(const Gfx::IntRect& rect)
 {
     Gfx::IntRect new_rect { rect.x(), rect.bottom() - taskbar_height() + 1, rect.width(), taskbar_height() };
     set_rect(new_rect);
+    update_applet_area();
+}
+
+void TaskbarWindow::update_applet_area()
+{
+    // NOTE: Widget layout is normally lazy, but here we have to force it right away so we can tell
+    //       WindowServer where to place the applet area window.
+    if (!main_widget())
+        return;
+    main_widget()->do_layout();
+    Gfx::IntRect new_rect { {}, m_applet_area_size };
+    new_rect.center_within(m_applet_area_container->screen_relative_rect());
+    GUI::WindowServerConnection::the().send_sync<Messages::WindowServer::WM_SetAppletAreaPosition>(new_rect.location());
 }
 
 NonnullRefPtr<GUI::Button> TaskbarWindow::create_button(const WindowIdentifier& identifier)
 {
-    auto& button = main_widget()->add<TaskbarButton>(identifier);
-    button.set_min_size(20, 23);
-    button.set_max_size(140, 23);
+    auto& button = m_task_button_container->add<TaskbarButton>(identifier);
+    button.set_min_size(20, 22);
+    button.set_max_size(140, 22);
     button.set_text_alignment(Gfx::TextAlignment::CenterLeft);
     button.set_icon(*m_default_icon);
     return button;
@@ -200,6 +233,7 @@ void TaskbarWindow::update_window_button(::Window& window, bool show_as_active)
     if (!button)
         return;
     button->set_text(window.title());
+    button->set_tooltip(window.title());
     button->set_checked(show_as_active);
 }
 
@@ -296,7 +330,19 @@ void TaskbarWindow::wm_event(GUI::WMEvent& event)
         }
         break;
     }
+    case GUI::Event::WM_AppletAreaSizeChanged: {
+        auto& changed_event = static_cast<GUI::WMAppletAreaSizeChangedEvent&>(event);
+        m_applet_area_size = changed_event.size();
+        m_applet_area_container->set_fixed_size(changed_event.size().width() + 8, 22);
+        update_applet_area();
+        break;
+    }
     default:
         break;
     }
+}
+
+void TaskbarWindow::screen_rect_change_event(GUI::ScreenRectChangeEvent& event)
+{
+    on_screen_rect_change(event.rect());
 }

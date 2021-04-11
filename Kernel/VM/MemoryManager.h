@@ -29,7 +29,7 @@
 #include <AK/HashTable.h>
 #include <AK/NonnullRefPtrVector.h>
 #include <AK/String.h>
-#include <Kernel/Arch/i386/CPU.h>
+#include <Kernel/Arch/x86/CPU.h>
 #include <Kernel/Forward.h>
 #include <Kernel/SpinLock.h>
 #include <Kernel/VM/AllocationStrategy.h>
@@ -57,12 +57,12 @@ constexpr FlatPtr page_round_down(FlatPtr x)
     return ((FlatPtr)(x)) & ~(PAGE_SIZE - 1);
 }
 
-inline u32 low_physical_to_virtual(u32 physical)
+inline FlatPtr low_physical_to_virtual(FlatPtr physical)
 {
     return physical + 0xc0000000;
 }
 
-inline u32 virtual_to_low_physical(u32 physical)
+inline FlatPtr virtual_to_low_physical(FlatPtr physical)
 {
     return physical - 0xc0000000;
 }
@@ -105,8 +105,6 @@ struct PhysicalMemoryRange {
     size_t length {};
 };
 
-const LogStream& operator<<(const LogStream& stream, const UsedMemoryRange& value);
-
 #define MM Kernel::MemoryManager::the()
 
 struct MemoryManagerData {
@@ -141,6 +139,8 @@ public:
 
     PageFaultResponse handle_page_fault(const PageFault&);
 
+    void set_page_writable_direct(VirtualAddress, bool);
+
     void protect_readonly_after_init_memory();
     void unmap_memory_after_init();
 
@@ -163,12 +163,12 @@ public:
     void deallocate_user_physical_page(const PhysicalPage&);
     void deallocate_supervisor_physical_page(const PhysicalPage&);
 
-    OwnPtr<Region> allocate_contiguous_kernel_region(size_t, String name, u8 access, size_t physical_alignment = PAGE_SIZE, Region::Cacheable = Region::Cacheable::Yes);
-    OwnPtr<Region> allocate_kernel_region(size_t, String name, u8 access, AllocationStrategy strategy = AllocationStrategy::Reserve, Region::Cacheable = Region::Cacheable::Yes);
-    OwnPtr<Region> allocate_kernel_region(PhysicalAddress, size_t, String name, u8 access, Region::Cacheable = Region::Cacheable::Yes);
-    OwnPtr<Region> allocate_kernel_region_identity(PhysicalAddress, size_t, String name, u8 access, Region::Cacheable = Region::Cacheable::Yes);
-    OwnPtr<Region> allocate_kernel_region_with_vmobject(VMObject&, size_t, String name, u8 access, Region::Cacheable = Region::Cacheable::Yes);
-    OwnPtr<Region> allocate_kernel_region_with_vmobject(const Range&, VMObject&, String name, u8 access, Region::Cacheable = Region::Cacheable::Yes);
+    OwnPtr<Region> allocate_contiguous_kernel_region(size_t, String name, Region::Access access, size_t physical_alignment = PAGE_SIZE, Region::Cacheable = Region::Cacheable::Yes);
+    OwnPtr<Region> allocate_kernel_region(size_t, String name, Region::Access access, AllocationStrategy strategy = AllocationStrategy::Reserve, Region::Cacheable = Region::Cacheable::Yes);
+    OwnPtr<Region> allocate_kernel_region(PhysicalAddress, size_t, String name, Region::Access access, Region::Cacheable = Region::Cacheable::Yes);
+    OwnPtr<Region> allocate_kernel_region_identity(PhysicalAddress, size_t, String name, Region::Access access, Region::Cacheable = Region::Cacheable::Yes);
+    OwnPtr<Region> allocate_kernel_region_with_vmobject(VMObject&, size_t, String name, Region::Access access, Region::Cacheable = Region::Cacheable::Yes);
+    OwnPtr<Region> allocate_kernel_region_with_vmobject(const Range&, VMObject&, String name, Region::Access access, Region::Cacheable = Region::Cacheable::Yes);
 
     unsigned user_physical_pages() const { return m_user_physical_pages; }
     unsigned user_physical_pages_used() const { return m_user_physical_pages_used; }

@@ -36,6 +36,15 @@ Array* Array::create(GlobalObject& global_object)
     return global_object.heap().allocate<Array>(global_object, *global_object.array_prototype());
 }
 
+// 7.3.17 CreateArrayFromList, https://tc39.es/ecma262/#sec-createarrayfromlist
+Array* Array::create_from(GlobalObject& global_object, const Vector<Value>& values)
+{
+    auto* array = Array::create(global_object);
+    for (size_t i = 0; i < values.size(); ++i)
+        array->define_property(i, values[i]);
+    return array;
+}
+
 Array::Array(Object& prototype)
     : Object(prototype)
 {
@@ -69,7 +78,7 @@ JS_DEFINE_NATIVE_GETTER(Array::length_getter)
     auto* array = typed_this(vm, global_object);
     if (!array)
         return {};
-    return Value(static_cast<i32>(array->indexed_properties().array_like_size()));
+    return Value(array->indexed_properties().array_like_size());
 }
 
 JS_DEFINE_NATIVE_SETTER(Array::length_setter)

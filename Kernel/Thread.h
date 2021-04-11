@@ -26,6 +26,7 @@
 
 #pragma once
 
+#include <AK/EnumBits.h>
 #include <AK/Function.h>
 #include <AK/HashMap.h>
 #include <AK/IntrusiveList.h>
@@ -36,8 +37,8 @@
 #include <AK/Vector.h>
 #include <AK/WeakPtr.h>
 #include <AK/Weakable.h>
-#include <Kernel/Arch/i386/CPU.h>
-#include <Kernel/Arch/i386/SafeMem.h>
+#include <Kernel/Arch/x86/CPU.h>
+#include <Kernel/Arch/x86/SafeMem.h>
 #include <Kernel/Debug.h>
 #include <Kernel/Forward.h>
 #include <Kernel/KResult.h>
@@ -85,6 +86,7 @@ class Thread
     AK_MAKE_NONMOVABLE(Thread);
 
     friend class Process;
+    friend class ProtectedProcessBase;
     friend class Scheduler;
     friend class ThreadReadyQueue;
 
@@ -208,44 +210,17 @@ public:
             : m_infinite(true)
         {
         }
-        explicit BlockTimeout(bool is_absolute, const timeval* time, const timespec* start_time = nullptr, clockid_t clock_id = CLOCK_MONOTONIC_COARSE)
-            : m_clock_id(clock_id)
-            , m_infinite(!time)
-        {
-            if (!m_infinite) {
-                if (time->tv_sec > 0 || time->tv_usec > 0) {
-                    timeval_to_timespec(*time, m_time);
-                    m_should_block = true;
-                }
-                m_start_time = start_time ? *start_time : TimeManagement::the().current_time(clock_id).value();
-                if (!is_absolute)
-                    timespec_add(m_time, m_start_time, m_time);
-            }
-        }
-        explicit BlockTimeout(bool is_absolute, const timespec* time, const timespec* start_time = nullptr, clockid_t clock_id = CLOCK_MONOTONIC_COARSE)
-            : m_clock_id(clock_id)
-            , m_infinite(!time)
-        {
-            if (!m_infinite) {
-                if (time->tv_sec > 0 || time->tv_nsec > 0) {
-                    m_time = *time;
-                    m_should_block = true;
-                }
-                m_start_time = start_time ? *start_time : TimeManagement::the().current_time(clock_id).value();
-                if (!is_absolute)
-                    timespec_add(m_time, m_start_time, m_time);
-            }
-        }
+        explicit BlockTimeout(bool is_absolute, const Time* time, const Time* start_time = nullptr, clockid_t clock_id = CLOCK_MONOTONIC_COARSE);
 
-        const timespec& absolute_time() const { return m_time; }
-        const timespec* start_time() const { return !m_infinite ? &m_start_time : nullptr; }
+        const Time& absolute_time() const { return m_time; }
+        const Time* start_time() const { return !m_infinite ? &m_start_time : nullptr; }
         clockid_t clock_id() const { return m_clock_id; }
         bool is_infinite() const { return m_infinite; }
         bool should_block() const { return m_infinite || m_should_block; };
 
     private:
-        timespec m_time { 0, 0 };
-        timespec m_start_time { 0, 0 };
+        Time m_time {};
+        Time m_start_time {};
         clockid_t m_clock_id { CLOCK_MONOTONIC_COARSE };
         bool m_infinite { false };
         bool m_should_block { false };
@@ -557,7 +532,7 @@ public:
 
     class FileBlocker : public Blocker {
     public:
-        enum class BlockFlags : u32 {
+        enum class BlockFlags : u16 {
             None = 0,
 
             Read = 1 << 0,
@@ -640,7 +615,7 @@ public:
 
     class SleepBlocker final : public Blocker {
     public:
-        explicit SleepBlocker(const BlockTimeout&, timespec* = nullptr);
+        explicit SleepBlocker(const BlockTimeout&, Time* = nullptr);
         virtual const char* state_string() const override { return "Sleeping"; }
         virtual Type blocker_type() const override { return Type::Sleep; }
         virtual const BlockTimeout& override_timeout(const BlockTimeout&) override;
@@ -652,14 +627,14 @@ public:
         void calculate_remaining();
 
         BlockTimeout m_deadline;
-        timespec* m_remaining;
+        Time* m_remaining;
     };
 
     class SelectBlocker final : public FileBlocker {
     public:
         struct FDInfo {
             NonnullRefPtr<FileDescription> description;
-            BlockFlags block_flags;
+            BlockFlags block_flags { BlockFlags::None };
             BlockFlags unblocked_flags { BlockFlags::None };
         };
 
@@ -788,8 +763,8 @@ public:
     RegisterState& get_register_dump_from_stack();
     const RegisterState& get_register_dump_from_stack() const { return const_cast<Thread*>(this)->get_register_dump_from_stack(); }
 
-    TSS32& tss() { return m_tss; }
-    const TSS32& tss() const { return m_tss; }
+    TSS& tss() { return m_tss; }
+    const TSS& tss() const { return m_tss; }
     State state() const { return m_state; }
     const char* state_string() const;
 
@@ -814,7 +789,7 @@ public:
         }
     }
 
-    template<typename T, class... Args>
+    template<typename BlockerType, class... Args>
     [[nodiscard]] BlockResult block(const BlockTimeout& timeout, Args&&... args)
     {
         VERIFY(!Processor::current().in_irq());
@@ -826,7 +801,7 @@ public:
         // We need to hold m_block_lock so that nobody can unblock a blocker as soon
         // as it is constructed and registered elsewhere
         m_in_block = true;
-        T t(forward<Args>(args)...);
+        BlockerType blocker(forward<Args>(args)...);
 
         ScopedSpinLock scheduler_lock(g_scheduler_lock);
         // Relaxed semantics are fine for timeout_unblocked because we
@@ -845,16 +820,16 @@ public:
                 VERIFY_NOT_REACHED();
             }
 
-            m_blocker = &t;
-            if (!t.should_block()) {
+            m_blocker = &blocker;
+            if (!blocker.should_block()) {
                 // Don't block if the wake condition is already met
-                t.not_blocking(false);
+                blocker.not_blocking(false);
                 m_blocker = nullptr;
                 m_in_block = false;
                 return BlockResult::NotBlocked;
             }
 
-            auto& block_timeout = t.override_timeout(timeout);
+            auto& block_timeout = blocker.override_timeout(timeout);
             if (!block_timeout.is_infinite()) {
                 // Process::kill_all_threads may be called at any time, which will mark all
                 // threads to die. In that case
@@ -870,14 +845,14 @@ public:
                 });
                 if (!timer) {
                     // Timeout is already in the past
-                    t.not_blocking(true);
+                    blocker.not_blocking(true);
                     m_blocker = nullptr;
                     m_in_block = false;
                     return BlockResult::InterruptedByTimeout;
                 }
             }
 
-            t.begin_blocking({});
+            blocker.begin_blocking({});
 
             set_state(Thread::Blocked);
         }
@@ -885,7 +860,7 @@ public:
         scheduler_lock.unlock();
         block_lock.unlock();
 
-        dbgln_if(THREAD_DEBUG, "Thread {} blocking on {} ({}) -->", *this, &t, t.state_string());
+        dbgln_if(THREAD_DEBUG, "Thread {} blocking on {} ({}) -->", *this, &blocker, blocker.state_string());
         bool did_timeout = false;
         u32 lock_count_to_restore = 0;
         auto previous_locked = unlock_process_if_locked(lock_count_to_restore);
@@ -913,15 +888,15 @@ public:
             did_timeout |= timeout_unblocked.exchange(true);
             if (m_blocker) {
                 // Remove ourselves...
-                VERIFY(m_blocker == &t);
+                VERIFY(m_blocker == &blocker);
                 m_blocker = nullptr;
             }
-            dbgln_if(THREAD_DEBUG, "<-- Thread {} unblocked from {} ({})", *this, &t, t.state_string());
+            dbgln_if(THREAD_DEBUG, "<-- Thread {} unblocked from {} ({})", *this, &blocker, blocker.state_string());
             m_in_block = false;
             break;
         }
 
-        if (t.was_interrupted_by_signal()) {
+        if (blocker.was_interrupted_by_signal()) {
             ScopedSpinLock scheduler_lock(g_scheduler_lock);
             ScopedSpinLock lock(m_lock);
             dispatch_one_pending_signal();
@@ -929,7 +904,7 @@ public:
 
         // Notify the blocker that we are no longer blocking. It may need
         // to clean up now while we're still holding m_lock
-        auto result = t.end_blocking({}, did_timeout); // calls was_unblocked internally
+        auto result = blocker.end_blocking({}, did_timeout); // calls was_unblocked internally
 
         if (timer && !did_timeout) {
             // Cancel the timer while not holding any locks. This allows
@@ -955,13 +930,13 @@ public:
         return block<Thread::QueueBlocker>(timeout, wait_queue, forward<Args>(args)...);
     }
 
-    BlockResult sleep(clockid_t, const timespec&, timespec* = nullptr);
-    BlockResult sleep(const timespec& duration, timespec* remaining_time = nullptr)
+    BlockResult sleep(clockid_t, const Time&, Time* = nullptr);
+    BlockResult sleep(const Time& duration, Time* remaining_time = nullptr)
     {
         return sleep(CLOCK_MONOTONIC_COARSE, duration, remaining_time);
     }
-    BlockResult sleep_until(clockid_t, const timespec&);
-    BlockResult sleep_until(const timespec& duration)
+    BlockResult sleep_until(clockid_t, const Time&);
+    BlockResult sleep_until(const Time& duration)
     {
         return sleep_until(CLOCK_MONOTONIC_COARSE, duration);
     }
@@ -1224,7 +1199,7 @@ private:
     mutable RecursiveSpinLock m_block_lock;
     NonnullRefPtr<Process> m_process;
     ThreadID m_tid { -1 };
-    TSS32 m_tss {};
+    TSS m_tss {};
     TrapFrame* m_current_trap { nullptr };
     u32 m_saved_critical { 1 };
     IntrusiveListNode m_ready_queue_node;
@@ -1294,6 +1269,8 @@ private:
     void drop_thread_count(bool);
 };
 
+AK_ENUM_BITWISE_OPERATORS(Thread::FileBlocker::BlockFlags);
+
 template<typename Callback>
 inline IterationDecision Thread::for_each(Callback callback)
 {
@@ -1320,8 +1297,6 @@ inline IterationDecision Thread::for_each_in_state(State state, Callback callbac
     }
     return IterationDecision::Continue;
 }
-
-const LogStream& operator<<(const LogStream&, const Thread&);
 
 }
 

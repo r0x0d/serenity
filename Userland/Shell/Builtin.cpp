@@ -31,6 +31,7 @@
 #include <LibCore/ArgsParser.h>
 #include <LibCore/EventLoop.h>
 #include <LibCore/File.h>
+#include <errno.h>
 #include <inttypes.h>
 #include <signal.h>
 #include <sys/wait.h>
@@ -110,7 +111,7 @@ int Shell::builtin_bg(int argc, const char** argv)
 
     job->set_running_in_background(true);
     job->set_should_announce_exit(true);
-    job->set_is_suspended(false);
+    job->set_shell_did_continue(true);
 
     dbgln("Resuming {} ({})", job->pid(), job->cmd());
     warnln("Resuming job {} - {}", job->job_id(), job->cmd().characters());
@@ -299,9 +300,10 @@ int Shell::builtin_exit(int argc, const char** argv)
         }
     }
     stop_all_jobs();
-    m_editor->save_history(get_history_path());
-    if (m_is_interactive)
+    if (m_is_interactive) {
+        m_editor->save_history(get_history_path());
         printf("Good-bye!\n");
+    }
     exit(exit_code);
     return 0;
 }
@@ -394,7 +396,7 @@ int Shell::builtin_fg(int argc, const char** argv)
     }
 
     job->set_running_in_background(false);
-    job->set_is_suspended(false);
+    job->set_shell_did_continue(true);
 
     dbgln("Resuming {} ({})", job->pid(), job->cmd());
     warnln("Resuming job {} - {}", job->job_id(), job->cmd().characters());
@@ -891,10 +893,15 @@ int Shell::builtin_not(int argc, const char** argv)
 
     auto commands = expand_aliases({ move(command) });
     int exit_code = 1;
+    auto found_a_job = false;
     for (auto& job : run_commands(commands)) {
+        found_a_job = true;
         block_on_job(job);
         exit_code = job.exit_code();
     }
+    // In case it was a function.
+    if (!found_a_job)
+        exit_code = last_return_code;
     return exit_code == 0 ? 1 : 0;
 }
 

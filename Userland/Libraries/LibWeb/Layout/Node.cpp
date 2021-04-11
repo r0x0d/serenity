@@ -234,6 +234,14 @@ void NodeWithStyle::apply_style(const CSS::StyleProperties& specified_style)
         m_background_image = static_ptr_cast<CSS::ImageStyleValue>(bgimage.value());
     }
 
+    auto background_repeat_x = specified_style.background_repeat_x();
+    if (background_repeat_x.has_value())
+        computed_values.set_background_repeat_x(background_repeat_x.value());
+
+    auto background_repeat_y = specified_style.background_repeat_y();
+    if (background_repeat_y.has_value())
+        computed_values.set_background_repeat_y(background_repeat_y.value());
+
     computed_values.set_display(specified_style.display());
 
     auto flex_direction = specified_style.flex_direction();
@@ -267,6 +275,10 @@ void NodeWithStyle::apply_style(const CSS::StyleProperties& specified_style)
     auto overflow_y = specified_style.overflow_y();
     if (overflow_y.has_value())
         computed_values.set_overflow_y(overflow_y.value());
+
+    auto cursor = specified_style.cursor();
+    if (cursor.has_value())
+        computed_values.set_cursor(cursor.value());
 
     auto text_decoration_line = specified_style.text_decoration_line();
     if (text_decoration_line.has_value())
@@ -318,15 +330,18 @@ void Node::handle_mousemove(Badge<EventHandler>, const Gfx::IntPoint&, unsigned,
 {
 }
 
-void Node::handle_mousewheel(Badge<EventHandler>, const Gfx::IntPoint&, unsigned, unsigned, int wheel_delta)
+bool Node::handle_mousewheel(Badge<EventHandler>, const Gfx::IntPoint&, unsigned, unsigned, int wheel_delta)
 {
     if (auto* containing_block = this->containing_block()) {
         if (!containing_block->is_scrollable())
-            return;
+            return false;
         auto new_offset = containing_block->scroll_offset();
         new_offset.move_by(0, wheel_delta);
         containing_block->set_scroll_offset(new_offset);
+        return true;
     }
+
+    return false;
 }
 
 bool Node::is_root_element() const

@@ -139,6 +139,12 @@ void NodeVisitor::visit(const AST::IfCond* node)
         node->false_branch()->visit(*this);
 }
 
+void NodeVisitor::visit(const AST::ImmediateExpression* node)
+{
+    for (auto& node : node->arguments())
+        node.visit(*this);
+}
+
 void NodeVisitor::visit(const AST::Join* node)
 {
     node->left()->visit(*this);
@@ -196,12 +202,21 @@ void NodeVisitor::visit(const AST::Subshell* node)
         node->block()->visit(*this);
 }
 
-void NodeVisitor::visit(const AST::SimpleVariable*)
+void NodeVisitor::visit(const AST::Slice* node)
 {
+    node->selector()->visit(*this);
 }
 
-void NodeVisitor::visit(const AST::SpecialVariable*)
+void NodeVisitor::visit(const AST::SimpleVariable* node)
 {
+    if (const AST::Node* slice = node->slice())
+        slice->visit(*this);
+}
+
+void NodeVisitor::visit(const AST::SpecialVariable* node)
+{
+    if (const AST::Node* slice = node->slice())
+        slice->visit(*this);
 }
 
 void NodeVisitor::visit(const AST::Juxtaposition* node)
@@ -221,6 +236,10 @@ void NodeVisitor::visit(const AST::StringPartCompose* node)
 }
 
 void NodeVisitor::visit(const AST::SyntaxError*)
+{
+}
+
+void NodeVisitor::visit(const AST::SyntheticNode*)
 {
 }
 

@@ -30,6 +30,7 @@
 #include <AK/GenericLexer.h>
 #include <AK/JsonObject.h>
 #include <AK/ScopeGuard.h>
+#include <AK/ScopedValueRollback.h>
 #include <AK/StringBuilder.h>
 #include <AK/Utf32View.h>
 #include <AK/Utf8View.h>
@@ -39,6 +40,7 @@
 #include <LibCore/File.h>
 #include <LibCore/Notifier.h>
 #include <ctype.h>
+#include <errno.h>
 #include <signal.h>
 #include <stdio.h>
 #include <sys/ioctl.h>
@@ -157,6 +159,8 @@ void Editor::set_default_keybinds()
     register_key_input_callback(ctrl('F'), EDITOR_INTERNAL_FUNCTION(cursor_right_character));
     // ^H: ctrl('H') == '\b'
     register_key_input_callback(ctrl('H'), EDITOR_INTERNAL_FUNCTION(erase_character_backwards));
+    // DEL - Some terminals send this instead of ^H.
+    register_key_input_callback((char)127, EDITOR_INTERNAL_FUNCTION(erase_character_backwards));
     register_key_input_callback(m_termios.c_cc[VERASE], EDITOR_INTERNAL_FUNCTION(erase_character_backwards));
     register_key_input_callback(ctrl('K'), EDITOR_INTERNAL_FUNCTION(erase_to_end));
     register_key_input_callback(ctrl('L'), EDITOR_INTERNAL_FUNCTION(clear_screen));
@@ -316,8 +320,8 @@ void Editor::clear_line()
         fputc(0x8, stderr);
     fputs("\033[K", stderr);
     fflush(stderr);
-    m_buffer.clear();
     m_chars_touched_in_the_middle = buffer().size();
+    m_buffer.clear();
     m_cursor = 0;
     m_inline_search_cursor = m_cursor;
 }
@@ -1033,6 +1037,9 @@ void Editor::handle_read_event()
             continue;
         }
 
+        // If we got here, manually cleanup the suggestions and then insert the new code point.
+        suggestion_cleanup.disarm();
+        cleanup_suggestions();
         insert(code_point);
     }
 
@@ -1242,18 +1249,21 @@ void Editor::refresh_display()
     auto print_character_at = [this](size_t i) {
         StringBuilder builder;
         auto c = m_buffer[i];
-        bool should_print_caret = isascii(c) && iscntrl(c) && c != '\n';
+        bool should_print_masked = isascii(c) && iscntrl(c) && c != '\n';
+        bool should_print_caret = c < 64 && should_print_masked;
         if (should_print_caret)
             builder.appendff("^{:c}", c + 64);
+        else if (should_print_masked)
+            builder.appendff("\\x{:0>2x}", c);
         else
             builder.append(Utf32View { &c, 1 });
 
-        if (should_print_caret)
+        if (should_print_masked)
             fputs("\033[7m", stderr);
 
         fputs(builder.to_string().characters(), stderr);
 
-        if (should_print_caret)
+        if (should_print_masked)
             fputs("\033[27m", stderr);
     };
 
@@ -1629,7 +1639,7 @@ Editor::VTState Editor::actual_rendered_string_length_step(StringMetrics& metric
             return state;
         }
         if (isascii(c) && iscntrl(c) && c != '\n')
-            current_line.masked_chars.append({ index, 1, 2 });
+            current_line.masked_chars.append({ index, 1, c < 64 ? 2u : 4u }); // if the character cannot be represented as ^c, represent it as \xbb.
         // FIXME: This will not support anything sophisticated
         ++current_line.length;
         ++metrics.total_length;
@@ -1668,7 +1678,6 @@ Editor::VTState Editor::actual_rendered_string_length_step(StringMetrics& metric
 Vector<size_t, 2> Editor::vt_dsr()
 {
     char buf[16];
-    u32 length { 0 };
 
     // Read whatever junk there is before talking to the terminal
     // and insert them later when we're reading user input.
@@ -1703,8 +1712,25 @@ Vector<size_t, 2> Editor::vt_dsr()
     fputs("\033[6n", stderr);
     fflush(stderr);
 
+    // Parse the DSR response
+    // it should be of the form .*\e[\d+;\d+R.*
+    // Anything not part of the response is just added to the incomplete data.
+    enum {
+        Free,
+        SawEsc,
+        SawBracket,
+        InFirstCoordinate,
+        SawSemicolon,
+        InSecondCoordinate,
+        SawR,
+    } state { Free };
+    auto has_error = false;
+    Vector<char, 4> coordinate_buffer;
+    size_t row { 1 }, col { 1 };
+
     do {
-        auto nread = read(0, buf + length, 16 - length);
+        char c;
+        auto nread = read(0, &c, 1);
         if (nread < 0) {
             if (errno == 0 || errno == EINTR) {
                 // ????
@@ -1721,25 +1747,80 @@ Vector<size_t, 2> Editor::vt_dsr()
             dbgln("Terminal DSR issue; received no response");
             return { 1, 1 };
         }
-        length += nread;
-    } while (buf[length - 1] != 'R' && length < 16);
-    size_t row { 1 }, col { 1 };
 
-    if (buf[0] == '\033' && buf[1] == '[') {
-        auto parts = StringView(buf + 2, length - 3).split_view(';');
-        auto row_opt = parts[0].to_int();
-        if (!row_opt.has_value()) {
-            dbgln("Terminal DSR issue; received garbage row");
-        } else {
-            row = row_opt.value();
+        switch (state) {
+        case Free:
+            if (c == '\x1b') {
+                state = SawEsc;
+                continue;
+            }
+            m_incomplete_data.append(c);
+            continue;
+        case SawEsc:
+            if (c == '[') {
+                state = SawBracket;
+                continue;
+            }
+            m_incomplete_data.append(c);
+            continue;
+        case SawBracket:
+            if (isdigit(c)) {
+                state = InFirstCoordinate;
+                coordinate_buffer.append(c);
+                continue;
+            }
+            m_incomplete_data.append(c);
+            continue;
+        case InFirstCoordinate:
+            if (isdigit(c)) {
+                coordinate_buffer.append(c);
+                continue;
+            }
+            if (c == ';') {
+                auto maybe_row = StringView { coordinate_buffer.data(), coordinate_buffer.size() }.to_uint();
+                if (!maybe_row.has_value())
+                    has_error = true;
+                row = maybe_row.value_or(1u);
+                coordinate_buffer.clear_with_capacity();
+                state = SawSemicolon;
+                continue;
+            }
+            m_incomplete_data.append(c);
+            continue;
+        case SawSemicolon:
+            if (isdigit(c)) {
+                state = InSecondCoordinate;
+                coordinate_buffer.append(c);
+                continue;
+            }
+            m_incomplete_data.append(c);
+            continue;
+        case InSecondCoordinate:
+            if (isdigit(c)) {
+                coordinate_buffer.append(c);
+                continue;
+            }
+            if (c == 'R') {
+                auto maybe_column = StringView { coordinate_buffer.data(), coordinate_buffer.size() }.to_uint();
+                if (!maybe_column.has_value())
+                    has_error = true;
+                col = maybe_column.value_or(1u);
+                coordinate_buffer.clear_with_capacity();
+                state = SawR;
+                continue;
+            }
+            m_incomplete_data.append(c);
+            continue;
+        case SawR:
+            m_incomplete_data.append(c);
+            continue;
+        default:
+            VERIFY_NOT_REACHED();
         }
-        auto col_opt = parts[1].to_int();
-        if (!col_opt.has_value()) {
-            dbgln("Terminal DSR issue; received garbage col");
-        } else {
-            col = col_opt.value();
-        }
-    }
+    } while (state != SawR);
+
+    if (has_error)
+        dbgln("Terminal DSR issue, couldn't parse DSR response");
     return { row, col };
 }
 

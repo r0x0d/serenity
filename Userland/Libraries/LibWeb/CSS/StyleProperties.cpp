@@ -390,6 +390,89 @@ Optional<CSS::Clear> StyleProperties::clear() const
     }
 }
 
+Optional<CSS::Cursor> StyleProperties::cursor() const
+{
+    auto value = property(CSS::PropertyID::Cursor);
+    if (!value.has_value() || !value.value()->is_identifier())
+        return {};
+    switch (static_cast<const IdentifierStyleValue&>(*value.value()).id()) {
+    case CSS::ValueID::Auto:
+        return CSS::Cursor::Auto;
+    case CSS::ValueID::Default:
+        return CSS::Cursor::Default;
+    case CSS::ValueID::None:
+        return CSS::Cursor::None;
+    case CSS::ValueID::ContextMenu:
+        return CSS::Cursor::ContextMenu;
+    case CSS::ValueID::Help:
+        return CSS::Cursor::Help;
+    case CSS::ValueID::Pointer:
+        return CSS::Cursor::Pointer;
+    case CSS::ValueID::Progress:
+        return CSS::Cursor::Progress;
+    case CSS::ValueID::Wait:
+        return CSS::Cursor::Wait;
+    case CSS::ValueID::Cell:
+        return CSS::Cursor::Cell;
+    case CSS::ValueID::Crosshair:
+        return CSS::Cursor::Crosshair;
+    case CSS::ValueID::Text:
+        return CSS::Cursor::Text;
+    case CSS::ValueID::VerticalText:
+        return CSS::Cursor::VerticalText;
+    case CSS::ValueID::Alias:
+        return CSS::Cursor::Alias;
+    case CSS::ValueID::Copy:
+        return CSS::Cursor::Copy;
+    case CSS::ValueID::Move:
+        return CSS::Cursor::Move;
+    case CSS::ValueID::NoDrop:
+        return CSS::Cursor::NoDrop;
+    case CSS::ValueID::NotAllowed:
+        return CSS::Cursor::NotAllowed;
+    case CSS::ValueID::Grab:
+        return CSS::Cursor::Grab;
+    case CSS::ValueID::Grabbing:
+        return CSS::Cursor::Grabbing;
+    case CSS::ValueID::EResize:
+        return CSS::Cursor::EResize;
+    case CSS::ValueID::NResize:
+        return CSS::Cursor::NResize;
+    case CSS::ValueID::NeResize:
+        return CSS::Cursor::NeResize;
+    case CSS::ValueID::NwResize:
+        return CSS::Cursor::NwResize;
+    case CSS::ValueID::SResize:
+        return CSS::Cursor::SResize;
+    case CSS::ValueID::SeResize:
+        return CSS::Cursor::SeResize;
+    case CSS::ValueID::SwResize:
+        return CSS::Cursor::SwResize;
+    case CSS::ValueID::WResize:
+        return CSS::Cursor::WResize;
+    case CSS::ValueID::EwResize:
+        return CSS::Cursor::EwResize;
+    case CSS::ValueID::NsResize:
+        return CSS::Cursor::NsResize;
+    case CSS::ValueID::NeswResize:
+        return CSS::Cursor::NeswResize;
+    case CSS::ValueID::NwseResize:
+        return CSS::Cursor::NwseResize;
+    case CSS::ValueID::ColResize:
+        return CSS::Cursor::ColResize;
+    case CSS::ValueID::RowResize:
+        return CSS::Cursor::RowResize;
+    case CSS::ValueID::AllScroll:
+        return CSS::Cursor::AllScroll;
+    case CSS::ValueID::ZoomIn:
+        return CSS::Cursor::ZoomIn;
+    case CSS::ValueID::ZoomOut:
+        return CSS::Cursor::ZoomOut;
+    default:
+        return {};
+    }
+}
+
 CSS::Display StyleProperties::display() const
 {
     auto value = property(CSS::PropertyID::Display);
@@ -524,6 +607,46 @@ Optional<CSS::Overflow> StyleProperties::overflow(CSS::PropertyID property_id) c
         return CSS::Overflow::Clip;
     case CSS::ValueID::Scroll:
         return CSS::Overflow::Scroll;
+    default:
+        return {};
+    }
+}
+
+Optional<CSS::Repeat> StyleProperties::background_repeat_x() const
+{
+    auto value = property(CSS::PropertyID::BackgroundRepeatX);
+    if (!value.has_value())
+        return {};
+
+    switch (value.value()->to_identifier()) {
+    case CSS::ValueID::NoRepeat:
+        return CSS::Repeat::NoRepeat;
+    case CSS::ValueID::Repeat:
+        return CSS::Repeat::Repeat;
+    case CSS::ValueID::Round:
+        return CSS::Repeat::Round;
+    case CSS::ValueID::Space:
+        return CSS::Repeat::Space;
+    default:
+        return {};
+    }
+}
+
+Optional<CSS::Repeat> StyleProperties::background_repeat_y() const
+{
+    auto value = property(CSS::PropertyID::BackgroundRepeatY);
+    if (!value.has_value())
+        return {};
+
+    switch (value.value()->to_identifier()) {
+    case CSS::ValueID::NoRepeat:
+        return CSS::Repeat::NoRepeat;
+    case CSS::ValueID::Repeat:
+        return CSS::Repeat::Repeat;
+    case CSS::ValueID::Round:
+        return CSS::Repeat::Round;
+    case CSS::ValueID::Space:
+        return CSS::Repeat::Space;
     default:
         return {};
     }

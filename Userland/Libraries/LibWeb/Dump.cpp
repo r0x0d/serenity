@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2018-2021, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2021, the SerenityOS developers.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -27,8 +28,11 @@
 #include <AK/QuickSort.h>
 #include <AK/StringBuilder.h>
 #include <AK/Utf8View.h>
+#include <LibWeb/CSS/CSSImportRule.h>
+#include <LibWeb/CSS/CSSRule.h>
+#include <LibWeb/CSS/CSSStyleRule.h>
+#include <LibWeb/CSS/CSSStyleSheet.h>
 #include <LibWeb/CSS/PropertyID.h>
-#include <LibWeb/CSS/StyleSheet.h>
 #include <LibWeb/DOM/Comment.h>
 #include <LibWeb/DOM/Document.h>
 #include <LibWeb/DOM/Element.h>
@@ -355,6 +359,12 @@ void dump_selector(StringBuilder& builder, const CSS::Selector& selector)
             case CSS::Selector::SimpleSelector::PseudoClass::Root:
                 pseudo_class_description = "Root";
                 break;
+            case CSS::Selector::SimpleSelector::PseudoClass::FirstOfType:
+                pseudo_class_description = "FirstOfType";
+                break;
+            case CSS::Selector::SimpleSelector::PseudoClass::LastOfType:
+                pseudo_class_description = "LastOfType";
+                break;
             case CSS::Selector::SimpleSelector::PseudoClass::Focus:
                 pseudo_class_description = "Focus";
                 break;
@@ -389,16 +399,35 @@ void dump_selector(StringBuilder& builder, const CSS::Selector& selector)
     }
 }
 
-void dump_rule(const CSS::StyleRule& rule)
+void dump_rule(const CSS::CSSRule& rule)
 {
     StringBuilder builder;
     dump_rule(builder, rule);
     dbgln("{}", builder.string_view());
 }
 
-void dump_rule(StringBuilder& builder, const CSS::StyleRule& rule)
+void dump_rule(StringBuilder& builder, const CSS::CSSRule& rule)
 {
-    builder.append("Rule:\n");
+    builder.appendff("{}:\n", rule.class_name());
+    switch (rule.type()) {
+    case CSS::CSSRule::Type::Style:
+        dump_style_rule(builder, downcast<const CSS::CSSStyleRule>(rule));
+        break;
+    case CSS::CSSRule::Type::Import:
+        dump_import_rule(builder, downcast<const CSS::CSSImportRule>(rule));
+        break;
+    default:
+        VERIFY_NOT_REACHED();
+    }
+}
+
+void dump_import_rule(StringBuilder& builder, const CSS::CSSImportRule& rule)
+{
+    builder.appendff("  Document URL: {}\n", rule.url());
+}
+
+void dump_style_rule(StringBuilder& builder, const CSS::CSSStyleRule& rule)
+{
     for (auto& selector : rule.selectors()) {
         dump_selector(builder, selector);
     }
@@ -417,9 +446,11 @@ void dump_sheet(const CSS::StyleSheet& sheet)
 
 void dump_sheet(StringBuilder& builder, const CSS::StyleSheet& sheet)
 {
-    builder.appendff("StyleSheet{{{}}}: {} rule(s)", &sheet, sheet.rules().size());
+    VERIFY(is<CSS::CSSStyleSheet>(sheet));
 
-    for (auto& rule : sheet.rules()) {
+    builder.appendff("CSSStyleSheet{{{}}}: {} rule(s)\n", &sheet, static_cast<const CSS::CSSStyleSheet&>(sheet).rules().size());
+
+    for (auto& rule : static_cast<const CSS::CSSStyleSheet&>(sheet).rules()) {
         dump_rule(builder, rule);
     }
 }

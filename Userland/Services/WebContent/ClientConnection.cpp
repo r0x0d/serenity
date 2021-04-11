@@ -28,12 +28,16 @@
 #include <AK/Debug.h>
 #include <LibGfx/Bitmap.h>
 #include <LibGfx/SystemTheme.h>
+#include <LibJS/Console.h>
 #include <LibJS/Heap/Heap.h>
+#include <LibJS/Interpreter.h>
+#include <LibJS/Parser.h>
 #include <LibJS/Runtime/VM.h>
 #include <LibWeb/Bindings/MainThreadVM.h>
 #include <LibWeb/DOM/Document.h>
 #include <LibWeb/Dump.h>
 #include <LibWeb/Layout/InitialContainingBlockBox.h>
+#include <LibWeb/Loader/ResourceLoader.h>
 #include <LibWeb/Page/Frame.h>
 #include <WebContent/ClientConnection.h>
 #include <WebContent/PageHost.h>
@@ -83,6 +87,11 @@ void ClientConnection::handle(const Messages::WebContentServer::UpdateSystemThem
     Gfx::set_system_theme(message.theme_buffer());
     auto impl = Gfx::PaletteImpl::create_with_anonymous_buffer(message.theme_buffer());
     m_page_host->set_palette_impl(*impl);
+}
+
+void ClientConnection::handle(const Messages::WebContentServer::UpdateScreenRect& message)
+{
+    m_page_host->set_screen_rect(message.rect());
 }
 
 void ClientConnection::handle(const Messages::WebContentServer::LoadURL& message)
@@ -207,6 +216,10 @@ void ClientConnection::handle(const Messages::WebContentServer::DebugRequest& me
         m_page_host->set_should_show_line_box_borders(state);
         page().main_frame().set_needs_display(page().main_frame().viewport_rect());
     }
+
+    if (message.request() == "clear-cache") {
+        Web::ResourceLoader::the().clear_cache();
+    }
 }
 
 void ClientConnection::handle(const Messages::WebContentServer::GetSource&)
@@ -214,6 +227,25 @@ void ClientConnection::handle(const Messages::WebContentServer::GetSource&)
     if (auto* doc = page().main_frame().document()) {
         post_message(Messages::WebContentClient::DidGetSource(doc->url(), doc->source()));
     }
+}
+
+void ClientConnection::handle(const Messages::WebContentServer::JSConsoleInitialize&)
+{
+    if (auto* document = page().main_frame().document()) {
+        auto interpreter = document->interpreter().make_weak_ptr();
+        if (m_interpreter.ptr() == interpreter.ptr())
+            return;
+
+        m_interpreter = interpreter;
+        m_console_client = make<WebContentConsoleClient>(interpreter->global_object().console(), interpreter, *this);
+        interpreter->global_object().console().set_client(*m_console_client.ptr());
+    }
+}
+
+void ClientConnection::handle(const Messages::WebContentServer::JSConsoleInput& message)
+{
+    if (m_console_client)
+        m_console_client->handle_input(message.js_source());
 }
 
 }

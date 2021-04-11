@@ -192,7 +192,7 @@ KResult LocalSocket::connect(FileDescription& description, Userspace<const socka
 
     dbgln_if(LOCAL_SOCKET_DEBUG, "LocalSocket({}) connect({}) status is {}", this, safe_address, to_string(setup_state()));
 
-    if (!((u32)unblock_flags & (u32)Thread::FileDescriptionBlocker::BlockFlags::Connect)) {
+    if (!has_flag(unblock_flags, Thread::FileDescriptionBlocker::BlockFlags::Connect)) {
         set_connect_side_role(Role::None);
         return ECONNREFUSED;
     }
@@ -307,7 +307,7 @@ DoubleBuffer* LocalSocket::send_buffer_for(FileDescription& description)
     return nullptr;
 }
 
-KResultOr<size_t> LocalSocket::recvfrom(FileDescription& description, UserOrKernelBuffer& buffer, size_t buffer_size, int, Userspace<sockaddr*>, Userspace<socklen_t*>, timeval&)
+KResultOr<size_t> LocalSocket::recvfrom(FileDescription& description, UserOrKernelBuffer& buffer, size_t buffer_size, int, Userspace<sockaddr*>, Userspace<socklen_t*>, Time&)
 {
     auto* socket_buffer = receive_buffer_for(description);
     if (!socket_buffer)

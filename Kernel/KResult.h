@@ -56,7 +56,7 @@ public:
 private:
     template<typename T>
     friend class KResultOr;
-    KResult() { }
+    KResult() = default;
 
     int m_error { 0 };
 };
@@ -89,10 +89,7 @@ public:
         m_have_storage = true;
     }
 
-    // FIXME: clang-format gets confused about KResultOr. Why?
-    // clang-format off
     KResultOr(KResultOr&& other)
-    // clang-format on
     {
         m_is_error = other.m_is_error;
         if (m_is_error)

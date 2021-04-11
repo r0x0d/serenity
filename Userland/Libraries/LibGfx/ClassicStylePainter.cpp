@@ -170,7 +170,7 @@ void ClassicStylePainter::paint_button(Painter& painter, const IntRect& rect, co
 
     Color button_color = palette.button();
     Color highlight_color = palette.threed_highlight();
-    Color shadow_color = palette.threed_shadow1();
+    Color shadow_color = button_style == ButtonStyle::CoolBar ? palette.threed_shadow1() : palette.threed_shadow2();
 
     PainterStateSaver saver(painter);
     painter.translate(rect.location());
@@ -178,10 +178,12 @@ void ClassicStylePainter::paint_button(Painter& painter, const IntRect& rect, co
     if (pressed || checked) {
         // Base
         IntRect base_rect { 1, 1, rect.width() - 2, rect.height() - 2 };
-        if (checked && !pressed) {
-            painter.fill_rect_with_dither_pattern(base_rect, palette.button().lightened(1.3f), palette.button());
-        } else {
-            painter.fill_rect(base_rect, button_color);
+        if (button_style == ButtonStyle::CoolBar) {
+            if (checked && !pressed) {
+                painter.fill_rect_with_dither_pattern(base_rect, palette.button().lightened(1.3f), Color());
+            } else {
+                painter.fill_rect(base_rect, button_color);
+            }
         }
 
         // Sunken shadow
@@ -191,9 +193,11 @@ void ClassicStylePainter::paint_button(Painter& painter, const IntRect& rect, co
         // Bottom highlight
         painter.draw_line({ rect.width() - 2, 1 }, { rect.width() - 2, rect.height() - 3 }, highlight_color);
         painter.draw_line({ 1, rect.height() - 2 }, { rect.width() - 2, rect.height() - 2 }, highlight_color);
-    } else if (button_style == ButtonStyle::CoolBar && hovered) {
-        // Base
-        painter.fill_rect({ 1, 1, rect.width() - 2, rect.height() - 2 }, button_color);
+    } else if (hovered) {
+        if (button_style == ButtonStyle::CoolBar) {
+            // Base
+            painter.fill_rect({ 1, 1, rect.width() - 2, rect.height() - 2 }, button_color);
+        }
 
         // Top highlight
         painter.draw_line({ 1, 1 }, { rect.width() - 2, 1 }, highlight_color);
@@ -309,13 +313,13 @@ void ClassicStylePainter::paint_window_frame(Painter& painter, const IntRect& re
     painter.draw_line(rect.bottom_left().translated(3, -3), rect.bottom_right().translated(-3, -3), base_color);
 }
 
-void ClassicStylePainter::paint_progress_bar(Painter& painter, const IntRect& rect, const Palette& palette, int min, int max, int value, const StringView& text)
+void ClassicStylePainter::paint_progress_bar(Painter& painter, const IntRect& rect, const Palette& palette, int min, int max, int value, const StringView& text, Orientation orientation)
 {
     // First we fill the entire widget with the gradient. This incurs a bit of
     // overdraw but ensures a consistent look throughout the progression.
     Color start_color = palette.active_window_border1();
     Color end_color = palette.active_window_border2();
-    painter.fill_rect_with_gradient(rect, start_color, end_color);
+    painter.fill_rect_with_gradient(orientation, rect, start_color, end_color);
 
     if (!text.is_null()) {
         painter.draw_text(rect.translated(1, 1), text, TextAlignment::Center, palette.base_text());
@@ -327,8 +331,14 @@ void ClassicStylePainter::paint_progress_bar(Painter& painter, const IntRect& re
 
     // Then we carve out a hole in the remaining part of the widget.
     // We draw the text a third time, clipped and inverse, for sharp contrast.
-    float progress_width = progress * rect.width();
-    IntRect hole_rect { (int)progress_width, 0, (int)(rect.width() - progress_width), rect.height() };
+    IntRect hole_rect;
+    if (orientation == Orientation::Horizontal) {
+        float progress_width = progress * rect.width();
+        hole_rect = { (int)progress_width, 0, (int)(rect.width() - progress_width), rect.height() };
+    } else {
+        float progress_height = progress * rect.height();
+        hole_rect = { 0, 0, rect.width(), (int)(rect.height() - progress_height) };
+    }
     hole_rect.move_by(rect.location());
     hole_rect.set_right_without_resize(rect.right());
     PainterStateSaver saver(painter);

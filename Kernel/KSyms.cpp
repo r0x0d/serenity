@@ -83,7 +83,7 @@ UNMAP_AFTER_INIT static void load_kernel_sybols_from_data(const KBuffer& buffer)
     s_symbols = static_cast<KernelSymbol*>(kmalloc_eternal(sizeof(KernelSymbol) * s_symbol_count));
     ++bufptr; // skip newline
 
-    klog() << "Loading kernel symbol table...";
+    dmesgln("Loading kernel symbol table...");
 
     size_t current_symbol_index = 0;
 
@@ -127,7 +127,7 @@ NEVER_INLINE static void dump_backtrace_impl(FlatPtr base_pointer, bool use_ksym
         FlatPtr address;
         const KernelSymbol* symbol { nullptr };
     };
-    size_t max_recognized_symbol_count = 256;
+    constexpr size_t max_recognized_symbol_count = 256;
     RecognizedSymbol recognized_symbols[max_recognized_symbol_count];
     size_t recognized_symbol_count = 0;
     if (use_ksyms) {

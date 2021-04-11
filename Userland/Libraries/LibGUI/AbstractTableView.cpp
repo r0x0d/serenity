@@ -48,6 +48,9 @@ AbstractTableView::AbstractTableView()
     m_corner_button->set_fill_with_background_color(true);
     m_column_header = add<HeaderView>(*this, Gfx::Orientation::Horizontal);
     m_column_header->move_to_back();
+    m_column_header->on_resize_doubleclick = [this](auto column) {
+        auto_resize_column(column);
+    };
     m_row_header = add<HeaderView>(*this, Gfx::Orientation::Vertical);
     m_row_header->move_to_back();
     m_row_header->set_visible(false);
@@ -67,6 +70,44 @@ void AbstractTableView::select_all()
     }
 }
 
+void AbstractTableView::auto_resize_column(int column)
+{
+    if (!model())
+        return;
+
+    if (!column_header().is_section_visible(column))
+        return;
+
+    auto& model = *this->model();
+    int row_count = model.row_count();
+
+    int header_width = m_column_header->font().width(model.column_name(column));
+    if (column == m_key_column && model.is_column_sortable(column))
+        header_width += font().width(" \xE2\xAC\x86");
+
+    int column_width = header_width;
+    bool is_empty = true;
+    for (int row = 0; row < row_count; ++row) {
+        auto cell_data = model.index(row, column).data();
+        int cell_width = 0;
+        if (cell_data.is_icon()) {
+            cell_width = cell_data.as_icon().bitmap_for_size(16)->width();
+        } else if (cell_data.is_bitmap()) {
+            cell_width = cell_data.as_bitmap().width();
+        } else if (cell_data.is_valid()) {
+            cell_width = font().width(cell_data.to_string());
+        }
+        if (is_empty && cell_width > 0)
+            is_empty = false;
+        column_width = max(column_width, cell_width);
+    }
+
+    auto default_column_size = column_header().default_section_size(column);
+    if (is_empty && column_header().is_default_section_size_initialized(column))
+        column_header().set_section_size(column, default_column_size);
+    else
+        column_header().set_section_size(column, column_width);
+}
 void AbstractTableView::update_column_sizes()
 {
     if (!model())
@@ -87,7 +128,7 @@ void AbstractTableView::update_column_sizes()
             auto cell_data = model.index(row, column).data();
             int cell_width = 0;
             if (cell_data.is_icon()) {
-                cell_width = row_height();
+                cell_width = cell_data.as_icon().bitmap_for_size(16)->width();
             } else if (cell_data.is_bitmap()) {
                 cell_width = cell_data.as_bitmap().width();
             } else if (cell_data.is_valid()) {
@@ -326,9 +367,14 @@ void AbstractTableView::header_did_change_section_visibility(Badge<HeaderView>, 
     update();
 }
 
-void AbstractTableView::set_column_hidden(int column, bool hidden)
+void AbstractTableView::set_default_column_width(int column, int width)
 {
-    column_header().set_section_visible(column, !hidden);
+    column_header().set_default_section_size(column, width);
+}
+
+void AbstractTableView::set_column_visible(int column, bool visible)
+{
+    column_header().set_section_visible(column, visible);
 }
 
 void AbstractTableView::set_column_headers_visible(bool visible)
@@ -390,16 +436,6 @@ void AbstractTableView::keydown_event(KeyEvent& event)
     }
 
     AbstractView::keydown_event(event);
-}
-
-int AbstractTableView::horizontal_padding() const
-{
-    return font().glyph_height() / 2;
-}
-
-int AbstractTableView::row_height() const
-{
-    return font().glyph_height() + 6;
 }
 
 }

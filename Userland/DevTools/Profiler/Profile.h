@@ -39,22 +39,66 @@
 #include <LibGUI/Forward.h>
 #include <LibGUI/ModelIndex.h>
 
-class ProfileModel;
 class DisassemblyModel;
+class Profile;
+class ProfileModel;
 class SamplesModel;
+
+struct MappedObject {
+    NonnullRefPtr<MappedFile> file;
+    ELF::Image elf;
+};
+
+extern HashMap<String, OwnPtr<MappedObject>> g_mapped_object_cache;
+
+class LibraryMetadata {
+public:
+    explicit LibraryMetadata(JsonArray regions);
+
+    struct Library {
+        FlatPtr base;
+        size_t size;
+        String name;
+        FlatPtr text_base;
+        MappedObject* object { nullptr };
+
+        String symbolicate(FlatPtr, u32* offset) const;
+    };
+
+    const Library* library_containing(FlatPtr) const;
+
+private:
+    mutable HashMap<String, OwnPtr<Library>> m_libraries;
+    JsonArray m_regions;
+};
+
+struct Process {
+    pid_t pid {};
+    String executable;
+    HashTable<int> threads;
+
+    struct Region {
+        String name;
+        FlatPtr base {};
+        size_t size {};
+    };
+    Vector<Region> regions;
+
+    NonnullOwnPtr<LibraryMetadata> library_metadata;
+};
 
 class ProfileNode : public RefCounted<ProfileNode> {
 public:
-    static NonnullRefPtr<ProfileNode> create(FlyString object_name, String symbol, u32 address, u32 offset, u64 timestamp)
+    static NonnullRefPtr<ProfileNode> create(FlyString object_name, String symbol, u32 address, u32 offset, u64 timestamp, pid_t pid)
     {
-        return adopt(*new ProfileNode(move(object_name), move(symbol), address, offset, timestamp));
+        return adopt(*new ProfileNode(move(object_name), move(symbol), address, offset, timestamp, pid));
     }
 
     // These functions are only relevant for root nodes
     void will_track_seen_events(size_t profile_event_count)
     {
         if (m_seen_events.size() != profile_event_count)
-            m_seen_events = Bitmap::create(profile_event_count, false);
+            m_seen_events = Bitmap { profile_event_count, false };
     }
     bool has_seen_event(size_t event_index) const { return m_seen_events.get(event_index); }
     void did_see_event(size_t event_index) { m_seen_events.set(event_index, true); }
@@ -80,7 +124,7 @@ public:
         m_children.append(child);
     }
 
-    ProfileNode& find_or_create_child(FlyString object_name, String symbol, u32 address, u32 offset, u64 timestamp)
+    ProfileNode& find_or_create_child(FlyString object_name, String symbol, u32 address, u32 offset, u64 timestamp, pid_t pid)
     {
         for (size_t i = 0; i < m_children.size(); ++i) {
             auto& child = m_children[i];
@@ -88,7 +132,7 @@ public:
                 return child;
             }
         }
-        auto new_child = ProfileNode::create(move(object_name), move(symbol), address, offset, timestamp);
+        auto new_child = ProfileNode::create(move(object_name), move(symbol), address, offset, timestamp, pid);
         add_child(new_child);
         return new_child;
     };
@@ -111,12 +155,17 @@ public:
             m_events_per_address.set(address, it->value + 1);
     }
 
+    pid_t pid() const { return m_pid; }
+
+    const Process* process(Profile&) const;
+
 private:
-    explicit ProfileNode(const String& object_name, String symbol, u32 address, u32 offset, u64 timestamp);
+    explicit ProfileNode(const String& object_name, String symbol, u32 address, u32 offset, u64 timestamp, pid_t);
 
     ProfileNode* m_parent { nullptr };
     FlyString m_object_name;
     String m_symbol;
+    pid_t m_pid { 0 };
     u32 m_address { 0 };
     u32 m_offset { 0 };
     u32 m_event_count { 0 };
@@ -136,6 +185,14 @@ public:
     GUI::Model& samples_model();
     GUI::Model* disassembly_model();
 
+    const Process* find_process(pid_t pid) const
+    {
+        auto it = m_processes.find_if([&](auto& entry) {
+            return entry.pid == pid;
+        });
+        return it.is_end() ? nullptr : &(*it);
+    }
+
     void set_disassembly_index(const GUI::ModelIndex&);
 
     const Vector<NonnullRefPtr<ProfileNode>>& roots() const { return m_roots; }
@@ -152,6 +209,7 @@ public:
         String type;
         FlatPtr ptr { 0 };
         size_t size { 0 };
+        int tid { 0 };
         bool in_kernel { false };
         Vector<Frame> frames;
     };
@@ -178,31 +236,6 @@ public:
     bool show_percentages() const { return m_show_percentages; }
     void set_show_percentages(bool);
 
-    const String& executable_path() const { return m_executable_path; }
-
-    class LibraryMetadata {
-    public:
-        LibraryMetadata(JsonArray regions);
-
-        String symbolicate(FlatPtr ptr, u32& offset) const;
-
-        struct Library {
-            FlatPtr base;
-            size_t size;
-            String name;
-            NonnullRefPtr<MappedFile> file;
-            ELF::Image elf;
-        };
-
-        const Library* library_containing(FlatPtr) const;
-
-    private:
-        mutable HashMap<String, OwnPtr<Library>> m_libraries;
-        JsonArray m_regions;
-    };
-
-    const LibraryMetadata& libraries() const { return *m_library_metadata; }
-
     template<typename Callback>
     void for_each_event_in_filter_range(Callback callback)
     {
@@ -217,11 +250,9 @@ public:
     }
 
 private:
-    Profile(String executable_path, Vector<Event>, NonnullOwnPtr<LibraryMetadata>);
+    Profile(Vector<Process>, Vector<Event>);
 
     void rebuild_tree();
-
-    String m_executable_path;
 
     RefPtr<ProfileModel> m_model;
     RefPtr<SamplesModel> m_samples_model;
@@ -235,9 +266,8 @@ private:
     u64 m_first_timestamp { 0 };
     u64 m_last_timestamp { 0 };
 
+    Vector<Process> m_processes;
     Vector<Event> m_events;
-
-    NonnullOwnPtr<LibraryMetadata> m_library_metadata;
 
     bool m_has_timestamp_filter_range { false };
     u64 m_timestamp_filter_range_start { 0 };

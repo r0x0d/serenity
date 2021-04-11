@@ -150,19 +150,22 @@ bool BlockBox::is_scrollable() const
 
 void BlockBox::set_scroll_offset(const Gfx::FloatPoint& offset)
 {
-    if (m_scroll_offset == offset)
+    // FIXME: If there is horizontal and vertical scroll ignore only part of the new offset
+    if (offset.y() < 0 || m_scroll_offset == offset)
         return;
     m_scroll_offset = offset;
     set_needs_display();
 }
 
-void BlockBox::handle_mousewheel(Badge<EventHandler>, const Gfx::IntPoint&, unsigned int, unsigned int, int wheel_delta)
+bool BlockBox::handle_mousewheel(Badge<EventHandler>, const Gfx::IntPoint&, unsigned int, unsigned int, int wheel_delta)
 {
     if (!is_scrollable())
-        return;
+        return false;
     auto new_offset = m_scroll_offset;
     new_offset.move_by(0, wheel_delta);
     set_scroll_offset(new_offset);
+
+    return true;
 }
 
 }

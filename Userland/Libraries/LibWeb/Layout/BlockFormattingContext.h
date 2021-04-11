@@ -47,6 +47,7 @@ public:
 protected:
     void compute_width(Box&);
     void compute_height(Box&);
+    void compute_position(Box&);
 
 private:
     virtual bool is_block_formatting_context() const final { return true; }
@@ -54,7 +55,8 @@ private:
     void compute_width_for_floating_box(Box&);
 
     void compute_width_for_block_level_replaced_element_in_normal_flow(ReplacedBox&);
-    void compute_height_for_block_level_replaced_element_in_normal_flow(ReplacedBox&);
+
+    [[nodiscard]] static float compute_auto_height_for_block_level_element(const Box&);
 
     void layout_initial_containing_block(LayoutMode);
 

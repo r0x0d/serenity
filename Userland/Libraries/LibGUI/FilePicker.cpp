@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2018-2021, Andreas Kling <kling@serenityos.org>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -36,19 +36,21 @@
 #include <LibGUI/FilePickerDialogGML.h>
 #include <LibGUI/FileSystemModel.h>
 #include <LibGUI/InputBox.h>
+#include <LibGUI/Menu.h>
 #include <LibGUI/MessageBox.h>
 #include <LibGUI/MultiView.h>
 #include <LibGUI/SortingProxyModel.h>
 #include <LibGUI/TextBox.h>
 #include <LibGUI/ToolBar.h>
 #include <LibGfx/FontDatabase.h>
+#include <LibGfx/Palette.h>
 #include <string.h>
 
 namespace GUI {
 
-Optional<String> FilePicker::get_open_filepath(Window* parent_window, const String& window_title)
+Optional<String> FilePicker::get_open_filepath(Window* parent_window, const String& window_title, const StringView& path)
 {
-    auto picker = FilePicker::construct(parent_window, Mode::Open);
+    auto picker = FilePicker::construct(parent_window, Mode::Open, "", path);
 
     if (!window_title.is_null())
         picker->set_title(window_title);
@@ -64,9 +66,9 @@ Optional<String> FilePicker::get_open_filepath(Window* parent_window, const Stri
     return {};
 }
 
-Optional<String> FilePicker::get_save_filepath(Window* parent_window, const String& title, const String& extension)
+Optional<String> FilePicker::get_save_filepath(Window* parent_window, const String& title, const String& extension, const StringView& path)
 {
-    auto picker = FilePicker::construct(parent_window, Mode::Save, String::formatted("{}.{}", title, extension));
+    auto picker = FilePicker::construct(parent_window, Mode::Save, String::formatted("{}.{}", title, extension), path);
 
     if (picker->exec() == Dialog::ExecOK) {
         String file_path = picker->selected_file().string();
@@ -112,13 +114,11 @@ FilePicker::FilePicker(Window* parent_window, Mode mode, const StringView& file_
     m_view->set_model(SortingProxyModel::create(*m_model));
     m_view->set_model_column(FileSystemModel::Column::Name);
     m_view->set_key_column_and_sort_order(GUI::FileSystemModel::Column::Name, GUI::SortOrder::Ascending);
-    m_view->set_column_hidden(FileSystemModel::Column::Owner, true);
-    m_view->set_column_hidden(FileSystemModel::Column::Group, true);
-    m_view->set_column_hidden(FileSystemModel::Column::Permissions, true);
-    m_view->set_column_hidden(FileSystemModel::Column::Inode, true);
-    m_view->set_column_hidden(FileSystemModel::Column::SymlinkTarget, true);
-
-    set_path(path);
+    m_view->set_column_visible(FileSystemModel::Column::Owner, true);
+    m_view->set_column_visible(FileSystemModel::Column::Group, true);
+    m_view->set_column_visible(FileSystemModel::Column::Permissions, true);
+    m_view->set_column_visible(FileSystemModel::Column::Inode, true);
+    m_view->set_column_visible(FileSystemModel::Column::SymlinkTarget, true);
 
     m_model->register_client(*this);
 
@@ -184,6 +184,18 @@ FilePicker::FilePicker(Window* parent_window, Mode mode, const StringView& file_
             m_filename_textbox->set_text(node.name);
     };
 
+    m_context_menu = GUI::Menu::construct();
+    m_context_menu->add_action(GUI::Action::create_checkable("Show dotfiles", [&](auto& action) {
+        m_model->set_should_show_dotfiles(action.is_checked());
+        m_model->update();
+    }));
+
+    m_view->on_context_menu_request = [&](const GUI::ModelIndex& index, const GUI::ContextMenuEvent& event) {
+        if (!index.is_valid()) {
+            m_context_menu->popup(event.screen_position());
+        }
+    };
+
     auto& ok_button = *widget.find_descendant_of_type_named<GUI::Button>("ok_button");
     ok_button.set_text(ok_button_name(m_mode));
     ok_button.on_click = [this](auto) {
@@ -202,13 +214,51 @@ FilePicker::FilePicker(Window* parent_window, Mode mode, const StringView& file_
         const FileSystemModel::Node& node = m_model->node(local_index);
         auto path = node.full_path();
 
-        if (node.is_directory()) {
+        if (node.is_directory() || node.is_symlink_to_directory()) {
             set_path(path);
             // NOTE: 'node' is invalid from here on
         } else {
             on_file_return();
         }
     };
+
+    auto& common_locations_frame = *widget.find_descendant_of_type_named<GUI::Frame>("common_locations_frame");
+    common_locations_frame.set_background_role(Gfx::ColorRole::Tray);
+    auto add_common_location_button = [&](auto& name, String path) -> GUI::Button& {
+        auto& button = common_locations_frame.add<GUI::Button>();
+        button.set_button_style(Gfx::ButtonStyle::Tray);
+        button.set_foreground_role(Gfx::ColorRole::TrayText);
+        button.set_text_alignment(Gfx::TextAlignment::CenterLeft);
+        button.set_text(move(name));
+        button.set_icon(FileIconProvider::icon_for_path(path).bitmap_for_size(16));
+        button.set_fixed_height(22);
+        button.set_checkable(true);
+        button.set_exclusive(true);
+        button.on_click = [this, path] {
+            set_path(path);
+        };
+        return button;
+    };
+
+    auto& root_button = add_common_location_button("Root", "/");
+    auto& home_button = add_common_location_button("Home", Core::StandardPaths::home_directory());
+    auto& desktop_button = add_common_location_button("Desktop", Core::StandardPaths::desktop_directory());
+
+    m_model->on_complete = [&] {
+        if (m_model->root_path() == Core::StandardPaths::home_directory()) {
+            home_button.set_checked(true);
+        } else if (m_model->root_path() == Core::StandardPaths::desktop_directory()) {
+            desktop_button.set_checked(true);
+        } else if (m_model->root_path() == "/") {
+            root_button.set_checked(true);
+        } else {
+            home_button.set_checked(false);
+            desktop_button.set_checked(false);
+            root_button.set_checked(false);
+        }
+    };
+
+    set_path(path);
 }
 
 FilePicker::~FilePicker()

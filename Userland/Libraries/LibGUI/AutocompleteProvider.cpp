@@ -65,7 +65,6 @@ public:
                 return suggestion.completion;
             }
             if (index.column() == Column::Icon) {
-                // TODO
                 if (suggestion.language == GUI::AutocompleteProvider::Language::Cpp) {
                     if (!s_cpp_identifier_icon) {
                         s_cpp_identifier_icon = Gfx::Bitmap::load_from_file("/res/icons/16x16/completion/cpp-identifier.png");
@@ -136,12 +135,12 @@ bool AutocompleteBox::is_visible() const
     return m_popup_window->is_visible();
 }
 
-void AutocompleteBox::show(Gfx::IntPoint suggstion_box_location)
+void AutocompleteBox::show(Gfx::IntPoint suggestion_box_location)
 {
     if (!m_suggestion_view->model() || m_suggestion_view->model()->row_count() == 0)
         return;
 
-    m_popup_window->move_to(suggstion_box_location);
+    m_popup_window->move_to(suggestion_box_location);
     if (!is_visible())
         m_suggestion_view->move_cursor(GUI::AbstractView::CursorMovement::Home, GUI::AbstractTableView::SelectionUpdate::Set);
     m_popup_window->show();

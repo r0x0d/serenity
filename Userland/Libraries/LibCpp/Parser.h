@@ -28,13 +28,17 @@
 
 #include "AK/NonnullRefPtr.h"
 #include "AST.h"
+#include "Preprocessor.h"
+#include <AK/Noncopyable.h>
 #include <LibCpp/Lexer.h>
 
 namespace Cpp {
 
 class Parser final {
+    AK_MAKE_NONCOPYABLE(Parser);
+
 public:
-    explicit Parser(const StringView& program, const String& filename);
+    explicit Parser(const StringView& program, const String& filename, Preprocessor::Definitions&& = {});
     ~Parser() = default;
 
     NonnullRefPtr<TranslationUnit> parse();
@@ -42,12 +46,21 @@ public:
 
     RefPtr<ASTNode> eof_node() const;
     RefPtr<ASTNode> node_at(Position) const;
+    Optional<size_t> index_of_node_at(Position) const;
     Optional<Token> token_at(Position) const;
+    Optional<size_t> index_of_token_at(Position) const;
     RefPtr<const TranslationUnit> root_node() const { return m_root_node; }
-    StringView text_of_node(const ASTNode&) const;
+    String text_of_node(const ASTNode&) const;
     StringView text_of_token(const Cpp::Token& token) const;
     void print_tokens() const;
-    Vector<String> errors() const { return m_errors; }
+    const Vector<String>& errors() const { return m_state.errors; }
+    const Preprocessor::Definitions& definitions() const { return m_definitions; }
+
+    struct TokenAndPreprocessorDefinition {
+        Token token;
+        Preprocessor::DefinedValue preprocessor_value;
+    };
+    const Vector<TokenAndPreprocessorDefinition>& replaced_preprocessor_tokens() const { return m_replaced_preprocessor_tokens; }
 
 private:
     enum class DeclarationType {
@@ -55,20 +68,16 @@ private:
         Variable,
         Enum,
         Struct,
+        Namespace,
     };
 
-    bool done();
-
-    Optional<DeclarationType> match_declaration();
     Optional<DeclarationType> match_declaration_in_translation_unit();
-    Optional<DeclarationType> match_declaration_in_function_definition();
     bool match_function_declaration();
     bool match_comment();
     bool match_preprocessor();
     bool match_whitespace();
     bool match_variable_declaration();
     bool match_expression();
-    bool match_function_call();
     bool match_secondary_expression();
     bool match_enum_declaration();
     bool match_struct_declaration();
@@ -77,6 +86,14 @@ private:
     bool match_boolean_literal();
     bool match_keyword(const String&);
     bool match_block_statement();
+    bool match_namespace_declaration();
+    bool match_template_arguments();
+    bool match_name();
+    bool match_cpp_cast_expression();
+    bool match_c_style_cast_expression();
+    bool match_sizeof_expression();
+    bool match_braced_init_list();
+    bool match_type();
 
     Optional<NonnullRefPtrVector<Parameter>> parse_parameter_list(ASTNode& parent);
     Optional<Token> consume_whitespace();
@@ -86,7 +103,7 @@ private:
     NonnullRefPtr<FunctionDeclaration> parse_function_declaration(ASTNode& parent);
     NonnullRefPtr<FunctionDefinition> parse_function_definition(ASTNode& parent);
     NonnullRefPtr<Statement> parse_statement(ASTNode& parent);
-    NonnullRefPtr<VariableDeclaration> parse_variable_declaration(ASTNode& parent);
+    NonnullRefPtr<VariableDeclaration> parse_variable_declaration(ASTNode& parent, bool expect_semicolon = true);
     NonnullRefPtr<Expression> parse_expression(ASTNode& parent);
     NonnullRefPtr<Expression> parse_primary_expression(ASTNode& parent);
     NonnullRefPtr<Expression> parse_secondary_expression(ASTNode& parent, NonnullRefPtr<Expression> lhs);
@@ -106,39 +123,44 @@ private:
     NonnullRefPtr<BlockStatement> parse_block_statement(ASTNode& parent);
     NonnullRefPtr<Comment> parse_comment(ASTNode& parent);
     NonnullRefPtr<IfStatement> parse_if_statement(ASTNode& parent);
+    NonnullRefPtr<NamespaceDeclaration> parse_namespace_declaration(ASTNode& parent, bool is_nested_namespace = false);
+    NonnullRefPtrVector<Declaration> parse_declarations_in_translation_unit(ASTNode& parent);
+    RefPtr<Declaration> parse_single_declaration_in_translation_unit(ASTNode& parent);
+    NonnullRefPtrVector<Type> parse_template_arguments(ASTNode& parent);
+    NonnullRefPtr<Name> parse_name(ASTNode& parent);
+    NonnullRefPtr<CppCastExpression> parse_cpp_cast_expression(ASTNode& parent);
+    NonnullRefPtr<SizeofExpression> parse_sizeof_expression(ASTNode& parent);
+    NonnullRefPtr<BracedInitList> parse_braced_init_list(ASTNode& parent);
+    NonnullRefPtr<CStyleCastExpression> parse_c_style_cast_expression(ASTNode& parent);
 
     bool match(Token::Type);
     Token consume(Token::Type);
     Token consume();
     Token consume_keyword(const String&);
-    Token peek() const;
+    Token peek(size_t offset = 0) const;
     Optional<Token> peek(Token::Type) const;
     Position position() const;
-    StringView text_of_range(Position start, Position end) const;
+    String text_in_range(Position start, Position end) const;
 
     void save_state();
     void load_state();
 
-    enum class Context {
-        InTranslationUnit,
-        InFunctionDefinition,
-    };
-
     struct State {
-        Context context { Context::InTranslationUnit };
         size_t token_index { 0 };
+        Vector<String> errors;
+        NonnullRefPtrVector<ASTNode> nodes;
     };
 
     void error(StringView message = {});
-
-    size_t node_span_size(const ASTNode& node) const;
 
     template<class T, class... Args>
     NonnullRefPtr<T>
     create_ast_node(ASTNode& parent, const Position& start, Optional<Position> end, Args&&... args)
     {
         auto node = adopt(*new T(&parent, start, end, m_filename, forward<Args>(args)...));
-        m_nodes.append(node);
+        if (!parent.is_dummy_node()) {
+            m_state.nodes.append(node);
+        }
         return node;
     }
 
@@ -146,20 +168,33 @@ private:
     create_root_ast_node(const Position& start, Position end)
     {
         auto node = adopt(*new TranslationUnit(nullptr, start, end, m_filename));
-        m_nodes.append(node);
+        m_state.nodes.append(node);
         m_root_node = node;
         return node;
     }
 
-    StringView m_program;
-    Vector<StringView> m_lines;
+    DummyAstNode& get_dummy_node()
+    {
+        static NonnullRefPtr<DummyAstNode> dummy = adopt(*new DummyAstNode(nullptr, {}, {}, {}));
+        return dummy;
+    }
+
+    bool match_attribute_specification();
+    void consume_attribute_specification();
+    bool match_ellipsis();
+    void initialize_program_tokens(const StringView& program);
+    void add_tokens_for_preprocessor(Token& replaced_token, Preprocessor::DefinedValue&);
+    Vector<StringView> parse_type_qualifiers();
+    Vector<StringView> parse_function_qualifiers();
+
+    Preprocessor::Definitions m_definitions;
     String m_filename;
     Vector<Token> m_tokens;
     State m_state;
     Vector<State> m_saved_states;
     RefPtr<TranslationUnit> m_root_node;
-    NonnullRefPtrVector<ASTNode> m_nodes;
-    Vector<String> m_errors;
+
+    Vector<TokenAndPreprocessorDefinition> m_replaced_preprocessor_tokens;
 };
 
 }

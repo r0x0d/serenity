@@ -32,7 +32,6 @@
 #include "MenuItem.h"
 #include "Screen.h"
 #include "Window.h"
-#include <AK/LogStream.h>
 #include <AK/StdLibExtras.h>
 #include <AK/Vector.h>
 #include <LibGfx/Bitmap.h>
@@ -124,7 +123,6 @@ const Gfx::Font& WindowManager::window_title_font() const
 bool WindowManager::set_resolution(int width, int height, int scale)
 {
     bool success = Compositor::the().set_resolution(width, height, scale);
-    MenuManager::the().set_needs_window_resize();
     ClientConnection::for_each_client([&](ClientConnection& client) {
         client.notify_about_new_screen_rect(Screen::the().rect());
     });
@@ -173,6 +171,20 @@ void WindowManager::set_scroll_step_size(unsigned step_size)
     m_config->sync();
 }
 
+void WindowManager::set_double_click_speed(int speed)
+{
+    VERIFY(speed >= double_click_speed_min && speed <= double_click_speed_max);
+    m_double_click_speed = speed;
+    dbgln("Saving double-click speed {} to config file at {}", speed, m_config->file_name());
+    m_config->write_entry("Input", "DoubleClickSpeed", String::number(speed));
+    m_config->sync();
+}
+
+int WindowManager::double_click_speed() const
+{
+    return m_double_click_speed;
+}
+
 int WindowManager::scale_factor() const
 {
     return Screen::the().scale_factor();
@@ -205,7 +217,11 @@ void WindowManager::add_window(Window& window)
             }
             return IterationDecision::Continue;
         });
+        if (auto* applet_area_window = AppletManager::the().window())
+            tell_wm_listeners_applet_area_size_changed(applet_area_window->size());
     }
+
+    window.invalidate(true, true);
 
     tell_wm_listeners_window_state_changed(window);
 }
@@ -340,6 +356,14 @@ void WindowManager::tell_wm_listeners_window_rect_changed(Window& window)
     });
 }
 
+void WindowManager::tell_wm_listeners_applet_area_size_changed(const Gfx::IntSize& size)
+{
+    for_each_window_listening_to_wm_events([&](Window& listener) {
+        listener.client()->post_message(Messages::WindowClient::WM_AppletAreaSizeChanged(listener.window_id(), size));
+        return IterationDecision::Continue;
+    });
+}
+
 static bool window_type_has_title(WindowType type)
 {
     return type == WindowType::Normal || type == WindowType::ToolWindow;
@@ -380,8 +404,8 @@ void WindowManager::notify_rect_changed(Window& window, const Gfx::IntRect& old_
 
     tell_wm_listeners_window_rect_changed(window);
 
-    if (window.type() == WindowType::MenuApplet)
-        AppletManager::the().calculate_applet_rects(MenuManager::the().window());
+    if (window.type() == WindowType::Applet)
+        AppletManager::the().relayout();
 
     MenuManager::the().refresh();
 }
@@ -564,8 +588,8 @@ bool WindowManager::process_ongoing_window_move(MouseEvent& event, Window*& hove
                 Gfx::IntPoint pos = m_move_window_origin.translated(event.position() - m_move_origin);
                 m_move_window->set_position_without_repaint(pos);
                 // "Bounce back" the window if it would end up too far outside the screen.
-                // If the user has let go of Mod_Logo, maybe they didn't intentionally press it to begin with. Therefore, refuse to go into a state where knowledge about super-drags is necessary.
-                bool force_titlebar_visible = !(m_keyboard_modifiers & Mod_Logo);
+                // If the user has let go of Mod_Super, maybe they didn't intentionally press it to begin with. Therefore, refuse to go into a state where knowledge about super-drags is necessary.
+                bool force_titlebar_visible = !(m_keyboard_modifiers & Mod_Super);
                 m_move_window->nudge_into_desktop(force_titlebar_visible);
             } else if (pixels_moved_from_start > 5) {
                 m_move_window->set_untiled(event.position());
@@ -915,17 +939,32 @@ void WindowManager::process_mouse_event(MouseEvent& event, Window*& hovered_wind
     if (m_hovered_button && event.type() == Event::MouseMove)
         m_hovered_button->on_mouse_event(event.translated(-m_hovered_button->screen_rect().location()));
 
-    // FIXME: Now that the menubar has a dedicated window, is this special-casing really necessary?
-    if (MenuManager::the().has_open_menu() || menubar_rect().contains(event.position())) {
-        for_each_visible_window_of_type_from_front_to_back(WindowType::MenuApplet, [&](auto& window) {
-            if (!window.rect_in_menubar().contains(event.position()))
+    bool hitting_menu_in_window_with_active_menu = [&] {
+        if (!m_window_with_active_menu)
+            return false;
+        auto& frame = m_window_with_active_menu->frame();
+        return frame.menubar_rect().contains(event.position().translated(-frame.rect().location()));
+    }();
+
+    // FIXME: This is quite hackish, we clear the hovered menu before potentially setting the same menu
+    //        as hovered again. This makes sure that the hovered state doesn't linger after moving the
+    //        cursor away from a hovered menu.
+    MenuManager::the().set_hovered_menu(nullptr);
+
+    if (MenuManager::the().has_open_menu()
+        || hitting_menu_in_window_with_active_menu) {
+        for_each_visible_window_of_type_from_front_to_back(WindowType::Applet, [&](auto& window) {
+            if (!window.rect_in_applet_area().contains(event.position()))
                 return IterationDecision::Continue;
             hovered_window = &window;
             return IterationDecision::Break;
         });
         clear_resize_candidate();
-        MenuManager::the().dispatch_event(event);
-        return;
+
+        if (!hitting_menu_in_window_with_active_menu) {
+            MenuManager::the().dispatch_event(event);
+            return;
+        }
     }
 
     Window* event_window_with_frame = nullptr;
@@ -957,22 +996,22 @@ void WindowManager::process_mouse_event(MouseEvent& event, Window*& hovered_wind
             if (&window != m_resize_candidate.ptr())
                 clear_resize_candidate();
 
-            // First check if we should initiate a move or resize (Logo+LMB or Logo+RMB).
+            // First check if we should initiate a move or resize (Super+LMB or Super+RMB).
             // In those cases, the event is swallowed by the window manager.
             if (window.is_movable()) {
-                if (!window.is_fullscreen() && m_keyboard_modifiers == Mod_Logo && event.type() == Event::MouseDown && event.button() == MouseButton::Left) {
+                if (!window.is_fullscreen() && m_keyboard_modifiers == Mod_Super && event.type() == Event::MouseDown && event.button() == MouseButton::Left) {
                     hovered_window = &window;
                     start_window_move(window, event);
                     return;
                 }
-                if (window.is_resizable() && m_keyboard_modifiers == Mod_Logo && event.type() == Event::MouseDown && event.button() == MouseButton::Right && !window.blocking_modal_window()) {
+                if (window.is_resizable() && m_keyboard_modifiers == Mod_Super && event.type() == Event::MouseDown && event.button() == MouseButton::Right && !window.blocking_modal_window()) {
                     hovered_window = &window;
                     start_window_resize(window, event);
                     return;
                 }
             }
 
-            if (m_keyboard_modifiers == Mod_Logo && event.type() == Event::MouseWheel) {
+            if (m_keyboard_modifiers == Mod_Super && event.type() == Event::MouseWheel) {
                 float opacity_change = -event.wheel_delta() * 0.05f;
                 float new_opacity = window.opacity() + opacity_change;
                 if (new_opacity < 0.05f)
@@ -1080,7 +1119,7 @@ void WindowManager::reevaluate_hovered_window(Window* updated_window)
             // e.g. a hit-test result change due to a transparent window repaint.
             if (hovered_window->hit_test(cursor_location, false)) {
                 MouseEvent event(Event::MouseMove, cursor_location.translated(-hovered_window->rect().location()), 0, MouseButton::None, 0);
-                hovered_window->event(event);
+                hovered_window->dispatch_event(event);
             } else if (!hovered_window->is_frameless()) {
                 MouseEvent event(Event::MouseMove, cursor_location.translated(-hovered_window->frame().rect().location()), 0, MouseButton::None, 0);
                 hovered_window->frame().on_mouse_event(event);
@@ -1096,22 +1135,15 @@ void WindowManager::clear_resize_candidate()
     m_resize_candidate = nullptr;
 }
 
-Gfx::IntRect WindowManager::menubar_rect() const
-{
-    if (active_fullscreen_window())
-        return {};
-    return MenuManager::the().menubar_rect();
-}
-
 Gfx::IntRect WindowManager::desktop_rect() const
 {
     if (active_fullscreen_window())
         return Screen::the().rect();
     return {
         0,
-        menubar_rect().bottom() + 1,
+        0,
         Screen::the().width(),
-        Screen::the().height() - menubar_rect().height() - 28
+        Screen::the().height() - 28
     };
 }
 
@@ -1126,8 +1158,7 @@ Gfx::IntRect WindowManager::arena_rect_for_type(WindowType type) const
     case WindowType::WindowSwitcher:
     case WindowType::Taskbar:
     case WindowType::Tooltip:
-    case WindowType::Menubar:
-    case WindowType::MenuApplet:
+    case WindowType::Applet:
     case WindowType::Notification:
         return Screen::the().rect();
     default:
@@ -1138,9 +1169,6 @@ Gfx::IntRect WindowManager::arena_rect_for_type(WindowType type) const
 void WindowManager::event(Core::Event& event)
 {
     if (static_cast<Event&>(event).is_mouse_event()) {
-        if (event.type() != Event::MouseMove)
-            m_previous_event_is_key_down_logo = false;
-
         Window* hovered_window = nullptr;
         process_mouse_event(static_cast<MouseEvent&>(event), hovered_window);
         set_hovered_window(hovered_window);
@@ -1164,24 +1192,10 @@ void WindowManager::event(Core::Event& event)
             return;
         }
 
-        if (key_event.type() == Event::KeyDown && (key_event.modifiers() == (Mod_Ctrl | Mod_Logo | Mod_Shift) && key_event.key() == Key_I)) {
+        if (key_event.type() == Event::KeyDown && (key_event.modifiers() == (Mod_Ctrl | Mod_Super | Mod_Shift) && key_event.key() == Key_I)) {
             reload_icon_bitmaps_after_scale_change(!m_allow_hidpi_icons);
             Compositor::the().invalidate_screen();
             return;
-        }
-
-        if (key_event.type() == Event::KeyDown && key_event.key() == Key_Logo) {
-            m_previous_event_is_key_down_logo = true;
-        } else if (m_previous_event_is_key_down_logo) {
-            m_previous_event_is_key_down_logo = false;
-            if (key_event.type() == Event::KeyUp && key_event.key() == Key_Logo) {
-                if (MenuManager::the().has_open_menu()) {
-                    MenuManager::the().close_everyone();
-                } else {
-                    MenuManager::the().open_menu(*MenuManager::the().system_menu(), true);
-                }
-                return;
-            }
         }
 
         if (MenuManager::the().current_menu()) {
@@ -1189,7 +1203,7 @@ void WindowManager::event(Core::Event& event)
             return;
         }
 
-        if (key_event.type() == Event::KeyDown && ((key_event.modifiers() == Mod_Logo && key_event.key() == Key_Tab) || (key_event.modifiers() == (Mod_Logo | Mod_Shift) && key_event.key() == Key_Tab)))
+        if (key_event.type() == Event::KeyDown && ((key_event.modifiers() == Mod_Super && key_event.key() == Key_Tab) || (key_event.modifiers() == (Mod_Super | Mod_Shift) && key_event.key() == Key_Tab)))
             m_switcher.show();
         if (m_switcher.is_visible()) {
             m_switcher.on_key_event(key_event);
@@ -1197,7 +1211,7 @@ void WindowManager::event(Core::Event& event)
         }
 
         if (m_active_input_window) {
-            if (key_event.type() == Event::KeyDown && key_event.modifiers() == Mod_Logo) {
+            if (key_event.type() == Event::KeyDown && key_event.modifiers() == Mod_Super && m_active_input_window->type() != WindowType::Desktop) {
                 if (key_event.key() == Key_Down) {
                     if (m_active_input_window->is_resizable() && m_active_input_window->is_maximized()) {
                         maximize_windows(*m_active_input_window, false);
@@ -1252,10 +1266,16 @@ void WindowManager::set_highlight_window(Window* window)
         return;
     auto* previous_highlight_window = m_highlight_window.ptr();
     m_highlight_window = window;
-    if (previous_highlight_window)
+    if (previous_highlight_window) {
         previous_highlight_window->invalidate(true, true);
-    if (m_highlight_window)
+        Compositor::the().invalidate_screen(previous_highlight_window->frame().render_rect());
+    }
+    if (m_highlight_window) {
         m_highlight_window->invalidate(true, true);
+        Compositor::the().invalidate_screen(m_highlight_window->frame().render_rect());
+    }
+    // Invalidate occlusions in case the state change changes geometry
+    Compositor::the().invalidate_occlusions();
 }
 
 bool WindowManager::is_active_window_or_accessory(Window& window) const
@@ -1347,14 +1367,7 @@ void WindowManager::set_active_window(Window* window, bool make_input)
         m_active_window = *window;
         Core::EventLoop::current().post_event(*m_active_window, make<Event>(Event::WindowActivated));
         m_active_window->invalidate(true, true);
-        if (auto* client = window->client()) {
-            MenuManager::the().set_current_menubar(client->app_menubar());
-        } else {
-            MenuManager::the().set_current_menubar(nullptr);
-        }
         tell_wm_listeners_window_state_changed(*m_active_window);
-    } else {
-        MenuManager::the().set_current_menubar(nullptr);
     }
 
     // Window shapes may have changed (e.g. shadows for inactive/active windows)
@@ -1381,12 +1394,6 @@ const ClientConnection* WindowManager::active_client() const
     if (m_active_window)
         return m_active_window->client();
     return nullptr;
-}
-
-void WindowManager::notify_client_changed_app_menubar(ClientConnection& client)
-{
-    if (active_client() == &client)
-        MenuManager::the().set_current_menubar(client.app_menubar());
 }
 
 const Cursor& WindowManager::active_cursor() const
@@ -1451,12 +1458,8 @@ Gfx::IntRect WindowManager::maximized_window_rect(const Window& window) const
     Gfx::IntRect rect = Screen::the().rect();
 
     // Subtract window title bar (leaving the border)
-    rect.set_y(rect.y() + window.frame().title_bar_rect().height());
-    rect.set_height(rect.height() - window.frame().title_bar_rect().height());
-
-    // Subtract menu bar
-    rect.set_y(rect.y() + menubar_rect().height());
-    rect.set_height(rect.height() - menubar_rect().height());
+    rect.set_y(rect.y() + window.frame().title_bar_rect().height() + window.frame().menubar_rect().height());
+    rect.set_height(rect.height() - window.frame().title_bar_rect().height() - window.frame().menubar_rect().height());
 
     // Subtract taskbar window height if present
     const_cast<WindowManager*>(this)->for_each_visible_window_of_type_from_back_to_front(WindowType::Taskbar, [&rect](Window& taskbar_window) {
@@ -1522,6 +1525,7 @@ bool WindowManager::update_theme(String theme_path, String theme_name)
         return IterationDecision::Continue;
     });
     MenuManager::the().did_change_theme();
+    AppletManager::the().did_change_theme();
     auto wm_config = Core::ConfigFile::open("/etc/WindowServer/WindowServer.ini");
     wm_config->write_entry("Theme", "Name", theme_name);
     wm_config->sync();
@@ -1565,7 +1569,6 @@ Gfx::IntPoint WindowManager::get_recommended_window_position(const Gfx::IntPoint
 
     // FIXME: Find a better source for this.
     int taskbar_height = 28;
-    int menubar_height = MenuManager::the().menubar_rect().height();
 
     const Window* overlap_window = nullptr;
     for_each_visible_window_of_type_from_front_to_back(WindowType::Normal, [&](Window& window) {
@@ -1580,7 +1583,7 @@ Gfx::IntPoint WindowManager::get_recommended_window_position(const Gfx::IntPoint
         point = overlap_window->position() + shift;
         point = { point.x() % Screen::the().width(),
             (point.y() >= (Screen::the().height() - taskbar_height))
-                ? menubar_height + Gfx::WindowTheme::current().title_bar_height(Gfx::WindowTheme::WindowType::Normal, palette())
+                ? Gfx::WindowTheme::current().title_bar_height(Gfx::WindowTheme::WindowType::Normal, palette())
                 : point.y() };
     } else {
         point = desired;
@@ -1606,4 +1609,15 @@ void WindowManager::reload_icon_bitmaps_after_scale_change(bool allow_hidpi_icon
         return IterationDecision::Continue;
     });
 }
+
+void WindowManager::set_window_with_active_menu(Window* window)
+{
+    if (m_window_with_active_menu == window)
+        return;
+    if (window)
+        m_window_with_active_menu = window->make_weak_ptr<Window>();
+    else
+        m_window_with_active_menu = nullptr;
+}
+
 }

@@ -29,14 +29,14 @@
 #include <AK/JsonObjectSerializer.h>
 #include <AK/JsonValue.h>
 #include <AK/ScopeGuard.h>
-#include <Kernel/Arch/i386/CPU.h>
-#include <Kernel/Arch/i386/ProcessorInfo.h>
+#include <Kernel/Arch/x86/CPU.h>
+#include <Kernel/Arch/x86/ProcessorInfo.h>
 #include <Kernel/CommandLine.h>
 #include <Kernel/Console.h>
 #include <Kernel/DMI.h>
 #include <Kernel/Debug.h>
 #include <Kernel/Devices/BlockDevice.h>
-#include <Kernel/Devices/KeyboardDevice.h>
+#include <Kernel/Devices/HID/HIDManagement.h>
 #include <Kernel/FileSystem/Custody.h>
 #include <Kernel/FileSystem/FileBackedFileSystem.h>
 #include <Kernel/FileSystem/FileDescription.h>
@@ -59,6 +59,7 @@
 #include <Kernel/Scheduler.h>
 #include <Kernel/StdLib.h>
 #include <Kernel/TTY/TTY.h>
+#include <Kernel/UBSanitizer.h>
 #include <Kernel/VM/AnonymousVMObject.h>
 #include <Kernel/VM/MemoryManager.h>
 #include <LibC/errno_numbers.h>
@@ -417,7 +418,7 @@ static bool procfs$interrupts(InodeIdentifier, KBufferBuilder& builder)
 static bool procfs$keymap(InodeIdentifier, KBufferBuilder& builder)
 {
     JsonObjectSerializer<KBufferBuilder> json { builder };
-    json.add("keymap", KeyboardDevice::the().keymap_name());
+    json.add("keymap", HIDManagement::the().keymap_name());
     json.finish();
     return true;
 }
@@ -474,21 +475,24 @@ static bool procfs$modules(InodeIdentifier, KBufferBuilder& builder)
     return true;
 }
 
+static bool procfs$profile(InodeIdentifier, KBufferBuilder& builder)
+{
+    extern PerformanceEventBuffer* g_global_perf_events;
+    if (!g_global_perf_events)
+        return false;
+
+    return g_global_perf_events->to_json(builder);
+}
+
 static bool procfs$pid_perf_events(InodeIdentifier identifier, KBufferBuilder& builder)
 {
     auto process = Process::from_pid(to_pid(identifier));
     if (!process)
         return false;
-
     InterruptDisabler disabler;
-
-    if (!process->executable())
-        return false;
-
     if (!process->perf_events())
         return false;
-
-    return process->perf_events()->to_json(builder, process->pid(), process->executable()->absolute_path());
+    return process->perf_events()->to_json(builder);
 }
 
 static bool procfs$net_adapters(InodeIdentifier, KBufferBuilder& builder)
@@ -813,6 +817,7 @@ static bool procfs$all(InodeIdentifier, KBufferBuilder& builder)
         process_object.add("amount_purgeable_volatile", process.space().amount_purgeable_volatile());
         process_object.add("amount_purgeable_nonvolatile", process.space().amount_purgeable_nonvolatile());
         process_object.add("dumpable", process.is_dumpable());
+        process_object.add("kernel", process.is_kernel_process());
         auto thread_array = process_object.add_array("threads");
         process.for_each_thread([&](const Thread& thread) {
             auto thread_object = thread_array.add_object();
@@ -991,12 +996,18 @@ void ProcFS::add_sys_string(String&& name, Lockable<String>& var, Function<void(
 bool ProcFS::initialize()
 {
     static Lockable<bool>* kmalloc_stack_helper;
+    static Lockable<bool>* ubsan_deadly_helper;
 
     if (kmalloc_stack_helper == nullptr) {
         kmalloc_stack_helper = new Lockable<bool>();
         kmalloc_stack_helper->resource() = g_dump_kmalloc_stacks;
         ProcFS::add_sys_bool("kmalloc_stacks", *kmalloc_stack_helper, [] {
             g_dump_kmalloc_stacks = kmalloc_stack_helper->resource();
+        });
+        ubsan_deadly_helper = new Lockable<bool>();
+        ubsan_deadly_helper->resource() = UBSanitizer::g_ubsan_is_deadly;
+        ProcFS::add_sys_bool("ubsan_is_deadly", *ubsan_deadly_helper, [] {
+            UBSanitizer::g_ubsan_is_deadly = ubsan_deadly_helper->resource();
         });
     }
     return true;
@@ -1334,7 +1345,7 @@ KResult ProcFSInode::traverse_as_directory(Function<bool(const FS::DirectoryEntr
         auto process = Process::from_pid(pid);
         if (!process)
             return ENOENT;
-        process->for_each_thread([&](Thread& thread) -> IterationDecision {
+        process->for_each_thread([&](const Thread& thread) -> IterationDecision {
             int tid = thread.tid().value();
             callback({ String::number(tid), to_identifier_with_stack(fsid(), tid), 0 });
             return IterationDecision::Continue;
@@ -1511,7 +1522,7 @@ ssize_t ProcFSInode::write_bytes(off_t offset, ssize_t size, const UserOrKernelB
     VERIFY(offset == 0);
     ssize_t nwritten = write_callback(identifier(), buffer, (size_t)size);
     if (nwritten < 0)
-        klog() << "ProcFS: Writing " << size << " bytes failed: " << nwritten;
+        dbgln("ProcFS: Writing {} bytes failed: {}", size, nwritten);
     return nwritten;
 }
 
@@ -1703,6 +1714,7 @@ ProcFS::ProcFS()
     m_entries[FI_Root_uptime] = { "uptime", FI_Root_uptime, false, procfs$uptime };
     m_entries[FI_Root_cmdline] = { "cmdline", FI_Root_cmdline, true, procfs$cmdline };
     m_entries[FI_Root_modules] = { "modules", FI_Root_modules, true, procfs$modules };
+    m_entries[FI_Root_profile] = { "profile", FI_Root_profile, true, procfs$profile };
     m_entries[FI_Root_sys] = { "sys", FI_Root_sys, true };
     m_entries[FI_Root_net] = { "net", FI_Root_net, false };
 

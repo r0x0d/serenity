@@ -192,7 +192,8 @@ namespace Kernel {
     S(abort)                  \
     S(anon_create)            \
     S(msyscall)               \
-    S(readv)
+    S(readv)                  \
+    S(emuctl)
 
 namespace Syscall {
 
@@ -243,7 +244,7 @@ struct SC_mmap_params {
     int32_t prot;
     int32_t flags;
     int32_t fd;
-    ssize_t offset;
+    int64_t offset;
     StringArgument name;
 };
 
@@ -432,7 +433,7 @@ struct SC_waitid_params {
 struct SC_stat_params {
     StringArgument path;
     struct stat* statbuf;
-    bool follow_symlinks;
+    int follow_symlinks;
 };
 
 struct SC_ptrace_params {

@@ -47,6 +47,8 @@ private:
     JS_DECLARE_NATIVE_FUNCTION(exec);
     JS_DECLARE_NATIVE_FUNCTION(test);
     JS_DECLARE_NATIVE_FUNCTION(to_string);
+    JS_DECLARE_NATIVE_FUNCTION(symbol_match);
+    JS_DECLARE_NATIVE_FUNCTION(symbol_replace);
 
 #define __JS_ENUMERATE(_, flag_name, ...) \
     JS_DECLARE_NATIVE_GETTER(flag_name);

@@ -32,16 +32,16 @@
 
 namespace Kernel {
 
-NonnullRefPtr<RamdiskDevice> RamdiskDevice::create(const RamdiskController& controller, OwnPtr<Region>&& region, int major, int minor)
+NonnullRefPtr<RamdiskDevice> RamdiskDevice::create(const RamdiskController& controller, NonnullOwnPtr<Region>&& region, int major, int minor)
 {
     return adopt(*new RamdiskDevice(controller, move(region), major, minor));
 }
 
-RamdiskDevice::RamdiskDevice(const RamdiskController& controller, OwnPtr<Region>&& region, int major, int minor)
-    : StorageDevice(controller, major, minor, 512, 0)
+RamdiskDevice::RamdiskDevice(const RamdiskController& controller, NonnullOwnPtr<Region>&& region, int major, int minor)
+    : StorageDevice(controller, major, minor, 512, region->size() / 512)
     , m_region(move(region))
 {
-    klog() << "Ramdisk: Device #" << minor << " @ " << m_region->vaddr() << " length " << m_region->size();
+    dmesgln("Ramdisk: Device #{} @ {}, Capacity={}", minor, m_region->vaddr(), max_addressable_block() * 512);
 }
 
 RamdiskDevice::~RamdiskDevice()
@@ -51,11 +51,6 @@ RamdiskDevice::~RamdiskDevice()
 const char* RamdiskDevice::class_name() const
 {
     return "RamdiskDevice";
-}
-
-size_t RamdiskDevice::max_addressable_block() const
-{
-    return m_region->size() / 512;
 }
 
 void RamdiskDevice::start_request(AsyncBlockDeviceRequest& request)

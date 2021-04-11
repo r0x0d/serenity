@@ -178,15 +178,9 @@ private:
     enum class ReadDigitsInitialZeroState {
         Allow,
         Disallow,
-        Require,
     };
-    enum class ReadDigitFollowPolicy {
-        Any,
-        DisallowDigit,
-        DisallowNonDigit,
-    };
-    StringView read_digits_as_string(ReadDigitsInitialZeroState initial_zero = ReadDigitsInitialZeroState::Allow, ReadDigitFollowPolicy follow_policy = ReadDigitFollowPolicy::Any, bool hex = false, int max_count = -1);
-    Optional<unsigned> read_digits(ReadDigitsInitialZeroState initial_zero = ReadDigitsInitialZeroState::Allow, ReadDigitFollowPolicy follow_policy = ReadDigitFollowPolicy::Any, bool hex = false, int max_count = -1);
+    StringView read_digits_as_string(ReadDigitsInitialZeroState initial_zero = ReadDigitsInitialZeroState::Allow, bool hex = false, int max_count = -1);
+    Optional<unsigned> read_digits(ReadDigitsInitialZeroState initial_zero = ReadDigitsInitialZeroState::Allow, bool hex = false, int max_count = -1);
     StringView read_capture_group_specifier(bool take_starting_angle_bracket = false);
 
     bool parse_pattern(ByteCode&, size_t&, bool unicode, bool named);
@@ -209,6 +203,14 @@ private:
     bool parse_invalid_braced_quantifier(); // Note: This function either parses and *fails*, or doesn't parse anything and returns false.
     bool parse_legacy_octal_escape_sequence(ByteCode& bytecode_stack, size_t& length);
     Optional<u8> parse_legacy_octal_escape();
+
+    size_t ensure_total_number_of_capturing_parenthesis();
+
+    // ECMA-262's flavour of regex is a bit weird in that it allows backrefs to reference "future" captures, and such backrefs
+    // always match the empty string. So we have to know how many capturing parenthesis there are, but we don't want to always
+    // parse it twice, so we'll just do so when it's actually needed.
+    // Most patterns should have no need to ever populate this field.
+    Optional<size_t> m_total_number_of_capturing_parenthesis;
 
     // Keep the Annex B. behaviour behind a flag, the users can enable it by passing the `ECMAScriptFlags::BrowserExtended` flag.
     bool m_should_use_browser_extended_grammar { false };

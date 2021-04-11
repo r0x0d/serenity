@@ -169,7 +169,7 @@ void DirectoryView::setup_model()
         add_path_to_history(model().root_path());
 
         if (on_path_change)
-            on_path_change(failed_path, false);
+            on_path_change(failed_path, false, false);
     };
 
     m_model->on_complete = [this] {
@@ -186,7 +186,7 @@ void DirectoryView::setup_model()
         m_touch_action->set_enabled(can_write_in_path);
 
         if (on_path_change)
-            on_path_change(model().root_path(), can_write_in_path);
+            on_path_change(model().root_path(), true, can_write_in_path);
     };
 
     m_model->register_client(*this);
@@ -413,10 +413,8 @@ void DirectoryView::update_statusbar()
     size_t selected_byte_count = 0;
 
     current_view().selection().for_each_index([&](auto& index) {
-        auto& model = *current_view().model();
-        auto size_index = model.index(index.row(), GUI::FileSystemModel::Column::Size, model.parent_index(index));
-        auto file_size = size_index.data().to_i32();
-        selected_byte_count += file_size;
+        const auto& node = this->node(index);
+        selected_byte_count += node.size;
     });
 
     StringBuilder builder;
@@ -444,7 +442,7 @@ void DirectoryView::set_should_show_dotfiles(bool show_dotfiles)
     m_model->set_should_show_dotfiles(show_dotfiles);
 }
 
-void DirectoryView::launch(const URL&, const LauncherHandler& launcher_handler)
+void DirectoryView::launch(const URL&, const LauncherHandler& launcher_handler) const
 {
     pid_t child;
     if (launcher_handler.details().launcher_type == Desktop::Launcher::LauncherType::Application) {
@@ -497,7 +495,7 @@ void DirectoryView::handle_selection_change()
 
 void DirectoryView::setup_actions()
 {
-    m_mkdir_action = GUI::Action::create("New directory...", { Mod_Ctrl | Mod_Shift, Key_N }, Gfx::Bitmap::load_from_file("/res/icons/16x16/mkdir.png"), [&](const GUI::Action&) {
+    m_mkdir_action = GUI::Action::create("New &Directory...", { Mod_Ctrl | Mod_Shift, Key_N }, Gfx::Bitmap::load_from_file("/res/icons/16x16/mkdir.png"), [&](const GUI::Action&) {
         String value;
         if (GUI::InputBox::show(window(), value, "Enter name:", "New directory") == GUI::InputBox::ExecOK && !value.is_empty()) {
             auto new_dir_path = LexicalPath::canonicalized_path(String::formatted("{}/{}", path(), value));
@@ -509,7 +507,7 @@ void DirectoryView::setup_actions()
         }
     });
 
-    m_touch_action = GUI::Action::create("New file...", { Mod_Ctrl | Mod_Shift, Key_F }, Gfx::Bitmap::load_from_file("/res/icons/16x16/new.png"), [&](const GUI::Action&) {
+    m_touch_action = GUI::Action::create("New &File...", { Mod_Ctrl | Mod_Shift, Key_F }, Gfx::Bitmap::load_from_file("/res/icons/16x16/new.png"), [&](const GUI::Action&) {
         String value;
         if (GUI::InputBox::show(window(), value, "Enter name:", "New file") == GUI::InputBox::ExecOK && !value.is_empty()) {
             auto new_file_path = LexicalPath::canonicalized_path(String::formatted("{}/{}", path(), value));
@@ -535,7 +533,7 @@ void DirectoryView::setup_actions()
         }
     });
 
-    m_open_terminal_action = GUI::Action::create("Open Terminal here", Gfx::Bitmap::load_from_file("/res/icons/16x16/app-terminal.png"), [&](auto&) {
+    m_open_terminal_action = GUI::Action::create("Open &Terminal Here", Gfx::Bitmap::load_from_file("/res/icons/16x16/app-terminal.png"), [&](auto&) {
         posix_spawn_file_actions_t spawn_actions;
         posix_spawn_file_actions_init(&spawn_actions);
         posix_spawn_file_actions_addchdir(&spawn_actions, path().characters());
@@ -553,7 +551,7 @@ void DirectoryView::setup_actions()
     m_delete_action = GUI::CommonActions::make_delete_action([this](auto&) { do_delete(true); }, window());
 
     m_force_delete_action = GUI::Action::create(
-        "Delete without confirmation", { Mod_Shift, Key_Delete },
+        "Delete Without Confirmation", { Mod_Shift, Key_Delete },
         [this](auto&) { do_delete(false); },
         window());
 }

@@ -64,13 +64,11 @@ static int s_last_title_button_icons_scale;
 
 static Gfx::Bitmap* s_active_window_shadow;
 static Gfx::Bitmap* s_inactive_window_shadow;
-static Gfx::Bitmap* s_menu_bar_shadow;
 static Gfx::Bitmap* s_menu_shadow;
 static Gfx::Bitmap* s_task_bar_shadow;
 static Gfx::Bitmap* s_tooltip_shadow;
 static String s_last_active_window_shadow_path;
 static String s_last_inactive_window_shadow_path;
-static String s_last_menu_bar_shadow_path;
 static String s_last_menu_shadow_path;
 static String s_last_task_bar_shadow_path;
 static String s_last_tooltip_shadow_path;
@@ -79,7 +77,8 @@ static Gfx::IntRect frame_rect_for_window(Window& window, const Gfx::IntRect& re
 {
     if (window.is_frameless())
         return rect;
-    return Gfx::WindowTheme::current().frame_rect_for_window(to_theme_window_type(window.type()), rect, WindowManager::the().palette());
+    int menu_row_count = (window.menubar() && window.should_show_menubar()) ? 1 : 0;
+    return Gfx::WindowTheme::current().frame_rect_for_window(to_theme_window_type(window.type()), rect, WindowManager::the().palette(), menu_row_count);
 }
 
 WindowFrame::WindowFrame(Window& window)
@@ -195,7 +194,6 @@ void WindowFrame::reload_config()
     };
     load_shadow(WindowManager::the().palette().active_window_shadow_path(), s_last_active_window_shadow_path, s_active_window_shadow);
     load_shadow(WindowManager::the().palette().inactive_window_shadow_path(), s_last_inactive_window_shadow_path, s_inactive_window_shadow);
-    load_shadow(WindowManager::the().palette().menu_bar_shadow_path(), s_last_menu_bar_shadow_path, s_menu_bar_shadow);
     load_shadow(WindowManager::the().palette().menu_shadow_path(), s_last_menu_shadow_path, s_menu_shadow);
     load_shadow(WindowManager::the().palette().task_bar_shadow_path(), s_last_task_bar_shadow_path, s_task_bar_shadow);
     load_shadow(WindowManager::the().palette().tooltip_shadow_path(), s_last_tooltip_shadow_path, s_tooltip_shadow);
@@ -212,11 +210,13 @@ Gfx::Bitmap* WindowFrame::window_shadow() const
         return s_menu_shadow;
     case WindowType::Tooltip:
         return s_tooltip_shadow;
-    case WindowType::Menubar:
-        return s_menu_bar_shadow;
     case WindowType::Taskbar:
         return s_task_bar_shadow;
+    case WindowType::AppletArea:
+        return nullptr;
     default:
+        if (auto* highlight_window = WindowManager::the().highlight_window())
+            return highlight_window == &m_window ? s_active_window_shadow : s_inactive_window_shadow;
         return m_window.is_active() ? s_active_window_shadow : s_inactive_window_shadow;
     }
 }
@@ -225,7 +225,7 @@ bool WindowFrame::frame_has_alpha() const
 {
     if (m_has_alpha_channel)
         return true;
-    if (auto* shadow_bitmap = window_shadow(); shadow_bitmap && shadow_bitmap->format() == Gfx::BitmapFormat::RGBA32)
+    if (auto* shadow_bitmap = window_shadow(); shadow_bitmap && shadow_bitmap->format() == Gfx::BitmapFormat::BGRA8888)
         return true;
     return false;
 }
@@ -234,6 +234,13 @@ void WindowFrame::did_set_maximized(Badge<Window>, bool maximized)
 {
     VERIFY(m_maximize_button);
     m_maximize_button->set_icon(maximized ? *s_restore_icon : *s_maximize_icon);
+}
+
+Gfx::IntRect WindowFrame::menubar_rect() const
+{
+    if (!m_window.menubar() || !m_window.should_show_menubar())
+        return {};
+    return Gfx::WindowTheme::current().menubar_rect(to_theme_window_type(m_window.type()), m_window.rect(), WindowManager::the().palette(), menu_row_count());
 }
 
 Gfx::IntRect WindowFrame::title_bar_rect() const
@@ -287,11 +294,42 @@ void WindowFrame::paint_tool_window_frame(Gfx::Painter& painter)
     Gfx::WindowTheme::current().paint_tool_window_frame(painter, window_state_for_theme(), m_window.rect(), compute_title_text(), palette, leftmost_button_rect);
 }
 
+void WindowFrame::paint_menubar(Gfx::Painter& painter)
+{
+    auto& wm = WindowManager::the();
+    auto& font = wm.font();
+    auto palette = wm.palette();
+    auto menubar_rect = this->menubar_rect();
+
+    painter.fill_rect(menubar_rect, palette.window());
+
+    Gfx::PainterStateSaver saver(painter);
+    painter.add_clip_rect(menubar_rect);
+    painter.translate(menubar_rect.location());
+
+    m_window.menubar()->for_each_menu([&](Menu& menu) {
+        auto text_rect = menu.rect_in_window_menubar();
+        Color text_color = palette.window_text();
+        if (MenuManager::the().is_open(menu))
+            text_rect.move_by(1, 1);
+        bool paint_as_pressed = MenuManager::the().is_open(menu);
+        bool paint_as_hovered = !paint_as_pressed && &menu == MenuManager::the().hovered_menu();
+        if (paint_as_pressed || paint_as_hovered) {
+            Gfx::StylePainter::paint_button(painter, menu.rect_in_window_menubar(), palette, Gfx::ButtonStyle::CoolBar, paint_as_pressed, paint_as_hovered);
+        }
+        painter.draw_ui_text(text_rect, menu.name(), font, Gfx::TextAlignment::Center, text_color);
+        return IterationDecision::Continue;
+    });
+}
+
 void WindowFrame::paint_normal_frame(Gfx::Painter& painter)
 {
     auto palette = WindowManager::the().palette();
     auto leftmost_button_rect = m_buttons.is_empty() ? Gfx::IntRect() : m_buttons.last().relative_rect();
-    Gfx::WindowTheme::current().paint_normal_frame(painter, window_state_for_theme(), m_window.rect(), compute_title_text(), m_window.icon(), palette, leftmost_button_rect);
+    Gfx::WindowTheme::current().paint_normal_frame(painter, window_state_for_theme(), m_window.rect(), compute_title_text(), m_window.icon(), palette, leftmost_button_rect, menu_row_count());
+
+    if (m_window.menubar() && m_window.should_show_menubar())
+        paint_menubar(painter);
 }
 
 void WindowFrame::paint(Gfx::Painter& painter, const Gfx::IntRect& rect)
@@ -386,7 +424,7 @@ void WindowFrame::render_to_cache()
     if (!s_tmp_bitmap || !s_tmp_bitmap->size().contains(total_frame_rect.size()) || s_tmp_bitmap->scale() != scale) {
         if (s_tmp_bitmap)
             s_tmp_bitmap->unref();
-        s_tmp_bitmap = Gfx::Bitmap::create(Gfx::BitmapFormat::RGBA32, total_frame_rect.size(), scale).leak_ref();
+        s_tmp_bitmap = Gfx::Bitmap::create(Gfx::BitmapFormat::BGRA8888, total_frame_rect.size(), scale).leak_ref();
     }
 
     auto top_bottom_height = total_frame_rect.height() - window_rect.height();
@@ -394,14 +432,14 @@ void WindowFrame::render_to_cache()
 
     if (!m_top_bottom || m_top_bottom->width() != total_frame_rect.width() || m_top_bottom->height() != top_bottom_height || m_top_bottom->scale() != scale) {
         if (top_bottom_height > 0)
-            m_top_bottom = Gfx::Bitmap::create(Gfx::BitmapFormat::RGBA32, { total_frame_rect.width(), top_bottom_height }, scale);
+            m_top_bottom = Gfx::Bitmap::create(Gfx::BitmapFormat::BGRA8888, { total_frame_rect.width(), top_bottom_height }, scale);
         else
             m_top_bottom = nullptr;
         m_shadow_dirty = true;
     }
     if (!m_left_right || m_left_right->height() != total_frame_rect.height() || m_left_right->width() != left_right_width || m_left_right->scale() != scale) {
         if (left_right_width > 0)
-            m_left_right = Gfx::Bitmap::create(Gfx::BitmapFormat::RGBA32, { left_right_width, total_frame_rect.height() }, scale);
+            m_left_right = Gfx::Bitmap::create(Gfx::BitmapFormat::BGRA8888, { left_right_width, total_frame_rect.height() }, scale);
         else
             m_left_right = nullptr;
         m_shadow_dirty = true;
@@ -505,6 +543,13 @@ void WindowFrame::invalidate_title_bar()
 {
     m_dirty = true;
     invalidate(title_bar_rect());
+}
+
+void WindowFrame::invalidate()
+{
+    auto frame_rect = render_rect();
+    invalidate(Gfx::IntRect { frame_rect.location() - m_window.position(), frame_rect.size() });
+    m_window.invalidate(true, true);
 }
 
 void WindowFrame::invalidate(Gfx::IntRect relative_rect)
@@ -650,6 +695,13 @@ void WindowFrame::on_mouse_event(const MouseEvent& event)
         return;
     }
 
+    auto menubar_rect = this->menubar_rect();
+    if (menubar_rect.contains(event.position())) {
+        wm.clear_resize_candidate();
+        handle_menubar_mouse_event(event);
+        return;
+    }
+
     if (m_window.is_resizable() && event.type() == Event::MouseMove && event.buttons() == 0) {
         constexpr ResizeDirection direction_for_hot_area[3][3] = {
             { ResizeDirection::UpLeft, ResizeDirection::Up, ResizeDirection::UpRight },
@@ -669,6 +721,56 @@ void WindowFrame::on_mouse_event(const MouseEvent& event)
 
     if (m_window.is_resizable() && event.type() == Event::MouseDown && event.button() == MouseButton::Left)
         wm.start_window_resize(m_window, event.translated(rect().location()));
+}
+
+void WindowFrame::handle_menubar_mouse_event(const MouseEvent& event)
+{
+    Menu* hovered_menu = nullptr;
+    auto menubar_rect = this->menubar_rect();
+    auto adjusted_position = event.position().translated(-menubar_rect.location());
+    m_window.menubar()->for_each_menu([&](Menu& menu) {
+        if (menu.rect_in_window_menubar().contains(adjusted_position)) {
+            hovered_menu = &menu;
+            handle_menu_mouse_event(menu, event);
+            return IterationDecision::Break;
+        }
+        return IterationDecision::Continue;
+    });
+    if (!hovered_menu && event.type() == Event::Type::MouseDown)
+        MenuManager::the().close_everyone();
+    if (hovered_menu != MenuManager::the().hovered_menu()) {
+        MenuManager::the().set_hovered_menu(hovered_menu);
+        invalidate(menubar_rect);
+    }
+}
+
+void WindowFrame::open_menubar_menu(Menu& menu)
+{
+    auto menubar_rect = this->menubar_rect();
+    MenuManager::the().close_everyone();
+    menu.ensure_menu_window().move_to(menu.rect_in_window_menubar().bottom_left().translated(rect().location()).translated(menubar_rect.location()));
+    MenuManager::the().open_menu(menu);
+    WindowManager::the().set_window_with_active_menu(&m_window);
+    invalidate(menubar_rect);
+}
+
+void WindowFrame::handle_menu_mouse_event(Menu& menu, const MouseEvent& event)
+{
+    auto menubar_rect = this->menubar_rect();
+    bool is_hover_with_any_menu_open = event.type() == MouseEvent::MouseMove && &m_window == WindowManager::the().window_with_active_menu();
+    bool is_mousedown_with_left_button = event.type() == MouseEvent::MouseDown && event.button() == MouseButton::Left;
+    bool should_open_menu = &menu != MenuManager::the().current_menu() && (is_hover_with_any_menu_open || is_mousedown_with_left_button);
+    bool should_close_menu = &menu == MenuManager::the().current_menu() && is_mousedown_with_left_button;
+
+    if (should_open_menu) {
+        open_menubar_menu(menu);
+        return;
+    }
+
+    if (should_close_menu) {
+        invalidate(menubar_rect);
+        MenuManager::the().close_everyone();
+    }
 }
 
 void WindowFrame::start_flash_animation()
@@ -770,6 +872,13 @@ void WindowFrame::paint_simple_rect_shadow(Gfx::Painter& painter, const Gfx::Int
 
     paint_vertical(containing_rect.left(), 0, horizontal_shift, 0);
     paint_vertical(containing_rect.right() - base_size + 1, 1, 0, horizontal_shift);
+}
+
+int WindowFrame::menu_row_count() const
+{
+    if (!m_window.should_show_menubar())
+        return 0;
+    return m_window.menubar() ? 1 : 0;
 }
 
 }

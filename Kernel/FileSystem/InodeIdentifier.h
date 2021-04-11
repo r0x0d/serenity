@@ -40,7 +40,7 @@ TYPEDEF_DISTINCT_ORDERED_ID(unsigned, InodeIndex);
 
 class InodeIdentifier {
 public:
-    InodeIdentifier() { }
+    InodeIdentifier() = default;
     InodeIdentifier(u32 fsid, InodeIndex inode)
         : m_fsid(fsid)
         , m_index(inode)
@@ -71,12 +71,6 @@ private:
     u32 m_fsid { 0 };
     InodeIndex m_index { 0 };
 };
-
-inline const LogStream& operator<<(const LogStream& stream, const InodeIdentifier& value)
-{
-    stream << value.fsid() << ':' << value.index().value();
-    return stream;
-}
 
 }
 

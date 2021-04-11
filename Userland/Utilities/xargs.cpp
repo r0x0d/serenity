@@ -34,6 +34,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/wait.h>
+#include <unistd.h>
 
 bool run_command(Vector<char*>&& child_argv, bool verbose, bool is_stdin, int devnull_fd);
 
@@ -198,6 +199,7 @@ bool read_items(FILE* fp, char entry_separator, Function<Decision(StringView)> c
                 perror("getdelim");
                 fail = true;
             }
+            free(item);
             break;
         }
 

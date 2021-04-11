@@ -27,6 +27,8 @@
 #include <AK/URL.h>
 #include <Applications/Terminal/TerminalSettingsWindowGML.h>
 #include <LibCore/ArgsParser.h>
+#include <LibCore/ConfigFile.h>
+#include <LibCore/File.h>
 #include <LibDesktop/Launcher.h>
 #include <LibGUI/Action.h>
 #include <LibGUI/ActionGroup.h>
@@ -165,7 +167,7 @@ static pid_t run_command(int ptm_fd, String command)
             args[1] = "-c";
             args[2] = command.characters();
         }
-        const char* envs[] = { "PROMPT=\\X\\u@\\h:\\w\\a\\e[33;1m\\h\\e[0m \\e[34;1m\\w\\e[0m \\p ", "TERM=xterm", "PAGER=more", "PATH=/bin:/usr/bin:/usr/local/bin", nullptr };
+        const char* envs[] = { "TERM=xterm", "PAGER=more", "PATH=/bin:/usr/bin:/usr/local/bin", nullptr };
         rc = execve(shell.characters(), const_cast<char**>(args), const_cast<char**>(envs));
         if (rc < 0) {
             perror("execve");
@@ -347,6 +349,7 @@ int main(int argc, char** argv)
     }
 
     RefPtr<Core::ConfigFile> config = Core::ConfigFile::get_for_app("Terminal");
+    Core::File::ensure_parent_directories(config->file_name());
 
     pid_t shell_pid = 0;
 
@@ -398,7 +401,7 @@ int main(int argc, char** argv)
     auto new_scrollback_size = config->read_num_entry("Terminal", "MaxHistorySize", terminal.max_history_size());
     terminal.set_max_history_size(new_scrollback_size);
 
-    auto open_settings_action = GUI::Action::create("Settings", Gfx::Bitmap::load_from_file("/res/icons/16x16/gear.png"),
+    auto open_settings_action = GUI::Action::create("&Settings", Gfx::Bitmap::load_from_file("/res/icons/16x16/gear.png"),
         [&](const GUI::Action&) {
             if (!settings_window)
                 settings_window = create_settings_window(terminal);
@@ -407,7 +410,7 @@ int main(int argc, char** argv)
         });
 
     terminal.context_menu().add_separator();
-    auto pick_font_action = GUI::Action::create("Terminal font...", Gfx::Bitmap::load_from_file("/res/icons/16x16/app-font-editor.png"),
+    auto pick_font_action = GUI::Action::create("Terminal &Font...", Gfx::Bitmap::load_from_file("/res/icons/16x16/app-font-editor.png"),
         [&](auto&) {
             auto picker = GUI::FontPicker::construct(window, &terminal.font(), true);
             if (picker->exec() == GUI::Dialog::ExecOK) {
@@ -425,8 +428,8 @@ int main(int argc, char** argv)
 
     auto menubar = GUI::MenuBar::construct();
 
-    auto& app_menu = menubar->add_menu("Terminal");
-    app_menu.add_action(GUI::Action::create("Open new Terminal", { Mod_Ctrl | Mod_Shift, Key_N }, Gfx::Bitmap::load_from_file("/res/icons/16x16/app-terminal.png"), [&](auto&) {
+    auto& app_menu = menubar->add_menu("&File");
+    app_menu.add_action(GUI::Action::create("Open New &Terminal", { Mod_Ctrl | Mod_Shift, Key_N }, Gfx::Bitmap::load_from_file("/res/icons/16x16/app-terminal.png"), [&](auto&) {
         pid_t child;
         const char* argv[] = { "Terminal", nullptr };
         if ((errno = posix_spawn(&child, "/bin/Terminal", nullptr, nullptr, const_cast<char**>(argv), environ))) {
@@ -444,11 +447,11 @@ int main(int argc, char** argv)
         GUI::Application::the()->quit();
     }));
 
-    auto& edit_menu = menubar->add_menu("Edit");
+    auto& edit_menu = menubar->add_menu("&Edit");
     edit_menu.add_action(terminal.copy_action());
     edit_menu.add_action(terminal.paste_action());
     edit_menu.add_separator();
-    edit_menu.add_action(GUI::Action::create("Find...", { Mod_Ctrl | Mod_Shift, Key_F }, Gfx::Bitmap::load_from_file("/res/icons/16x16/find.png"),
+    edit_menu.add_action(GUI::Action::create("&Find...", { Mod_Ctrl | Mod_Shift, Key_F }, Gfx::Bitmap::load_from_file("/res/icons/16x16/find.png"),
         [&](auto&) {
             if (!find_window)
                 find_window = create_find_window(terminal);
@@ -456,18 +459,21 @@ int main(int argc, char** argv)
             find_window->move_to_front();
         }));
 
-    auto& view_menu = menubar->add_menu("View");
+    auto& view_menu = menubar->add_menu("&View");
+    view_menu.add_action(GUI::CommonActions::make_fullscreen_action([&](auto&) {
+        window->set_fullscreen(!window->is_fullscreen());
+    }));
     view_menu.add_action(terminal.clear_including_history_action());
     view_menu.add_separator();
     view_menu.add_action(pick_font_action);
 
-    auto& help_menu = menubar->add_menu("Help");
+    auto& help_menu = menubar->add_menu("&Help");
     help_menu.add_action(GUI::CommonActions::make_help_action([](auto&) {
         Desktop::Launcher::open(URL::create_with_file_protocol("/usr/share/man/man1/Terminal.md"), "/bin/Help");
     }));
     help_menu.add_action(GUI::CommonActions::make_about_action("Terminal", app_icon, window));
 
-    app->set_menubar(move(menubar));
+    window->set_menubar(menubar);
 
     if (unveil("/res", "r") < 0) {
         perror("unveil");
@@ -499,7 +505,7 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    if (unveil(config->file_name().characters(), "rwc")) {
+    if (unveil(config->file_name().characters(), "rwc") < 0) {
         perror("unveil");
         return 1;
     }

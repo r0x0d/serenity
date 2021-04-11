@@ -28,7 +28,12 @@
 #include <AK/GenericLexer.h>
 #include <AK/String.h>
 #include <AK/StringBuilder.h>
+#include <AK/kstdio.h>
 #include <ctype.h>
+
+#if defined(__serenity__) && !defined(KERNEL)
+#    include <serenity.h>
+#endif
 
 #ifdef KERNEL
 #    include <Kernel/Process.h>
@@ -386,7 +391,6 @@ void FormatBuilder::put_f64(
     FormatBuilder format_builder { string_builder };
 
     format_builder.put_i64(static_cast<i64>(value), base, false, upper_case, false, Align::Right, 0, ' ', sign_mode);
-    string_builder.append('.');
 
     if (precision > 0) {
         // FIXME: This is a terrible approximation but doing it properly would be a lot of work. If someone is up for that, a good
@@ -397,12 +401,22 @@ void FormatBuilder::put_f64(
         if (value < 0)
             value = -value;
 
-        for (u32 i = 0; i < precision; ++i)
-            value *= 10;
+        double epsilon = 0.5;
+        for (size_t i = 0; i < precision; ++i)
+            epsilon /= 10.0;
 
-        format_builder.put_u64(static_cast<u64>(value), base, false, upper_case, true, Align::Right, precision);
+        size_t visible_precision = 0;
+        for (; visible_precision < precision; ++visible_precision) {
+            if (value - static_cast<i64>(value) < epsilon)
+                break;
+            value *= 10.0;
+            epsilon *= 10.0;
+        }
 
-        // FIXME: Cut off trailing zeroes by default?
+        if (visible_precision > 0) {
+            string_builder.append('.');
+            format_builder.put_u64(static_cast<u64>(value), base, false, upper_case, true, Align::Right, visible_precision);
+        }
     }
 
     put_string(string_builder.string_view(), align, min_width, NumericLimits<size_t>::max(), fill);
@@ -415,12 +429,6 @@ void vformat(StringBuilder& builder, StringView fmtstr, TypeErasedFormatParams p
     FormatParser parser { fmtstr };
 
     vformat_impl(params, fmtbuilder, parser);
-}
-void vformat(const LogStream& stream, StringView fmtstr, TypeErasedFormatParams params)
-{
-    StringBuilder builder;
-    vformat(builder, fmtstr, params);
-    stream << builder.to_string();
 }
 
 void StandardFormatter::parse(TypeErasedFormatParams& params, FormatParser& parser)
@@ -526,7 +534,7 @@ void Formatter<FormatString>::vformat(FormatBuilder& builder, StringView fmtstr,
 }
 
 template<typename T>
-void Formatter<T, typename EnableIf<IsIntegral<T>::value>::Type>::format(FormatBuilder& builder, T value)
+void Formatter<T, typename EnableIf<IsIntegral<T>>::Type>::format(FormatBuilder& builder, T value)
 {
     if (m_mode == Mode::Character) {
         // FIXME: We just support ASCII for now, in the future maybe unicode?
@@ -579,7 +587,7 @@ void Formatter<T, typename EnableIf<IsIntegral<T>::value>::Type>::format(FormatB
 
     m_width = m_width.value_or(0);
 
-    if (IsSame<typename MakeUnsigned<T>::Type, T>::value)
+    if constexpr (IsSame<MakeUnsigned<T>, T>)
         builder.put_u64(value, base, m_alternative_form, upper_case, m_zero_pad, m_align, m_width.value(), m_fill, m_sign_mode);
     else
         builder.put_i64(value, base, m_alternative_form, upper_case, m_zero_pad, m_align, m_width.value(), m_fill, m_sign_mode);

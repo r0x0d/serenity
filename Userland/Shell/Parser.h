@@ -37,8 +37,9 @@ namespace Shell {
 
 class Parser {
 public:
-    Parser(StringView input)
+    Parser(StringView input, bool interactive = false)
         : m_input(move(input))
+        , m_in_interactive_mode(interactive)
     {
     }
 
@@ -90,6 +91,8 @@ private:
     RefPtr<AST::Node> parse_string();
     RefPtr<AST::Node> parse_doublequoted_string_inner();
     RefPtr<AST::Node> parse_variable();
+    RefPtr<AST::Node> parse_variable_ref();
+    RefPtr<AST::Node> parse_slice();
     RefPtr<AST::Node> parse_evaluate();
     RefPtr<AST::Node> parse_history_designator();
     RefPtr<AST::Node> parse_comment();
@@ -97,6 +100,7 @@ private:
     RefPtr<AST::Node> parse_glob();
     RefPtr<AST::Node> parse_brace_expansion();
     RefPtr<AST::Node> parse_brace_expansion_spec();
+    RefPtr<AST::Node> parse_immediate_expression();
 
     template<typename A, typename... Args>
     NonnullRefPtr<A> create(Args... args);
@@ -163,6 +167,7 @@ private:
     Vector<char> m_extra_chars_not_allowed_in_barewords;
     bool m_is_in_brace_expansion_spec { false };
     bool m_continuation_controls_allowed { false };
+    bool m_in_interactive_mode { false };
 };
 
 #if 0
@@ -204,7 +209,7 @@ control_structure[c] :: for_expr
 continuation_control :: 'break'
                       | 'continue'
 
-for_expr :: 'for' ws+ (identifier ' '+ 'in' ws*)? expression ws+ '{' [c] toplevel '}'
+for_expr :: 'for' ws+ (('index' ' '+ identifier ' '+)? identifier ' '+ 'in' ws*)? expression ws+ '{' [c] toplevel '}'
 
 loop_expr :: 'loop' ws* '{' [c] toplevel '}'
 
@@ -236,6 +241,7 @@ list_expression :: ' '* expression (' '+ list_expression)?
 expression :: evaluate expression?
             | string_composite expression?
             | comment expression?
+            | immediate_expression expression?
             | history_designator expression?
             | '(' list_expression ')' expression?
 
@@ -257,14 +263,22 @@ dquoted_string_inner :: '\' . dquoted_string_inner?       {concat}
                       | '\' 'x' digit digit dquoted_string_inner?
                       | '\' [abefrn] dquoted_string_inner?
 
-variable :: '$' identifier
+variable :: variable_ref slice?
+
+variable_ref :: '$' identifier
           | '$' '$'
           | '$' '?'
           | '$' '*'
           | '$' '#'
           | ...
 
+slice :: '[' brace_expansion_spec ']'
+
 comment :: '#' [^\n]*
+
+immediate_expression :: '$' '{' immediate_function expression* '}'
+
+immediate_function :: identifier       { predetermined list of names, see Shell.h:ENUMERATE_SHELL_IMMEDIATE_FUNCTIONS }
 
 history_designator :: '!' event_selector (':' word_selector_composite)?
 

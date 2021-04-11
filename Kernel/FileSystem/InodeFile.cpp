@@ -46,7 +46,7 @@ InodeFile::~InodeFile()
 {
 }
 
-KResultOr<size_t> InodeFile::read(FileDescription& description, size_t offset, UserOrKernelBuffer& buffer, size_t count)
+KResultOr<size_t> InodeFile::read(FileDescription& description, u64 offset, UserOrKernelBuffer& buffer, size_t count)
 {
     if (Checked<off_t>::addition_would_overflow(offset, count))
         return EOVERFLOW;
@@ -61,14 +61,14 @@ KResultOr<size_t> InodeFile::read(FileDescription& description, size_t offset, U
     return nread;
 }
 
-KResultOr<size_t> InodeFile::write(FileDescription& description, size_t offset, const UserOrKernelBuffer& data, size_t count)
+KResultOr<size_t> InodeFile::write(FileDescription& description, u64 offset, const UserOrKernelBuffer& data, size_t count)
 {
     if (Checked<off_t>::addition_would_overflow(offset, count))
         return EOVERFLOW;
 
     ssize_t nwritten = m_inode->write_bytes(offset, count, data, &description);
     if (nwritten > 0) {
-        m_inode->set_mtime(kgettimeofday().tv_sec);
+        m_inode->set_mtime(kgettimeofday().to_truncated_seconds());
         Thread::current()->did_file_write(nwritten);
         evaluate_block_conditions();
     }
@@ -107,7 +107,7 @@ int InodeFile::ioctl(FileDescription& description, unsigned request, FlatPtr arg
     }
 }
 
-KResultOr<Region*> InodeFile::mmap(Process& process, FileDescription& description, const Range& range, size_t offset, int prot, bool shared)
+KResultOr<Region*> InodeFile::mmap(Process& process, FileDescription& description, const Range& range, u64 offset, int prot, bool shared)
 {
     // FIXME: If PROT_EXEC, check that the underlying file system isn't mounted noexec.
     RefPtr<InodeVMObject> vmobject;
@@ -132,7 +132,7 @@ KResult InodeFile::truncate(u64 size)
     auto truncate_result = m_inode->truncate(size);
     if (truncate_result.is_error())
         return truncate_result;
-    int mtime_result = m_inode->set_mtime(kgettimeofday().tv_sec);
+    int mtime_result = m_inode->set_mtime(kgettimeofday().to_truncated_seconds());
     if (mtime_result < 0)
         return KResult((ErrnoCode)-mtime_result);
     return KSuccess;

@@ -27,7 +27,6 @@
 #pragma once
 
 #include <AK/HashFunctions.h>
-#include <AK/LogStream.h>
 #include <AK/StdLibExtras.h>
 #include <AK/Types.h>
 #include <AK/kmalloc.h>
@@ -88,7 +87,7 @@ class HashTable {
 
 public:
     HashTable() = default;
-    HashTable(size_t capacity) { rehash(capacity); }
+    explicit HashTable(size_t capacity) { rehash(capacity); }
 
     ~HashTable()
     {
@@ -143,9 +142,9 @@ public:
         swap(a.m_deleted_count, b.m_deleted_count);
     }
 
-    bool is_empty() const { return !m_size; }
-    size_t size() const { return m_size; }
-    size_t capacity() const { return m_capacity; }
+    [[nodiscard]] bool is_empty() const { return !m_size; }
+    [[nodiscard]] size_t size() const { return m_size; }
+    [[nodiscard]] size_t capacity() const { return m_capacity; }
 
     template<typename U, size_t N>
     void set_from(U (&from_array)[N])
@@ -305,17 +304,13 @@ private:
     }
 
     template<typename Finder>
-    Bucket* lookup_with_hash(unsigned hash, Finder finder, Bucket** usable_bucket_for_writing = nullptr) const
+    Bucket* lookup_with_hash(unsigned hash, Finder finder) const
     {
         if (is_empty())
             return nullptr;
-        size_t bucket_index = hash % m_capacity;
-        for (;;) {
-            auto& bucket = m_buckets[bucket_index];
 
-            if (usable_bucket_for_writing && !*usable_bucket_for_writing && !bucket.used) {
-                *usable_bucket_for_writing = &bucket;
-            }
+        for (;;) {
+            auto& bucket = m_buckets[hash % m_capacity];
 
             if (bucket.used && finder(*bucket.slot()))
                 return &bucket;
@@ -324,7 +319,6 @@ private:
                 return nullptr;
 
             hash = double_hash(hash);
-            bucket_index = hash % m_capacity;
         }
     }
 
@@ -335,33 +329,31 @@ private:
 
     Bucket& lookup_for_writing(const T& value)
     {
-        auto hash = TraitsForT::hash(value);
-        Bucket* usable_bucket_for_writing = nullptr;
-        if (auto* bucket_for_reading = lookup_with_hash(
-                hash,
-                [&value](auto& entry) { return TraitsForT::equals(entry, value); },
-                &usable_bucket_for_writing)) {
-            return *const_cast<Bucket*>(bucket_for_reading);
-        }
-
         if (should_grow())
             rehash(capacity() * 2);
-        else if (usable_bucket_for_writing)
-            return *usable_bucket_for_writing;
 
-        size_t bucket_index = hash % m_capacity;
-
+        auto hash = TraitsForT::hash(value);
+        Bucket* first_empty_bucket = nullptr;
         for (;;) {
-            auto& bucket = m_buckets[bucket_index];
-            if (!bucket.used)
+            auto& bucket = m_buckets[hash % m_capacity];
+
+            if (bucket.used && TraitsForT::equals(*bucket.slot(), value))
                 return bucket;
+
+            if (!bucket.used) {
+                if (!first_empty_bucket)
+                    first_empty_bucket = &bucket;
+
+                if (!bucket.deleted)
+                    return *const_cast<Bucket*>(first_empty_bucket);
+            }
+
             hash = double_hash(hash);
-            bucket_index = hash % m_capacity;
         }
     }
 
-    size_t used_bucket_count() const { return m_size + m_deleted_count; }
-    bool should_grow() const { return ((used_bucket_count() + 1) * 100) >= (m_capacity * load_factor_in_percent); }
+    [[nodiscard]] size_t used_bucket_count() const { return m_size + m_deleted_count; }
+    [[nodiscard]] bool should_grow() const { return ((used_bucket_count() + 1) * 100) >= (m_capacity * load_factor_in_percent); }
 
     Bucket* m_buckets { nullptr };
     size_t m_size { 0 };

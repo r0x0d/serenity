@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2018-2021, Andreas Kling <kling@serenityos.org>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -73,7 +73,6 @@ public:
     virtual ~Object();
 
     virtual const char* class_name() const = 0;
-    virtual void event(Core::Event&);
 
     const String& name() const { return m_name; }
     void set_name(const StringView& name) { m_name = name; }
@@ -91,13 +90,13 @@ public:
     }
 
     template<typename T, typename Callback>
-    void for_each_child_of_type(Callback callback) requires IsBaseOf<Object, T>::value;
+    void for_each_child_of_type(Callback callback) requires IsBaseOf<Object, T>;
 
     template<typename T>
-    T* find_child_of_type_named(const String&) requires IsBaseOf<Object, T>::value;
+    T* find_child_of_type_named(const String&) requires IsBaseOf<Object, T>;
 
     template<typename T>
-    T* find_descendant_of_type_named(const String&) requires IsBaseOf<Object, T>::value;
+    T* find_descendant_of_type_named(const String&) requires IsBaseOf<Object, T>;
 
     bool is_ancestor_of(const Object&) const;
 
@@ -112,6 +111,8 @@ public:
     void insert_child_before(Object& new_child, Object& before_child);
     void remove_child(Object&);
     void remove_all_children();
+
+    void set_event_filter(Function<bool(Core::Event&)>);
 
     void dump_tree(int indent = 0);
 
@@ -153,6 +154,8 @@ protected:
 
     void register_property(const String& name, Function<JsonValue()> getter, Function<bool(const JsonValue&)> setter = nullptr);
 
+    virtual void event(Core::Event&);
+
     virtual void timer_event(TimerEvent&);
     virtual void custom_event(CustomEvent&);
 
@@ -169,6 +172,7 @@ private:
     unsigned m_inspector_count { 0 };
     HashMap<String, NonnullOwnPtr<Property>> m_properties;
     NonnullRefPtrVector<Object> m_children;
+    Function<bool(Core::Event&)> m_event_filter;
 };
 
 }
@@ -183,7 +187,7 @@ struct AK::Formatter<Core::Object> : AK::Formatter<FormatString> {
 
 namespace Core {
 template<typename T, typename Callback>
-inline void Object::for_each_child_of_type(Callback callback) requires IsBaseOf<Object, T>::value
+inline void Object::for_each_child_of_type(Callback callback) requires IsBaseOf<Object, T>
 {
     for_each_child([&](auto& child) {
         if (auto* child_as_t = dynamic_cast<T*>(&child); child_as_t)
@@ -193,7 +197,7 @@ inline void Object::for_each_child_of_type(Callback callback) requires IsBaseOf<
 }
 
 template<typename T>
-T* Object::find_child_of_type_named(const String& name) requires IsBaseOf<Object, T>::value
+T* Object::find_child_of_type_named(const String& name) requires IsBaseOf<Object, T>
 {
     T* found_child = nullptr;
     for_each_child_of_type<T>([&](auto& child) {
@@ -208,7 +212,7 @@ T* Object::find_child_of_type_named(const String& name) requires IsBaseOf<Object
 }
 
 template<typename T>
-T* Object::find_descendant_of_type_named(const String& name) requires IsBaseOf<Object, T>::value
+T* Object::find_descendant_of_type_named(const String& name) requires IsBaseOf<Object, T>
 {
     auto* this_as_t = dynamic_cast<T*>(this);
     if (this_as_t && this->name() == name)
@@ -222,8 +226,6 @@ T* Object::find_descendant_of_type_named(const String& name) requires IsBaseOf<O
     });
     return found_child;
 }
-
-const LogStream& operator<<(const LogStream&, const Object&);
 
 #define REGISTER_INT_PROPERTY(property_name, getter, setter) \
     register_property(                                       \
@@ -323,6 +325,8 @@ const LogStream& operator<<(const LogStream&, const Object&);
                 EnumType enum_value;                                         \
                 String string_value;                                         \
             } options[] = { __VA_ARGS__ };                                   \
+            if (!value.is_string())                                          \
+                return false;                                                \
             auto string_value = value.as_string();                           \
             for (size_t i = 0; i < array_size(options); ++i) {               \
                 auto& option = options[i];                                   \
@@ -343,4 +347,18 @@ const LogStream& operator<<(const LogStream&, const Object&);
         { Gfx::TextAlignment::CenterRight, "CenterRight" },             \
         { Gfx::TextAlignment::TopRight, "TopRight" },                   \
         { Gfx::TextAlignment::BottomRight, "BottomRight" })
+
+#define REGISTER_FONT_WEIGHT_PROPERTY(property_name, getter, setter) \
+    REGISTER_ENUM_PROPERTY(                                          \
+        property_name, getter, setter, unsigned,                     \
+        { Gfx::FontWeight::Thin, "Thin" },                           \
+        { Gfx::FontWeight::ExtraLight, "ExtraLight" },               \
+        { Gfx::FontWeight::Light, "Light" },                         \
+        { Gfx::FontWeight::Regular, "Regular" },                     \
+        { Gfx::FontWeight::Medium, "Medium" },                       \
+        { Gfx::FontWeight::SemiBold, "SemiBold" },                   \
+        { Gfx::FontWeight::Bold, "Bold" },                           \
+        { Gfx::FontWeight::ExtraBold, "ExtraBold" },                 \
+        { Gfx::FontWeight::Black, "Black" },                         \
+        { Gfx::FontWeight::ExtraBlack, "ExtraBlack" })
 }

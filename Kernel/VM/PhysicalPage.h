@@ -27,7 +27,7 @@
 #pragma once
 
 #include <AK/NonnullRefPtr.h>
-#include <Kernel/Arch/i386/CPU.h>
+#include <Kernel/Arch/x86/CPU.h>
 #include <Kernel/Assertions.h>
 #include <Kernel/Heap/SlabAllocator.h>
 #include <Kernel/PhysicalAddress.h>
@@ -68,7 +68,7 @@ public:
 
 private:
     PhysicalPage(PhysicalAddress paddr, bool supervisor, bool may_return_to_freelist = true);
-    ~PhysicalPage() { }
+    ~PhysicalPage() = default;
 
     void return_to_freelist() const;
 

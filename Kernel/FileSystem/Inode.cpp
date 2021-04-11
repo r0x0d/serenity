@@ -92,7 +92,7 @@ KResultOr<NonnullOwnPtr<KBuffer>> Inode::read_entire(FileDescription* descriptio
             break;
     }
     if (nread < 0) {
-        klog() << "Inode::read_entire: ERROR: " << nread;
+        dmesgln("Inode::read_entire: Error: {}", nread);
         return KResult((ErrnoCode)-nread);
     }
 
@@ -135,20 +135,6 @@ void Inode::will_be_destroyed()
     LOCKER(m_lock);
     if (m_metadata_dirty)
         flush_metadata();
-}
-
-void Inode::inode_contents_changed(off_t offset, ssize_t size, const UserOrKernelBuffer& data)
-{
-    LOCKER(m_lock);
-    if (auto shared_vmobject = this->shared_vmobject())
-        shared_vmobject->inode_contents_changed({}, offset, size, data);
-}
-
-void Inode::inode_size_changed(size_t old_size, size_t new_size)
-{
-    LOCKER(m_lock);
-    if (auto shared_vmobject = this->shared_vmobject())
-        shared_vmobject->inode_size_changed({}, old_size, new_size);
 }
 
 int Inode::set_atime(time_t)

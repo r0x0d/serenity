@@ -78,6 +78,10 @@
 #cmakedefine01 CSOCKET_DEBUG
 #endif
 
+#ifndef CSS_LOADER_DEBUG
+#cmakedefine01 CSS_LOADER_DEBUG
+#endif
+
 #ifndef CURSOR_TOOL_DEBUG
 #cmakedefine01 CURSOR_TOOL_DEBUG
 #endif
@@ -170,10 +174,6 @@
 #cmakedefine01 GLOBAL_DTORS_DEBUG
 #endif
 
-#ifndef GMENU_DEBUG
-#cmakedefine01 GMENU_DEBUG
-#endif
-
 #ifndef GZIP_DEBUG
 #cmakedefine01 GZIP_DEBUG
 #endif
@@ -232,6 +232,10 @@
 
 #ifndef KEYBOARD_SHORTCUTS_DEBUG
 #cmakedefine01 KEYBOARD_SHORTCUTS_DEBUG
+#endif
+
+#ifndef LANGUAGE_SERVER_DEBUG
+#cmakedefine01 LANGUAGE_SERVER_DEBUG
 #endif
 
 #ifndef LEXER_DEBUG
@@ -304,6 +308,10 @@
 
 #ifndef PORTABLE_IMAGE_LOADER_DEBUG
 #cmakedefine01 PORTABLE_IMAGE_LOADER_DEBUG
+#endif
+
+#ifndef PROMISE_DEBUG
+#cmakedefine01 PROMISE_DEBUG
 #endif
 
 #ifndef PTHREAD_DEBUG

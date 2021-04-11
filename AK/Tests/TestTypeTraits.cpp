@@ -29,13 +29,13 @@
 #include <AK/TypeList.h>
 
 #define STATIC_EXPECT_EQ(lhs, rhs) \
-    static_assert(IsSame<lhs, rhs>::value, "");
+    static_assert(IsSame<lhs, rhs>, "");
 
 #define STATIC_EXPECT_FALSE(Expression) \
-    static_assert(!Expression::value, "");
+    static_assert(!Expression, "");
 
 #define STATIC_EXPECT_TRUE(Expression) \
-    static_assert(Expression::value, "");
+    static_assert(Expression, "");
 
 #define EXPECT_TRAIT_TRUE(trait, ...)                                     \
     for_each_type<TypeList<__VA_ARGS__>>([]<typename T>(TypeWrapper<T>) { \
@@ -49,10 +49,14 @@
 
 #define EXPECT_EQ_WITH_TRAIT(trait, ListA, ListB)                                                   \
     for_each_type_zipped<ListA, ListB>([]<typename A, typename B>(TypeWrapper<A>, TypeWrapper<B>) { \
-        STATIC_EXPECT_EQ(typename trait<A>::Type, B);                                               \
+        STATIC_EXPECT_EQ(trait<A>, B);                                                              \
     })
 
 struct Empty {
+};
+
+enum class Enummer : u8 {
+    Dummmy,
 };
 
 TEST_CASE(FundamentalTypeClassification)
@@ -81,14 +85,27 @@ TEST_CASE(FundamentalTypeClassification)
 
     EXPECT_TRAIT_FALSE(IsFundamental, Empty, int*, int&);
 
+    EXPECT_TRAIT_FALSE(IsSigned, unsigned);
+    EXPECT_TRAIT_FALSE(IsSigned, unsigned short);
+    EXPECT_TRAIT_FALSE(IsSigned, unsigned char);
+    EXPECT_TRAIT_FALSE(IsSigned, unsigned long);
+    EXPECT_TRAIT_TRUE(IsSigned, int);
+    EXPECT_TRAIT_TRUE(IsSigned, short);
+    EXPECT_TRAIT_TRUE(IsSigned, long);
+
     EXPECT_TRAIT_TRUE(IsUnsigned, unsigned);
     EXPECT_TRAIT_TRUE(IsUnsigned, unsigned short);
     EXPECT_TRAIT_TRUE(IsUnsigned, unsigned char);
     EXPECT_TRAIT_TRUE(IsUnsigned, unsigned long);
     EXPECT_TRAIT_FALSE(IsUnsigned, int);
     EXPECT_TRAIT_FALSE(IsUnsigned, short);
-    EXPECT_TRAIT_FALSE(IsUnsigned, char);
     EXPECT_TRAIT_FALSE(IsUnsigned, long);
+
+    EXPECT_TRAIT_TRUE(IsEnum, Enummer);
+    EXPECT_TRAIT_FALSE(IsEnum, Empty);
+    EXPECT_TRAIT_FALSE(IsEnum, int);
+    EXPECT_TRAIT_FALSE(IsEnum, void);
+    EXPECT_TRAIT_FALSE(IsEnum, std::nullptr_t);
 }
 
 TEST_CASE(AddConst)
@@ -99,6 +116,13 @@ TEST_CASE(AddConst)
     // clang-format on
 
     EXPECT_EQ_WITH_TRAIT(AddConst, NoConstList, YesConstList);
+}
+
+TEST_CASE(UnderlyingType)
+{
+    using Type = UnderlyingType<Enummer>;
+
+    STATIC_EXPECT_EQ(Type, u8);
 }
 
 TEST_MAIN(TypeTraits)

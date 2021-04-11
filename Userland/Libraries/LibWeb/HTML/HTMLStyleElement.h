@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2018-2020, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2021, the SerenityOS developers.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -27,6 +28,7 @@
 #pragma once
 
 #include <LibWeb/HTML/HTMLElement.h>
+#include <LibWeb/Loader/CSSLoader.h>
 
 namespace Web::HTML {
 
@@ -38,10 +40,10 @@ public:
     virtual ~HTMLStyleElement() override;
 
     virtual void children_changed() override;
-    virtual void removed_from(Node&) override;
+    virtual void removed_from(Node*) override;
 
 private:
-    RefPtr<CSS::StyleSheet> m_stylesheet;
+    CSSLoader m_css_loader;
 };
 
 }

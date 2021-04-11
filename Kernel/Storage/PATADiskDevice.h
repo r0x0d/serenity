@@ -37,7 +37,7 @@
 namespace Kernel {
 
 class IDEController;
-
+class IDEChannel;
 class PATADiskDevice final : public StorageDevice {
     friend class IDEController;
     AK_MAKE_ETERNAL
@@ -57,19 +57,18 @@ public:
     };
 
 public:
-    static NonnullRefPtr<PATADiskDevice> create(const IDEController&, IDEChannel&, DriveType, InterfaceType, u16, u16, u16, u16, int major, int minor);
+    static NonnullRefPtr<PATADiskDevice> create(const IDEController&, IDEChannel&, DriveType, InterfaceType, u16, u64);
     virtual ~PATADiskDevice() override;
 
     // ^StorageDevice
     virtual Type type() const override { return StorageDevice::Type::IDE; }
-    virtual size_t max_addressable_block() const override;
 
     // ^BlockDevice
     virtual void start_request(AsyncBlockDeviceRequest&) override;
     virtual String device_name() const override;
 
 private:
-    PATADiskDevice(const IDEController&, IDEChannel&, DriveType, InterfaceType, u16, u16, u16, u16, int major, int minor);
+    PATADiskDevice(const IDEController&, IDEChannel&, DriveType, InterfaceType, u16, u64);
 
     // ^DiskDevice
     virtual const char* class_name() const override;
@@ -77,11 +76,8 @@ private:
     bool is_slave() const;
 
     Lock m_lock { "IDEDiskDevice" };
-    u16 m_cylinders { 0 };
-    u16 m_heads { 0 };
-    u16 m_sectors_per_track { 0 };
     u16 m_capabilities { 0 };
-    IDEChannel& m_channel;
+    NonnullRefPtr<IDEChannel> m_channel;
     DriveType m_drive_type { DriveType::Master };
     InterfaceType m_interface_type { InterfaceType::ATA };
 };

@@ -25,6 +25,7 @@
  */
 
 #include <AK/LexicalPath.h>
+#include <AK/NumberFormat.h>
 #include <AK/QuickSort.h>
 #include <AK/StringBuilder.h>
 #include <LibCore/DirIterator.h>
@@ -122,19 +123,28 @@ void FileSystemModel::Node::traverse_if_needed()
     }
     quick_sort(child_names);
 
-    for (auto& name : child_names) {
-        String child_path = String::formatted("{}/{}", full_path, name);
+    NonnullOwnPtrVector<Node> directory_children;
+    NonnullOwnPtrVector<Node> file_children;
+
+    for (auto& child_name : child_names) {
+        String child_path = String::formatted("{}/{}", full_path, child_name);
         auto child = adopt_own(*new Node(m_model));
         bool ok = child->fetch_data(child_path, false);
         if (!ok)
             continue;
         if (m_model.m_mode == DirectoriesOnly && !S_ISDIR(child->mode))
             continue;
-        child->name = name;
+        child->name = child_name;
         child->parent = this;
         total_size += child->size;
-        children.append(move(child));
+        if (S_ISDIR(child->mode))
+            directory_children.append(move(child));
+        else
+            file_children.append(move(child));
     }
+
+    children.append(move(directory_children));
+    children.append(move(file_children));
 
     if (!m_file_watcher) {
 
@@ -161,6 +171,16 @@ void FileSystemModel::Node::reify_if_needed()
     if (mode != 0)
         return;
     fetch_data(full_path(), parent == nullptr || parent->m_parent_of_root);
+}
+
+bool FileSystemModel::Node::is_symlink_to_directory() const
+{
+    if (!S_ISLNK(mode))
+        return false;
+    struct stat st;
+    if (lstat(symlink_target.characters(), &st) < 0)
+        return false;
+    return S_ISDIR(st.st_mode);
 }
 
 String FileSystemModel::Node::full_path() const
@@ -413,7 +433,9 @@ Variant FileSystemModel::data(const ModelIndex& index, ModelRole role) const
         case Column::Icon:
             return node.is_directory() ? 0 : 1;
         case Column::Name:
-            return node.name;
+            // NOTE: The children of a Node are grouped by directory-or-file and then sorted alphabetically.
+            //       Hence, the sort value for the name column is simply the index row. :^)
+            return index.row();
         case Column::Size:
             return (int)node.size;
         case Column::Owner:
@@ -439,7 +461,7 @@ Variant FileSystemModel::data(const ModelIndex& index, ModelRole role) const
         case Column::Name:
             return node.name;
         case Column::Size:
-            return (int)node.size;
+            return human_readable_size(node.size);
         case Column::Owner:
             return name_for_uid(node.uid);
         case Column::Group:
@@ -480,6 +502,8 @@ Icon FileSystemModel::icon_for(const Node& node) const
                 return FileIconProvider::home_directory_open_icon();
             return FileIconProvider::home_directory_icon();
         }
+        if (node.full_path() == Core::StandardPaths::desktop_directory())
+            return FileIconProvider::desktop_directory_icon();
         if (node.is_selected() && node.is_accessible_directory)
             return FileIconProvider::directory_open_icon();
     }
@@ -497,7 +521,7 @@ static RefPtr<Gfx::Bitmap> render_thumbnail(const StringView& path)
 
     double scale = min(32 / (double)png_bitmap->width(), 32 / (double)png_bitmap->height());
 
-    auto thumbnail = Gfx::Bitmap::create(Gfx::BitmapFormat::RGBA32, { 32, 32 });
+    auto thumbnail = Gfx::Bitmap::create(Gfx::BitmapFormat::BGRA8888, { 32, 32 });
     Gfx::IntRect destination = Gfx::IntRect(0, 0, (int)(png_bitmap->width() * scale), (int)(png_bitmap->height() * scale));
     destination.center_within(thumbnail->rect());
 

@@ -31,7 +31,6 @@
 namespace Kernel {
 
 File::File()
-    : m_block_condition(*this)
 {
 }
 
@@ -59,7 +58,7 @@ int File::ioctl(FileDescription&, unsigned, FlatPtr)
     return -ENOTTY;
 }
 
-KResultOr<Region*> File::mmap(Process&, FileDescription&, const Range&, size_t, int, bool)
+KResultOr<Region*> File::mmap(Process&, FileDescription&, const Range&, u64, int, bool)
 {
     return ENODEV;
 }

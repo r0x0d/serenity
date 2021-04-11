@@ -29,10 +29,18 @@
 #include <Kernel/Debug.h>
 #include <Kernel/FileSystem/FileDescription.h>
 #include <Kernel/Storage/StorageDevice.h>
+#include <Kernel/Storage/StorageManagement.h>
 
 namespace Kernel {
 
-StorageDevice::StorageDevice(const StorageController& controller, int major, int minor, size_t sector_size, size_t max_addressable_block)
+StorageDevice::StorageDevice(const StorageController& controller, size_t sector_size, u64 max_addressable_block)
+    : BlockDevice(StorageManagement::major_number(), StorageManagement::minor_number(), sector_size)
+    , m_storage_controller(controller)
+    , m_max_addressable_block(max_addressable_block)
+{
+}
+
+StorageDevice::StorageDevice(const StorageController& controller, int major, int minor, size_t sector_size, u64 max_addressable_block)
     : BlockDevice(major, minor, sector_size)
     , m_storage_controller(controller)
     , m_max_addressable_block(max_addressable_block)
@@ -49,7 +57,7 @@ NonnullRefPtr<StorageController> StorageDevice::controller() const
     return m_storage_controller;
 }
 
-KResultOr<size_t> StorageDevice::read(FileDescription&, size_t offset, UserOrKernelBuffer& outbuf, size_t len)
+KResultOr<size_t> StorageDevice::read(FileDescription&, u64 offset, UserOrKernelBuffer& outbuf, size_t len)
 {
     unsigned index = offset / block_size();
     u16 whole_blocks = len / block_size();
@@ -64,9 +72,7 @@ KResultOr<size_t> StorageDevice::read(FileDescription&, size_t offset, UserOrKer
         remaining = 0;
     }
 
-#if STORAGE_DEVICE_DEBUG
-    klog() << "StorageDevice::read() index=" << index << " whole_blocks=" << whole_blocks << " remaining=" << remaining;
-#endif
+    dbgln_if(STORAGE_DEVICE_DEBUG, "StorageDevice::read() index={}, whole_blocks={}, remaining={}", index, whole_blocks, remaining);
 
     if (whole_blocks > 0) {
         auto read_request = make_request<AsyncBlockDeviceRequest>(AsyncBlockDeviceRequest::Read, index, whole_blocks, outbuf, whole_blocks * block_size());
@@ -116,7 +122,7 @@ bool StorageDevice::can_read(const FileDescription&, size_t offset) const
     return offset < (max_addressable_block() * block_size());
 }
 
-KResultOr<size_t> StorageDevice::write(FileDescription&, size_t offset, const UserOrKernelBuffer& inbuf, size_t len)
+KResultOr<size_t> StorageDevice::write(FileDescription&, u64 offset, const UserOrKernelBuffer& inbuf, size_t len)
 {
     unsigned index = offset / block_size();
     u16 whole_blocks = len / block_size();
@@ -131,9 +137,7 @@ KResultOr<size_t> StorageDevice::write(FileDescription&, size_t offset, const Us
         remaining = 0;
     }
 
-#if STORAGE_DEVICE_DEBUG
-    klog() << "StorageDevice::write() index=" << index << " whole_blocks=" << whole_blocks << " remaining=" << remaining;
-#endif
+    dbgln_if(STORAGE_DEVICE_DEBUG, "StorageDevice::write() index={}, whole_blocks={}, remaining={}", index, whole_blocks, remaining);
 
     if (whole_blocks > 0) {
         auto write_request = make_request<AsyncBlockDeviceRequest>(AsyncBlockDeviceRequest::Write, index, whole_blocks, inbuf, whole_blocks * block_size());

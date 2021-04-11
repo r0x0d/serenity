@@ -31,8 +31,9 @@
 #include <ctype.h>
 
 namespace Cpp {
-Preprocessor::Preprocessor(const StringView& program)
-    : m_program(program)
+Preprocessor::Preprocessor(const String& filename, const StringView& program)
+    : m_filename(filename)
+    , m_program(program)
 {
     m_lines = m_program.split_view('\n', true);
 }
@@ -67,6 +68,8 @@ void Preprocessor::handle_preprocessor_line(const StringView& line)
     lexer.consume_specific('#');
     consume_whitespace();
     auto keyword = lexer.consume_until(' ');
+    if (keyword.is_empty() || keyword.is_null() || keyword.is_whitespace())
+        return;
 
     if (keyword == "include") {
         consume_whitespace();
@@ -103,10 +106,15 @@ void Preprocessor::handle_preprocessor_line(const StringView& line)
         if (m_state == State::Normal) {
             auto key = lexer.consume_until(' ');
             consume_whitespace();
+
             DefinedValue value;
+            value.filename = m_filename;
+            value.line = m_line_index;
+
             auto string_value = lexer.consume_all();
             if (!string_value.is_empty())
                 value.value = string_value;
+
             m_definitions.set(key, value);
         }
         return;
@@ -176,8 +184,17 @@ void Preprocessor::handle_preprocessor_line(const StringView& line)
         lexer.consume_all();
         return;
     }
-    dbgln("Unsupported preprocessor keyword: {}", keyword);
-    VERIFY_NOT_REACHED();
+
+    if (!m_options.ignore_unsupported_keywords) {
+        dbgln("Unsupported preprocessor keyword: {}", keyword);
+        VERIFY_NOT_REACHED();
+    }
+}
+
+const String& Preprocessor::processed_text()
+{
+    VERIFY(!m_processed_text.is_null());
+    return m_processed_text;
 }
 
 };

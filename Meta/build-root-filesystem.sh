@@ -56,6 +56,7 @@ chmod 0400 mnt/boot/Kernel
 chmod 4750 mnt/bin/su
 chmod 4755 mnt/bin/passwd
 chmod 4755 mnt/bin/ping
+chmod 4755 mnt/bin/traceroute
 chmod 4750 mnt/bin/reboot
 chmod 4750 mnt/bin/shutdown
 chmod 4750 mnt/bin/keymap
@@ -95,7 +96,7 @@ mkdir -p mnt/home/anon
 mkdir -p mnt/home/anon/Desktop
 mkdir -p mnt/home/anon/Downloads
 mkdir -p mnt/home/nona
-cp "$SERENITY_ROOT"/ReadMe.md mnt/home/anon/
+cp "$SERENITY_ROOT"/README.md mnt/home/anon/
 cp -r "$SERENITY_ROOT"/Userland/Libraries/LibJS/Tests mnt/home/anon/js-tests
 cp -r "$SERENITY_ROOT"/Userland/Libraries/LibWeb/Tests mnt/home/anon/web-tests
 chmod 700 mnt/root

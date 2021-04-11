@@ -25,9 +25,13 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <AK/TemporaryChange.h>
 #include <AK/Utf8View.h>
 #include <LibJS/Console.h>
 #include <LibJS/Heap/DeferGC.h>
+#include <LibJS/Interpreter.h>
+#include <LibJS/Lexer.h>
+#include <LibJS/Parser.h>
 #include <LibJS/Runtime/ArrayBufferConstructor.h>
 #include <LibJS/Runtime/ArrayBufferPrototype.h>
 #include <LibJS/Runtime/ArrayConstructor.h>
@@ -54,6 +58,8 @@
 #include <LibJS/Runtime/Object.h>
 #include <LibJS/Runtime/ObjectConstructor.h>
 #include <LibJS/Runtime/ObjectPrototype.h>
+#include <LibJS/Runtime/PromiseConstructor.h>
+#include <LibJS/Runtime/PromisePrototype.h>
 #include <LibJS/Runtime/ProxyConstructor.h>
 #include <LibJS/Runtime/ReflectObject.h>
 #include <LibJS/Runtime/RegExpConstructor.h>
@@ -78,7 +84,7 @@ GlobalObject::GlobalObject()
 {
 }
 
-void GlobalObject::initialize()
+void GlobalObject::initialize_global_object()
 {
     auto& vm = this->vm();
 
@@ -119,6 +125,7 @@ void GlobalObject::initialize()
     define_native_function(vm.names.isFinite, is_finite, 1, attr);
     define_native_function(vm.names.parseFloat, parse_float, 1, attr);
     define_native_function(vm.names.parseInt, parse_int, 1, attr);
+    define_native_function(vm.names.eval, eval, 1, attr);
 
     define_property(vm.names.NaN, js_nan(), 0);
     define_property(vm.names.Infinity, js_infinity(), 0);
@@ -139,6 +146,7 @@ void GlobalObject::initialize()
     add_constructor(vm.names.Function, m_function_constructor, m_function_prototype);
     add_constructor(vm.names.Number, m_number_constructor, m_number_prototype);
     add_constructor(vm.names.Object, m_object_constructor, m_object_prototype);
+    add_constructor(vm.names.Promise, m_promise_constructor, m_promise_prototype);
     add_constructor(vm.names.Proxy, m_proxy_constructor, nullptr);
     add_constructor(vm.names.RegExp, m_regexp_constructor, m_regexp_prototype);
     add_constructor(vm.names.String, m_string_constructor, m_string_prototype);
@@ -307,6 +315,29 @@ bool GlobalObject::has_this_binding() const
 Value GlobalObject::get_this_binding(GlobalObject&) const
 {
     return Value(this);
+}
+
+JS_DEFINE_NATIVE_FUNCTION(GlobalObject::eval)
+{
+    if (!vm.argument(0).is_string())
+        return vm.argument(0);
+    auto& code_string = vm.argument(0).as_string();
+    JS::Parser parser { JS::Lexer { code_string.string() } };
+    auto program = parser.parse_program();
+
+    if (parser.has_errors()) {
+        auto& error = parser.errors()[0];
+        vm.throw_exception<SyntaxError>(global_object, error.to_string());
+        return {};
+    }
+
+    auto& caller_frame = vm.call_stack().at(vm.call_stack().size() - 2);
+    TemporaryChange scope_change(vm.call_frame().scope, caller_frame->scope);
+
+    vm.interpreter().execute_statement(global_object, program);
+    if (vm.exception())
+        return {};
+    return vm.last_value();
 }
 
 }

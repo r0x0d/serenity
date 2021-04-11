@@ -74,6 +74,15 @@ void WebContentClient::handle(const Messages::WebContentClient::DidChangeSelecti
     m_view.notify_server_did_change_selection({});
 }
 
+void WebContentClient::handle(const Messages::WebContentClient::DidRequestCursorChange& message)
+{
+    if (message.cursor_type() < 0 || message.cursor_type() >= (i32)Gfx::StandardCursor::__Count) {
+        dbgln("DidRequestCursorChange: Bad cursor type");
+        return;
+    }
+    m_view.notify_server_did_request_cursor_change({}, (Gfx::StandardCursor)message.cursor_type());
+}
+
 void WebContentClient::handle(const Messages::WebContentClient::DidLayout& message)
 {
     dbgln_if(SPAM_DEBUG, "handle: WebContentClient::DidLayout! content_size={}", message.content_size());
@@ -86,10 +95,25 @@ void WebContentClient::handle(const Messages::WebContentClient::DidChangeTitle& 
     m_view.notify_server_did_change_title({}, message.title());
 }
 
+void WebContentClient::handle(const Messages::WebContentClient::DidRequestScroll& message)
+{
+    m_view.notify_server_did_request_scroll({}, message.wheel_delta());
+}
+
 void WebContentClient::handle(const Messages::WebContentClient::DidRequestScrollIntoView& message)
 {
     dbgln_if(SPAM_DEBUG, "handle: WebContentClient::DidRequestScrollIntoView! rect={}", message.rect());
     m_view.notify_server_did_request_scroll_into_view({}, message.rect());
+}
+
+void WebContentClient::handle(const Messages::WebContentClient::DidEnterTooltipArea& message)
+{
+    m_view.notify_server_did_enter_tooltip_area({}, message.content_position(), message.title());
+}
+
+void WebContentClient::handle(const Messages::WebContentClient::DidLeaveTooltipArea&)
+{
+    m_view.notify_server_did_leave_tooltip_area({});
 }
 
 void WebContentClient::handle(const Messages::WebContentClient::DidHoverLink& message)
@@ -131,9 +155,19 @@ void WebContentClient::handle(const Messages::WebContentClient::DidRequestLinkCo
     m_view.notify_server_did_request_link_context_menu({}, message.content_position(), message.url(), message.target(), message.modifiers());
 }
 
+void WebContentClient::handle(const Messages::WebContentClient::DidRequestImageContextMenu& message)
+{
+    m_view.notify_server_did_request_image_context_menu({}, message.content_position(), message.url(), message.target(), message.modifiers(), message.bitmap());
+}
+
 void WebContentClient::handle(const Messages::WebContentClient::DidGetSource& message)
 {
     m_view.notify_server_did_get_source(message.url(), message.source());
+}
+
+void WebContentClient::handle(const Messages::WebContentClient::DidJSConsoleOutput& message)
+{
+    m_view.notify_server_did_js_console_output(message.method(), message.line());
 }
 
 OwnPtr<Messages::WebContentClient::DidRequestAlertResponse> WebContentClient::handle(const Messages::WebContentClient::DidRequestAlert& message)
@@ -152,6 +186,15 @@ OwnPtr<Messages::WebContentClient::DidRequestPromptResponse> WebContentClient::h
 {
     auto result = m_view.notify_server_did_request_prompt({}, message.message(), message.default_());
     return make<Messages::WebContentClient::DidRequestPromptResponse>(result);
+}
+
+void WebContentClient::handle(const Messages::WebContentClient::DidChangeFavicon& message)
+{
+    if (!message.favicon().is_valid()) {
+        dbgln("DidChangeFavicon: Received invalid favicon");
+        return;
+    }
+    m_view.notify_server_did_change_favicon(*message.favicon().bitmap());
 }
 
 }

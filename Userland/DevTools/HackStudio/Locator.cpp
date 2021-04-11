@@ -77,8 +77,11 @@ public:
                 return GUI::FileIconProvider::icon_for_path(suggestion.as_filename.value());
         }
         if (suggestion.is_symbol_declaration()) {
-            if (index.column() == Column::Name)
-                return suggestion.as_symbol_declaration.value().name;
+            if (index.column() == Column::Name) {
+                if (suggestion.as_symbol_declaration.value().scope.is_null())
+                    return suggestion.as_symbol_declaration.value().name;
+                return String::formatted("{}::{}", suggestion.as_symbol_declaration.value().scope, suggestion.as_symbol_declaration.value().name);
+            }
             if (index.column() == Column::Filename)
                 return suggestion.as_symbol_declaration.value().position.file;
             if (index.column() == Column::Icon) {
@@ -86,6 +89,7 @@ public:
                 static GUI::Icon class_icon(Gfx::Bitmap::load_from_file("/res/icons/hackstudio/Class.png"));
                 static GUI::Icon function_icon(Gfx::Bitmap::load_from_file("/res/icons/hackstudio/Function.png"));
                 static GUI::Icon variable_icon(Gfx::Bitmap::load_from_file("/res/icons/hackstudio/Variable.png"));
+                static GUI::Icon preprocessor_icon(Gfx::Bitmap::load_from_file("/res/icons/hackstudio/Preprocessor.png"));
                 switch (suggestion.as_symbol_declaration.value().type) {
                 case GUI::AutocompleteProvider::DeclarationType::Struct:
                     return struct_icon;
@@ -95,6 +99,8 @@ public:
                     return function_icon;
                 case GUI::AutocompleteProvider::DeclarationType::Variable:
                     return variable_icon;
+                case GUI::AutocompleteProvider::DeclarationType::PreprocessorDefinition:
+                    return preprocessor_icon;
                 }
                 return {};
             }
@@ -122,7 +128,7 @@ LocatorSuggestionModel::Suggestion LocatorSuggestionModel::Suggestion::create_sy
     return s;
 }
 
-Locator::Locator()
+Locator::Locator(Core::Object* parent)
 {
     set_layout<GUI::VerticalBoxLayout>();
     set_fixed_height(20);
@@ -165,7 +171,7 @@ Locator::Locator()
         open_suggestion(selected_index);
     };
 
-    m_popup_window = GUI::Window::construct();
+    m_popup_window = GUI::Window::construct(parent);
     // FIXME: This is obviously not a tooltip window, but it's the closest thing to what we want atm.
     m_popup_window->set_window_type(GUI::WindowType::Tooltip);
     m_popup_window->set_rect(0, 0, 500, 200);
@@ -222,17 +228,20 @@ void Locator::update_suggestions()
 
     for (auto& item : m_document_to_declarations) {
         for (auto& decl : item.value) {
-            if (decl.name.contains(typed_text, CaseSensitivity::CaseInsensitive))
+            if (decl.name.contains(typed_text, CaseSensitivity::CaseInsensitive) || decl.scope.contains(typed_text, CaseSensitivity::CaseInsensitive))
                 suggestions.append((LocatorSuggestionModel::Suggestion::create_symbol_declaration(decl)));
         }
     }
 
     dbgln("I have {} suggestion(s):", suggestions.size());
-    for (auto& s : suggestions) {
-        if (s.is_filename())
-            dbgln("    {}", s.as_filename.value());
-        if (s.is_symbol_declaration())
-            dbgln("    {} ({})", s.as_symbol_declaration.value().name, s.as_symbol_declaration.value().position.file);
+    // Limit the debug logging otherwise this can be very slow for large projects
+    if (suggestions.size() < 100) {
+        for (auto& s : suggestions) {
+            if (s.is_filename())
+                dbgln("    {}", s.as_filename.value());
+            if (s.is_symbol_declaration())
+                dbgln("    {} ({})", s.as_symbol_declaration.value().name, s.as_symbol_declaration.value().position.file);
+        }
     }
 
     bool has_suggestions = !suggestions.is_empty();

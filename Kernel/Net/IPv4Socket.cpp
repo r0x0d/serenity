@@ -47,6 +47,8 @@ namespace Kernel {
 
 static AK::Singleton<Lockable<HashTable<IPv4Socket*>>> s_table;
 
+using BlockFlags = Thread::FileDescriptionBlocker::BlockFlags;
+
 Lockable<HashTable<IPv4Socket*>>& IPv4Socket::all_sockets()
 {
     return *s_table;
@@ -201,7 +203,7 @@ KResultOr<size_t> IPv4Socket::sendto(FileDescription&, const UserOrKernelBuffer&
             return EFAULT;
 
         if (ia.sin_family != AF_INET) {
-            klog() << "sendto: Bad address family: " << ia.sin_family << " is not AF_INET!";
+            dmesgln("sendto: Bad address family: {} is not AF_INET", ia.sin_family);
             return EAFNOSUPPORT;
         }
 
@@ -220,9 +222,7 @@ KResultOr<size_t> IPv4Socket::sendto(FileDescription&, const UserOrKernelBuffer&
     if (rc < 0)
         return rc;
 
-#if IPV4_SOCKET_DEBUG
-    klog() << "sendto: destination=" << m_peer_address.to_string().characters() << ":" << m_peer_port;
-#endif
+    dbgln_if(IPV4_SOCKET_DEBUG, "sendto: destination={}:{}", m_peer_address, m_peer_port);
 
     if (type() == SOCK_RAW) {
         auto result = routing_decision.adapter->send_ipv4(routing_decision.next_hop, m_peer_address, (IPv4Protocol)protocol(), data, data_length, m_ttl);
@@ -247,11 +247,11 @@ KResultOr<size_t> IPv4Socket::receive_byte_buffered(FileDescription& description
             return EAGAIN;
 
         locker.unlock();
-        auto unblocked_flags = Thread::FileDescriptionBlocker::BlockFlags::None;
+        auto unblocked_flags = BlockFlags::None;
         auto res = Thread::current()->block<Thread::ReadBlocker>({}, description, unblocked_flags);
         locker.lock();
 
-        if (!((u32)unblocked_flags & (u32)Thread::FileDescriptionBlocker::BlockFlags::Read)) {
+        if (!has_flag(unblocked_flags, BlockFlags::Read)) {
             if (res.was_interrupted())
                 return EINTR;
 
@@ -269,7 +269,7 @@ KResultOr<size_t> IPv4Socket::receive_byte_buffered(FileDescription& description
     return nreceived;
 }
 
-KResultOr<size_t> IPv4Socket::receive_packet_buffered(FileDescription& description, UserOrKernelBuffer& buffer, size_t buffer_length, int flags, Userspace<sockaddr*> addr, Userspace<socklen_t*> addr_length, timeval& packet_timestamp)
+KResultOr<size_t> IPv4Socket::receive_packet_buffered(FileDescription& description, UserOrKernelBuffer& buffer, size_t buffer_length, int flags, Userspace<sockaddr*> addr, Userspace<socklen_t*> addr_length, Time& packet_timestamp)
 {
     Locker locker(lock());
     ReceivedPacket packet;
@@ -300,11 +300,11 @@ KResultOr<size_t> IPv4Socket::receive_packet_buffered(FileDescription& descripti
         }
 
         locker.unlock();
-        auto unblocked_flags = Thread::FileDescriptionBlocker::BlockFlags::None;
+        auto unblocked_flags = BlockFlags::None;
         auto res = Thread::current()->block<Thread::ReadBlocker>({}, description, unblocked_flags);
         locker.lock();
 
-        if (!((u32)unblocked_flags & (u32)Thread::FileDescriptionBlocker::BlockFlags::Read)) {
+        if (!has_flag(unblocked_flags, BlockFlags::Read)) {
             if (res.was_interrupted())
                 return EINTR;
 
@@ -352,7 +352,7 @@ KResultOr<size_t> IPv4Socket::receive_packet_buffered(FileDescription& descripti
     return protocol_receive(ReadonlyBytes { packet.data.value().data(), packet.data.value().size() }, buffer, buffer_length, flags);
 }
 
-KResultOr<size_t> IPv4Socket::recvfrom(FileDescription& description, UserOrKernelBuffer& buffer, size_t buffer_length, int flags, Userspace<sockaddr*> user_addr, Userspace<socklen_t*> user_addr_length, timeval& packet_timestamp)
+KResultOr<size_t> IPv4Socket::recvfrom(FileDescription& description, UserOrKernelBuffer& buffer, size_t buffer_length, int flags, Userspace<sockaddr*> user_addr, Userspace<socklen_t*> user_addr_length, Time& packet_timestamp)
 {
     if (user_addr_length) {
         socklen_t addr_length;
@@ -362,9 +362,7 @@ KResultOr<size_t> IPv4Socket::recvfrom(FileDescription& description, UserOrKerne
             return EINVAL;
     }
 
-#if IPV4_SOCKET_DEBUG
-    klog() << "recvfrom: type=" << type() << ", local_port=" << local_port();
-#endif
+    dbgln_if(IPV4_SOCKET_DEBUG, "recvfrom: type={}, local_port={}", type(), local_port());
 
     KResultOr<size_t> nreceived = 0;
     if (buffer_mode() == BufferMode::Bytes)
@@ -377,7 +375,7 @@ KResultOr<size_t> IPv4Socket::recvfrom(FileDescription& description, UserOrKerne
     return nreceived;
 }
 
-bool IPv4Socket::did_receive(const IPv4Address& source_address, u16 source_port, KBuffer&& packet, const timeval& packet_timestamp)
+bool IPv4Socket::did_receive(const IPv4Address& source_address, u16 source_port, KBuffer&& packet, const Time& packet_timestamp)
 {
     LOCKER(lock());
 

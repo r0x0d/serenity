@@ -28,7 +28,9 @@
 
 #include <AK/Checked.h>
 #include <AK/Forward.h>
+#include <AK/Time.h>
 #include <AK/Userspace.h>
+#include <Kernel/UnixTypes.h>
 
 namespace Syscall {
 struct StringArgument;
@@ -36,6 +38,10 @@ struct StringArgument;
 
 [[nodiscard]] String copy_string_from_user(const char*, size_t);
 [[nodiscard]] String copy_string_from_user(Userspace<const char*>, size_t);
+[[nodiscard]] Optional<Time> copy_time_from_user(const timespec*);
+[[nodiscard]] Optional<Time> copy_time_from_user(const timeval*);
+template<typename T>
+[[nodiscard]] Optional<Time> copy_time_from_user(Userspace<T*> src);
 
 [[nodiscard]] Optional<u32> user_atomic_fetch_add_relaxed(volatile u32* var, u32 val);
 [[nodiscard]] Optional<u32> user_atomic_exchange_relaxed(volatile u32* var, u32 val);
@@ -71,56 +77,76 @@ const void* memmem(const void* haystack, size_t, const void* needle, size_t);
 template<typename T>
 [[nodiscard]] inline bool copy_from_user(T* dest, const T* src)
 {
-    static_assert(is_trivially_copyable<T>());
+    static_assert(IsTriviallyCopyable<T>);
     return copy_from_user(dest, src, sizeof(T));
 }
 
 template<typename T>
 [[nodiscard]] inline bool copy_to_user(T* dest, const T* src)
 {
-    static_assert(is_trivially_copyable<T>());
+    static_assert(IsTriviallyCopyable<T>);
     return copy_to_user(dest, src, sizeof(T));
 }
 
 template<typename T>
 [[nodiscard]] inline bool copy_from_user(T* dest, Userspace<const T*> src)
 {
-    static_assert(is_trivially_copyable<T>());
+    static_assert(IsTriviallyCopyable<T>);
     return copy_from_user(dest, src.unsafe_userspace_ptr(), sizeof(T));
 }
 
 template<typename T>
 [[nodiscard]] inline bool copy_from_user(T* dest, Userspace<T*> src)
 {
-    static_assert(is_trivially_copyable<T>());
+    static_assert(IsTriviallyCopyable<T>);
     return copy_from_user(dest, src.unsafe_userspace_ptr(), sizeof(T));
 }
+
+#define DEPRECATE_COPY_FROM_USER_TYPE(T, REPLACEMENT)                                                                                \
+    template<>                                                                                                                       \
+    [[nodiscard]] inline __attribute__((deprecated("use " #REPLACEMENT " instead"))) bool copy_from_user<T>(T*, const T*)            \
+    {                                                                                                                                \
+        VERIFY_NOT_REACHED();                                                                                                        \
+    }                                                                                                                                \
+    template<>                                                                                                                       \
+    [[nodiscard]] inline __attribute__((deprecated("use " #REPLACEMENT " instead"))) bool copy_from_user<T>(T*, Userspace<const T*>) \
+    {                                                                                                                                \
+        VERIFY_NOT_REACHED();                                                                                                        \
+    }                                                                                                                                \
+    template<>                                                                                                                       \
+    [[nodiscard]] inline __attribute__((deprecated("use " #REPLACEMENT " instead"))) bool copy_from_user<T>(T*, Userspace<T*>)       \
+    {                                                                                                                                \
+        VERIFY_NOT_REACHED();                                                                                                        \
+    }
+
+DEPRECATE_COPY_FROM_USER_TYPE(timespec, copy_time_from_user)
+DEPRECATE_COPY_FROM_USER_TYPE(timeval, copy_time_from_user)
 
 template<typename T>
 [[nodiscard]] inline bool copy_to_user(Userspace<T*> dest, const T* src)
 {
-    static_assert(is_trivially_copyable<T>());
+    static_assert(IsTriviallyCopyable<T>);
     return copy_to_user(dest.unsafe_userspace_ptr(), src, sizeof(T));
 }
 
 template<typename T>
 [[nodiscard]] inline bool copy_to_user(Userspace<T*> dest, const void* src, size_t size)
 {
-    static_assert(is_trivially_copyable<T>());
+    static_assert(IsTriviallyCopyable<T>);
     return copy_to_user(dest.unsafe_userspace_ptr(), src, size);
 }
 
 template<typename T>
 [[nodiscard]] inline bool copy_from_user(void* dest, Userspace<const T*> src, size_t size)
 {
-    static_assert(is_trivially_copyable<T>());
+    static_assert(IsTriviallyCopyable<T>);
     return copy_from_user(dest, src.unsafe_userspace_ptr(), size);
 }
 
 template<typename T>
 [[nodiscard]] inline bool copy_n_from_user(T* dest, const T* src, size_t count)
 {
-    static_assert(is_trivially_copyable<T>());
+    static_assert(IsTriviallyCopyable<T>);
     Checked size = sizeof(T);
     size *= count;
     if (size.has_overflow())
@@ -131,7 +157,7 @@ template<typename T>
 template<typename T>
 [[nodiscard]] inline bool copy_n_to_user(T* dest, const T* src, size_t count)
 {
-    static_assert(is_trivially_copyable<T>());
+    static_assert(IsTriviallyCopyable<T>);
     Checked size = sizeof(T);
     size *= count;
     if (size.has_overflow())
@@ -142,7 +168,7 @@ template<typename T>
 template<typename T>
 [[nodiscard]] inline bool copy_n_from_user(T* dest, Userspace<const T*> src, size_t count)
 {
-    static_assert(is_trivially_copyable<T>());
+    static_assert(IsTriviallyCopyable<T>);
     Checked size = sizeof(T);
     size *= count;
     if (size.has_overflow())
@@ -153,7 +179,7 @@ template<typename T>
 template<typename T>
 [[nodiscard]] inline bool copy_n_to_user(Userspace<T*> dest, const T* src, size_t count)
 {
-    static_assert(is_trivially_copyable<T>());
+    static_assert(IsTriviallyCopyable<T>);
     Checked size = sizeof(T);
     size *= count;
     if (size.has_overflow())

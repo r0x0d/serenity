@@ -69,13 +69,25 @@ void InfinitelyScrollableTableView::did_scroll()
     TableView::did_scroll();
     auto& vscrollbar = vertical_scrollbar();
     auto& hscrollbar = horizontal_scrollbar();
-    if (vscrollbar.is_visible() && vscrollbar.value() == vscrollbar.max()) {
-        if (on_reaching_vertical_end)
-            on_reaching_vertical_end();
+    if (!m_vertical_scroll_end_timer->is_active()) {
+        if (vscrollbar.is_visible() && vscrollbar.value() == vscrollbar.max()) {
+            m_vertical_scroll_end_timer->on_timeout = [&] {
+                if (on_reaching_vertical_end)
+                    on_reaching_vertical_end();
+                m_vertical_scroll_end_timer->stop();
+            };
+            m_vertical_scroll_end_timer->start(50);
+        }
     }
-    if (hscrollbar.is_visible() && hscrollbar.value() == hscrollbar.max()) {
-        if (on_reaching_horizontal_end)
-            on_reaching_horizontal_end();
+    if (!m_horizontal_scroll_end_timer->is_active()) {
+        if (hscrollbar.is_visible() && hscrollbar.value() == hscrollbar.max()) {
+            m_horizontal_scroll_end_timer->on_timeout = [&] {
+                if (on_reaching_horizontal_end)
+                    on_reaching_horizontal_end();
+                m_horizontal_scroll_end_timer->stop();
+            };
+            m_horizontal_scroll_end_timer->start(50);
+        }
     }
 }
 
@@ -169,6 +181,7 @@ SpreadsheetView::SpreadsheetView(Sheet& sheet)
             m_sheet->add_column();
             auto last_column_index = m_sheet->column_count() - 1;
             m_table_view->set_column_width(last_column_index, 50);
+            m_table_view->set_default_column_width(last_column_index, 50);
             m_table_view->set_column_header_alignment(last_column_index, Gfx::TextAlignment::Center);
         }
         update_with_model();
@@ -180,6 +193,7 @@ SpreadsheetView::SpreadsheetView(Sheet& sheet)
     for (size_t i = 0; i < m_sheet->column_count(); ++i) {
         m_table_view->set_column_painting_delegate(i, make<TableCellPainter>(*m_table_view));
         m_table_view->set_column_width(i, 50);
+        m_table_view->set_default_column_width(i, 50);
         m_table_view->set_column_header_alignment(i, Gfx::TextAlignment::Center);
     }
 
@@ -190,7 +204,7 @@ SpreadsheetView::SpreadsheetView(Sheet& sheet)
         auto delegate = make<EditingDelegate>(*m_sheet);
         delegate->on_cursor_key_pressed = [this](auto& event) {
             m_table_view->stop_editing();
-            m_table_view->event(event);
+            m_table_view->dispatch_event(event);
         };
         return delegate;
     };
@@ -283,10 +297,8 @@ SpreadsheetView::SpreadsheetView(Sheet& sheet)
         }
 
         if (event.mime_data().has_text()) {
-            auto* target_cell = m_sheet->at({ (size_t)index.column(), (size_t)index.row() });
-            VERIFY(target_cell);
-
-            target_cell->set_data(event.text());
+            auto& target_cell = m_sheet->ensure({ (size_t)index.column(), (size_t)index.row() });
+            target_cell.set_data(event.text());
             return;
         }
     };

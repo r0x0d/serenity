@@ -81,8 +81,7 @@ Optional<Range> RangeAllocator::allocate_randomized(size_t size, size_t alignmen
     // FIXME: I'm sure there's a smarter way to do this.
     static constexpr size_t maximum_randomization_attempts = 1000;
     for (size_t i = 0; i < maximum_randomization_attempts; ++i) {
-        VirtualAddress random_address { get_random<FlatPtr>() };
-        random_address.mask(PAGE_MASK);
+        VirtualAddress random_address { round_up_to_power_of_two(get_random<FlatPtr>(), alignment) };
 
         if (!m_total_range.contains(random_address, size))
             continue;
@@ -137,7 +136,7 @@ Optional<Range> RangeAllocator::allocate_anywhere(size_t size, size_t alignment)
         carve_at_index(i, allocated_range);
         return allocated_range;
     }
-    klog() << "RangeAllocator: Failed to allocate anywhere: " << size << ", " << alignment;
+    dbgln("RangeAllocator: Failed to allocate anywhere: size={}, alignment={}", size, alignment);
     return {};
 }
 
@@ -150,9 +149,12 @@ Optional<Range> RangeAllocator::allocate_specific(VirtualAddress base, size_t si
     VERIFY((size % PAGE_SIZE) == 0);
 
     Range allocated_range(base, size);
+    if (!m_total_range.contains(allocated_range)) {
+        dbgln("Unallocatable mmap request?! {:p}+{:p}", base.get(), size);
+        return {};
+    }
     for (size_t i = 0; i < m_available_ranges.size(); ++i) {
         auto& available_range = m_available_ranges[i];
-        VERIFY(m_total_range.contains(allocated_range));
         if (!available_range.contains(base, size))
             continue;
         if (available_range == allocated_range) {

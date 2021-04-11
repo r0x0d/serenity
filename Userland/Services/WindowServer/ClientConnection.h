@@ -58,8 +58,6 @@ public:
     static ClientConnection* from_client_id(int client_id);
     static void for_each_client(Function<void(ClientConnection&)>);
 
-    MenuBar* app_menubar() { return m_app_menubar.ptr(); }
-
     void notify_about_new_screen_rect(const Gfx::IntRect&);
     void post_paint_message(Window&, bool ignore_occlusion = false);
 
@@ -76,6 +74,23 @@ public:
         if (!menu.has_value())
             return nullptr;
         return menu.value().ptr();
+    }
+
+    template<typename Callback>
+    void for_each_window(Callback callback)
+    {
+        for (auto& it : m_windows) {
+            if (callback(*it.value) == IterationDecision::Break)
+                break;
+        }
+    }
+    template<typename Callback>
+    void for_each_menu(Callback callback)
+    {
+        for (auto& it : m_menus) {
+            if (callback(*it.value) == IterationDecision::Break)
+                break;
+        }
     }
 
     void notify_display_link(Badge<Compositor>);
@@ -97,7 +112,7 @@ private:
     virtual OwnPtr<Messages::WindowServer::CreateMenuResponse> handle(const Messages::WindowServer::CreateMenu&) override;
     virtual OwnPtr<Messages::WindowServer::DestroyMenuResponse> handle(const Messages::WindowServer::DestroyMenu&) override;
     virtual OwnPtr<Messages::WindowServer::AddMenuToMenubarResponse> handle(const Messages::WindowServer::AddMenuToMenubar&) override;
-    virtual OwnPtr<Messages::WindowServer::SetApplicationMenubarResponse> handle(const Messages::WindowServer::SetApplicationMenubar&) override;
+    virtual OwnPtr<Messages::WindowServer::SetWindowMenubarResponse> handle(const Messages::WindowServer::SetWindowMenubar&) override;
     virtual OwnPtr<Messages::WindowServer::AddMenuItemResponse> handle(const Messages::WindowServer::AddMenuItem&) override;
     virtual OwnPtr<Messages::WindowServer::AddMenuSeparatorResponse> handle(const Messages::WindowServer::AddMenuSeparator&) override;
     virtual OwnPtr<Messages::WindowServer::UpdateMenuItemResponse> handle(const Messages::WindowServer::UpdateMenuItem&) override;
@@ -111,7 +126,7 @@ private:
     virtual OwnPtr<Messages::WindowServer::GetWindowRectResponse> handle(const Messages::WindowServer::GetWindowRect&) override;
     virtual OwnPtr<Messages::WindowServer::SetWindowMinimumSizeResponse> handle(const Messages::WindowServer::SetWindowMinimumSize&) override;
     virtual OwnPtr<Messages::WindowServer::GetWindowMinimumSizeResponse> handle(const Messages::WindowServer::GetWindowMinimumSize&) override;
-    virtual OwnPtr<Messages::WindowServer::GetWindowRectInMenubarResponse> handle(const Messages::WindowServer::GetWindowRectInMenubar&) override;
+    virtual OwnPtr<Messages::WindowServer::GetAppletRectOnScreenResponse> handle(const Messages::WindowServer::GetAppletRectOnScreen&) override;
     virtual void handle(const Messages::WindowServer::InvalidateRect&) override;
     virtual void handle(const Messages::WindowServer::DidFinishPainting&) override;
     virtual OwnPtr<Messages::WindowServer::SetGlobalCursorTrackingResponse> handle(const Messages::WindowServer::SetGlobalCursorTracking&) override;
@@ -121,6 +136,7 @@ private:
     virtual void handle(const Messages::WindowServer::WM_SetWindowMinimized&) override;
     virtual void handle(const Messages::WindowServer::WM_StartWindowResize&) override;
     virtual void handle(const Messages::WindowServer::WM_PopupWindowMenu&) override;
+    virtual OwnPtr<Messages::WindowServer::WM_SetAppletAreaPositionResponse> handle(const Messages::WindowServer::WM_SetAppletAreaPosition&) override;
     virtual OwnPtr<Messages::WindowServer::SetWindowHasAlphaChannelResponse> handle(const Messages::WindowServer::SetWindowHasAlphaChannel&) override;
     virtual OwnPtr<Messages::WindowServer::SetWindowAlphaHitThresholdResponse> handle(const Messages::WindowServer::SetWindowAlphaHitThreshold&) override;
     virtual OwnPtr<Messages::WindowServer::MoveWindowToFrontResponse> handle(const Messages::WindowServer::MoveWindowToFront&) override;
@@ -138,7 +154,6 @@ private:
     virtual OwnPtr<Messages::WindowServer::SetWindowIconBitmapResponse> handle(const Messages::WindowServer::SetWindowIconBitmap&) override;
     virtual void handle(const Messages::WindowServer::WM_SetWindowTaskbarRect&) override;
     virtual OwnPtr<Messages::WindowServer::StartDragResponse> handle(const Messages::WindowServer::StartDrag&) override;
-    virtual OwnPtr<Messages::WindowServer::SetSystemMenuResponse> handle(const Messages::WindowServer::SetSystemMenu&) override;
     virtual OwnPtr<Messages::WindowServer::SetSystemThemeResponse> handle(const Messages::WindowServer::SetSystemTheme&) override;
     virtual OwnPtr<Messages::WindowServer::GetSystemThemeResponse> handle(const Messages::WindowServer::GetSystemTheme&) override;
     virtual OwnPtr<Messages::WindowServer::SetWindowBaseSizeAndSizeIncrementResponse> handle(const Messages::WindowServer::SetWindowBaseSizeAndSizeIncrement&) override;
@@ -153,13 +168,15 @@ private:
     virtual OwnPtr<Messages::WindowServer::GetMouseAccelerationResponse> handle(const Messages::WindowServer::GetMouseAcceleration&) override;
     virtual OwnPtr<Messages::WindowServer::SetScrollStepSizeResponse> handle(const Messages::WindowServer::SetScrollStepSize&) override;
     virtual OwnPtr<Messages::WindowServer::GetScrollStepSizeResponse> handle(const Messages::WindowServer::GetScrollStepSize&) override;
+    virtual OwnPtr<Messages::WindowServer::GetScreenBitmapResponse> handle(const Messages::WindowServer::GetScreenBitmap&) override;
+    virtual OwnPtr<Messages::WindowServer::SetDoubleClickSpeedResponse> handle(const Messages::WindowServer::SetDoubleClickSpeed&) override;
+    virtual OwnPtr<Messages::WindowServer::GetDoubleClickSpeedResponse> handle(const Messages::WindowServer::GetDoubleClickSpeed&) override;
 
     Window* window_from_id(i32 window_id);
 
     HashMap<int, NonnullRefPtr<Window>> m_windows;
-    HashMap<int, NonnullOwnPtr<MenuBar>> m_menubars;
+    HashMap<int, NonnullRefPtr<MenuBar>> m_menubars;
     HashMap<int, NonnullRefPtr<Menu>> m_menus;
-    WeakPtr<MenuBar> m_app_menubar;
 
     RefPtr<Core::Timer> m_ping_timer;
 

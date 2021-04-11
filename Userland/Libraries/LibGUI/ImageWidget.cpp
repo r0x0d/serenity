@@ -71,6 +71,7 @@ void ImageWidget::set_auto_resize(bool value)
         set_fixed_size(m_bitmap->size());
 }
 
+// Same as QSWidget::animate(), you probably want to keep any changes in sync
 void ImageWidget::animate()
 {
     m_current_frame_index = (m_current_frame_index + 1) % m_image_decoder->frame_count();
@@ -103,13 +104,11 @@ void ImageWidget::load_from_file(const StringView& path)
 
     set_bitmap(bitmap);
 
-    if (path.ends_with(".gif")) {
-        if (m_image_decoder->is_animated() && m_image_decoder->frame_count() > 1) {
-            const auto& first_frame = m_image_decoder->frame(0);
-            m_timer->set_interval(first_frame.duration);
-            m_timer->on_timeout = [this] { animate(); };
-            m_timer->start();
-        }
+    if (m_image_decoder->is_animated() && m_image_decoder->frame_count() > 1) {
+        const auto& first_frame = m_image_decoder->frame(0);
+        m_timer->set_interval(first_frame.duration);
+        m_timer->on_timeout = [this] { animate(); };
+        m_timer->start();
     }
 }
 
@@ -128,12 +127,22 @@ void ImageWidget::paint_event(PaintEvent& event)
     }
 
     Painter painter(*this);
+    painter.add_clip_rect(event.rect());
 
     if (m_should_stretch) {
-        painter.draw_scaled_bitmap(frame_inner_rect(), *m_bitmap, m_bitmap->rect());
+        painter.draw_scaled_bitmap(frame_inner_rect(), *m_bitmap, m_bitmap->rect(), (float)opacity_percent() / 100.0f);
     } else {
         auto location = frame_inner_rect().center().translated(-(m_bitmap->width() / 2), -(m_bitmap->height() / 2));
-        painter.blit(location, *m_bitmap, m_bitmap->rect());
+        painter.blit(location, *m_bitmap, m_bitmap->rect(), (float)opacity_percent() / 100.0f);
     }
 }
+
+void ImageWidget::set_opacity_percent(int percent)
+{
+    if (m_opacity_percent == percent)
+        return;
+    m_opacity_percent = percent;
+    update();
+}
+
 }

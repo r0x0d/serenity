@@ -3,7 +3,7 @@ port=git
 version=2.26.0
 useconfigure="true"
 files="https://mirrors.edge.kernel.org/pub/software/scm/git/git-${version}.tar.xz git-${version}.tar.xz"
-configopts="--target=i686-pc-serenity"
+configopts="--target=${SERENITY_ARCH}-pc-serenity CFLAGS=-DNO_IPV6"
 depends="zlib"
 
 build() {
@@ -12,10 +12,11 @@ build() {
 }
 
 post_install() {
-    mkdir -p "$SERENITY_ROOT"/Build/Root/home/anon
-    cp "$workdir"/../default_gitconfig "$SERENITY_ROOT"/Build/Root/home/anon/.gitconfig
+    run mkdir -p "${SERENITY_BUILD_DIR}/Root/home/anon"
+    run cp "../default_gitconfig" "${SERENITY_BUILD_DIR}/Root/home/anon/.gitconfig"
 }
 
 export NO_OPENSSL=1
 export ac_cv_fread_reads_directories=no
 export ac_cv_snprintf_returns_bogus=no
+export ac_cv_iconv_omits_bom=no

@@ -60,12 +60,8 @@
 #endif
 #define FLATTEN [[gnu::flatten]]
 
-#ifdef NO_DISCARD
-#    undef NO_DISCARD
-#endif
-#define NO_DISCARD [[nodiscard]]
-
 #ifndef __serenity__
+#    include <unistd.h>
 #    define PAGE_SIZE sysconf(_SC_PAGESIZE)
 #endif
 

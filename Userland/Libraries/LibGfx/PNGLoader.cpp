@@ -28,7 +28,7 @@
 #include <AK/Endian.h>
 #include <AK/LexicalPath.h>
 #include <AK/MappedFile.h>
-#include <LibCore/puff.h>
+#include <LibCompress/Zlib.h>
 #include <LibGfx/PNGLoader.h>
 #include <fcntl.h>
 #include <math.h>
@@ -39,6 +39,7 @@
 #include <unistd.h>
 
 #ifdef __serenity__
+#    include <LibCompress/Deflate.h>
 #    include <serenity.h>
 #endif
 
@@ -120,8 +121,7 @@ struct PNGLoadingContext {
     bool has_alpha() const { return color_type & 4 || palette_transparency_data.size() > 0; }
     Vector<Scanline> scanlines;
     RefPtr<Gfx::Bitmap> bitmap;
-    u8* decompression_buffer { nullptr };
-    size_t decompression_buffer_size { 0 };
+    ByteBuffer decompression_buffer;
     Vector<u8> compressed_data;
     Vector<PaletteEntry> palette_data;
     Vector<u8> palette_transparency_data;
@@ -477,6 +477,7 @@ NEVER_INLINE FLATTEN static bool unfilter(PNGLoadingContext& context)
     }
 
     u8 dummy_scanline[context.width * sizeof(RGBA32)];
+    memset(dummy_scanline, 0, sizeof(dummy_scanline));
 
     for (int y = 0; y < context.height; ++y) {
         auto filter = context.scanlines[y].filter;
@@ -526,17 +527,13 @@ static bool decode_png_header(PNGLoadingContext& context)
         return true;
 
     if (!context.data || context.data_size < sizeof(png_header)) {
-#if PNG_DEBUG
-        dbgln("Missing PNG header");
-#endif
+        dbgln_if(PNG_DEBUG, "Missing PNG header");
         context.state = PNGLoadingContext::State::Error;
         return false;
     }
 
     if (memcmp(context.data, png_header, sizeof(png_header)) != 0) {
-#if PNG_DEBUG
-        dbgln("Invalid PNG header");
-#endif
+        dbgln_if(PNG_DEBUG, "Invalid PNG header");
         context.state = PNGLoadingContext::State::Error;
         return false;
     }
@@ -603,7 +600,7 @@ static bool decode_png_chunks(PNGLoadingContext& context)
 
 static bool decode_png_bitmap_simple(PNGLoadingContext& context)
 {
-    Streamer streamer(context.decompression_buffer, context.decompression_buffer_size);
+    Streamer streamer(context.decompression_buffer.data(), context.decompression_buffer.size());
 
     for (int y = 0; y < context.height; ++y) {
         u8 filter;
@@ -630,7 +627,7 @@ static bool decode_png_bitmap_simple(PNGLoadingContext& context)
         }
     }
 
-    context.bitmap = Bitmap::create_purgeable(context.has_alpha() ? BitmapFormat::RGBA32 : BitmapFormat::RGB32, { context.width, context.height });
+    context.bitmap = Bitmap::create_purgeable(context.has_alpha() ? BitmapFormat::BGRA8888 : BitmapFormat::BGRx8888, { context.width, context.height });
 
     if (!context.bitmap) {
         context.state = PNGLoadingContext::State::Error;
@@ -749,8 +746,8 @@ static bool decode_adam7_pass(PNGLoadingContext& context, Streamer& streamer, in
 
 static bool decode_png_adam7(PNGLoadingContext& context)
 {
-    Streamer streamer(context.decompression_buffer, context.decompression_buffer_size);
-    context.bitmap = Bitmap::create_purgeable(context.has_alpha() ? BitmapFormat::RGBA32 : BitmapFormat::RGB32, { context.width, context.height });
+    Streamer streamer(context.decompression_buffer.data(), context.decompression_buffer.size());
+    context.bitmap = Bitmap::create_purgeable(context.has_alpha() ? BitmapFormat::BGRA8888 : BitmapFormat::BGRx8888, { context.width, context.height });
     if (!context.bitmap)
         return false;
 
@@ -777,25 +774,12 @@ static bool decode_png_bitmap(PNGLoadingContext& context)
     if (context.color_type == 3 && context.palette_data.is_empty())
         return false; // Didn't see a PLTE chunk for a palettized image, or it was empty.
 
-    unsigned long srclen = context.compressed_data.size() - 6;
-    unsigned long destlen = 0;
-    int ret = puff(nullptr, &destlen, context.compressed_data.data() + 2, &srclen);
-    if (ret != 0) {
+    auto result = Compress::Zlib::decompress_all(context.compressed_data.span());
+    if (!result.has_value()) {
         context.state = PNGLoadingContext::State::Error;
         return false;
     }
-    context.decompression_buffer_size = destlen;
-#ifdef __serenity__
-    context.decompression_buffer = (u8*)mmap_with_name(nullptr, context.decompression_buffer_size, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, 0, 0, "PNG decompression buffer");
-#else
-    context.decompression_buffer = (u8*)mmap(nullptr, context.decompression_buffer_size, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, 0, 0);
-#endif
-
-    ret = puff(context.decompression_buffer, &destlen, context.compressed_data.data() + 2, &srclen);
-    if (ret != 0) {
-        context.state = PNGLoadingContext::State::Error;
-        return false;
-    }
+    context.decompression_buffer = result.value();
     context.compressed_data.clear();
 
     context.scanlines.ensure_capacity(context.height);
@@ -809,12 +793,11 @@ static bool decode_png_bitmap(PNGLoadingContext& context)
             return false;
         break;
     default:
-        VERIFY_NOT_REACHED();
+        context.state = PNGLoadingContext::State::Error;
+        return false;
     }
 
-    munmap(context.decompression_buffer, context.decompression_buffer_size);
-    context.decompression_buffer = nullptr;
-    context.decompression_buffer_size = 0;
+    context.decompression_buffer.clear();
 
     context.state = PNGLoadingContext::State::BitmapDecoded;
     return true;
@@ -842,7 +825,7 @@ static bool is_valid_compression_method(u8 compression_method)
 
 static bool is_valid_filter_method(u8 filter_method)
 {
-    return filter_method <= 4;
+    return filter_method == 0;
 }
 
 static bool process_IHDR(ReadonlyBytes data, PNGLoadingContext& context)
@@ -874,18 +857,16 @@ static bool process_IHDR(ReadonlyBytes data, PNGLoadingContext& context)
     context.filter_method = ihdr.filter_method;
     context.interlace_method = ihdr.interlace_method;
 
-#if PNG_DEBUG
-    printf("PNG: %dx%d (%d bpp)\n", context.width, context.height, context.bit_depth);
-    printf("     Color type: %d\n", context.color_type);
-    printf("Compress Method: %d\n", context.compression_method);
-    printf("  Filter Method: %d\n", context.filter_method);
-    printf(" Interlace type: %d\n", context.interlace_method);
-#endif
+    if constexpr (PNG_DEBUG) {
+        printf("PNG: %dx%d (%d bpp)\n", context.width, context.height, context.bit_depth);
+        printf("     Color type: %d\n", context.color_type);
+        printf("Compress Method: %d\n", context.compression_method);
+        printf("  Filter Method: %d\n", context.filter_method);
+        printf(" Interlace type: %d\n", context.interlace_method);
+    }
 
     if (context.interlace_method != PngInterlaceMethod::Null && context.interlace_method != PngInterlaceMethod::Adam7) {
-#if PNG_DEBUG
-        dbgln("PNGLoader::process_IHDR: unknown interlace method: {}", context.interlace_method);
-#endif
+        dbgln_if(PNG_DEBUG, "PNGLoader::process_IHDR: unknown interlace method: {}", context.interlace_method);
         return false;
     }
 
@@ -947,36 +928,31 @@ static bool process_chunk(Streamer& streamer, PNGLoadingContext& context)
 {
     u32 chunk_size;
     if (!streamer.read(chunk_size)) {
-#if PNG_DEBUG
-        printf("Bail at chunk_size\n");
-#endif
+        if constexpr (PNG_DEBUG)
+            printf("Bail at chunk_size\n");
         return false;
     }
     u8 chunk_type[5];
     chunk_type[4] = '\0';
     if (!streamer.read_bytes(chunk_type, 4)) {
-#if PNG_DEBUG
-        printf("Bail at chunk_type\n");
-#endif
+        if constexpr (PNG_DEBUG)
+            printf("Bail at chunk_type\n");
         return false;
     }
     ReadonlyBytes chunk_data;
     if (!streamer.wrap_bytes(chunk_data, chunk_size)) {
-#if PNG_DEBUG
-        printf("Bail at chunk_data\n");
-#endif
+        if constexpr (PNG_DEBUG)
+            printf("Bail at chunk_data\n");
         return false;
     }
     u32 chunk_crc;
     if (!streamer.read(chunk_crc)) {
-#if PNG_DEBUG
-        printf("Bail at chunk_crc\n");
-#endif
+        if constexpr (PNG_DEBUG)
+            printf("Bail at chunk_crc\n");
         return false;
     }
-#if PNG_DEBUG
-    printf("Chunk type: '%s', size: %u, crc: %x\n", chunk_type, chunk_size, chunk_crc);
-#endif
+    if constexpr (PNG_DEBUG)
+        printf("Chunk type: '%s', size: %u, crc: %x\n", chunk_type, chunk_size, chunk_crc);
 
     if (!strcmp((const char*)chunk_type, "IHDR"))
         return process_IHDR(chunk_data, context);

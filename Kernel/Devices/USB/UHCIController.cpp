@@ -25,6 +25,8 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <AK/Platform.h>
+
 #include <Kernel/Debug.h>
 #include <Kernel/Devices/USB/UHCIController.h>
 #include <Kernel/Process.h>
@@ -33,7 +35,6 @@
 #include <Kernel/VM/AnonymousVMObject.h>
 #include <Kernel/VM/MemoryManager.h>
 
-#define UHCI_ENABLED 1
 static constexpr u8 MAXIMUM_NUMBER_OF_TDS = 128; // Upper pool limit. This consumes the second page we have allocated
 static constexpr u8 MAXIMUM_NUMBER_OF_QHS = 64;
 
@@ -88,9 +89,6 @@ UHCIController& UHCIController::the()
 
 UNMAP_AFTER_INIT void UHCIController::detect()
 {
-#if !UHCI_ENABLED
-    return;
-#endif
     PCI::enumerate([&](const PCI::Address& address, PCI::ID id) {
         if (address.is_null())
             return;
@@ -136,8 +134,8 @@ void UHCIController::reset()
     // Let's allocate the physical page for the Frame List (which is 4KiB aligned)
     auto framelist_vmobj = ContiguousVMObject::create_with_size(PAGE_SIZE);
     m_framelist = MemoryManager::the().allocate_kernel_region_with_vmobject(*framelist_vmobj, PAGE_SIZE, "UHCI Framelist", Region::Access::Write);
-    klog() << "UHCI: Allocated framelist at physical address " << m_framelist->physical_page(0)->paddr();
-    klog() << "UHCI: Framelist is at virtual address " << m_framelist->vaddr();
+    dbgln("UHCI: Allocated framelist at physical address {}", m_framelist->physical_page(0)->paddr());
+    dbgln("UHCI: Framelist is at virtual address {}", m_framelist->vaddr());
     write_sofmod(64); // 1mS frame time
 
     create_structures();
@@ -148,7 +146,7 @@ void UHCIController::reset()
 
     // Enable all interrupt types
     write_frnum(UHCI_USBINTR_TIMEOUT_CRC_ENABLE | UHCI_USBINTR_RESUME_INTR_ENABLE | UHCI_USBINTR_IOC_ENABLE | UHCI_USBINTR_SHORT_PACKET_INTR_ENABLE);
-    klog() << "UHCI: Reset completed!";
+    dbgln("UHCI: Reset completed");
 }
 
 UNMAP_AFTER_INIT void UHCIController::create_structures()
@@ -217,11 +215,11 @@ UNMAP_AFTER_INIT void UHCIController::create_structures()
 #endif
     }
 
-#if UHCI_DEBUG
-    klog() << "UHCI: Pool information:";
-    klog() << "\tqh_pool: " << PhysicalAddress(m_qh_pool->physical_page(0)->paddr()) << ", length: " << m_qh_pool->range().size();
-    klog() << "\ttd_pool: " << PhysicalAddress(m_td_pool->physical_page(0)->paddr()) << ", length: " << m_td_pool->range().size();
-#endif
+    if constexpr (UHCI_DEBUG) {
+        dbgln("UHCI: Pool information:");
+        dbgln("    qh_pool: {}, length: {}", PhysicalAddress(m_qh_pool->physical_page(0)->paddr()), m_qh_pool->range().size());
+        dbgln("    td_pool: {}, length: {}", PhysicalAddress(m_td_pool->physical_page(0)->paddr()), m_td_pool->range().size());
+    }
 }
 
 UNMAP_AFTER_INIT void UHCIController::setup_schedule()
@@ -274,7 +272,6 @@ UNMAP_AFTER_INIT void UHCIController::setup_schedule()
     for (int frame = 0; frame < UHCI_NUMBER_OF_FRAMES; frame++) {
         // Each frame pointer points to iso_td % NUM_ISO_TDS
         framelist[frame] = m_iso_td_list.at(frame % UHCI_NUMBER_OF_ISOCHRONOUS_TDS)->paddr();
-        // klog() << PhysicalAddress(framelist[frame]);
     }
 
     m_interrupt_transfer_queue->print();
@@ -289,9 +286,7 @@ QueueHead* UHCIController::allocate_queue_head() const
     for (QueueHead* queue_head : m_free_qh_pool) {
         if (!queue_head->in_use()) {
             queue_head->set_in_use(true);
-#if UHCI_DEBUG
-            klog() << "UHCI: Allocated a new Queue Head! Located @ " << VirtualAddress(queue_head) << "(" << PhysicalAddress(queue_head->paddr()) << ")";
-#endif
+            dbgln_if(UHCI_DEBUG, "UHCI: Allocated a new Queue Head! Located @ {} ({})", VirtualAddress(queue_head), PhysicalAddress(queue_head->paddr()));
             return queue_head;
         }
     }
@@ -305,9 +300,7 @@ TransferDescriptor* UHCIController::allocate_transfer_descriptor() const
     for (TransferDescriptor* transfer_descriptor : m_free_td_pool) {
         if (!transfer_descriptor->in_use()) {
             transfer_descriptor->set_in_use(true);
-#if UHCI_DEBUG
-            klog() << "UHCI: Allocated a new Transfer Descriptor! Located @ " << VirtualAddress(transfer_descriptor) << "(" << PhysicalAddress(transfer_descriptor->paddr()) << ")";
-#endif
+            dbgln_if(UHCI_DEBUG, "UHCI: Allocated a new Transfer Descriptor! Located @ {} ({})", VirtualAddress(transfer_descriptor), PhysicalAddress(transfer_descriptor->paddr()));
             return transfer_descriptor;
         }
     }
@@ -334,7 +327,7 @@ void UHCIController::start()
         if (!(read_usbsts() & UHCI_USBSTS_HOST_CONTROLLER_HALTED))
             break;
     }
-    klog() << "UHCI: Started!";
+    dbgln("UHCI: Started");
 }
 
 struct setup_packet {
@@ -347,7 +340,7 @@ struct setup_packet {
 
 void UHCIController::do_debug_transfer()
 {
-    klog() << "UHCI: Attempting a dummy transfer...";
+    dbgln("UHCI: Attempting a dummy transfer...");
 
     // Okay, let's set up the buffer so we can write some data
     auto vmobj = ContiguousVMObject::create_with_size(PAGE_SIZE);
@@ -398,10 +391,8 @@ void UHCIController::do_debug_transfer()
 void UHCIController::spawn_port_proc()
 {
     RefPtr<Thread> usb_hotplug_thread;
-    timespec sleep_time {};
 
-    sleep_time.tv_sec = 1;
-    Process::create_kernel_process(usb_hotplug_thread, "UHCIHotplug", [&, sleep_time] {
+    Process::create_kernel_process(usb_hotplug_thread, "UHCIHotplug", [&] {
         for (;;) {
             for (int port = 0; port < UHCI_ROOT_PORT_COUNT; port++) {
                 u16 port_data = 0;
@@ -448,7 +439,7 @@ void UHCIController::spawn_port_proc()
                     }
                 }
             }
-            (void)Thread::current()->sleep(sleep_time);
+            (void)Thread::current()->sleep(Time::from_seconds(1));
         }
     });
 }

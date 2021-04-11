@@ -33,7 +33,9 @@ namespace Kernel {
 
 UNMAP_AFTER_INIT NonnullRefPtr<HPETComparator> HPETComparator::create(u8 number, u8 irq, bool periodic_capable)
 {
-    return adopt(*new HPETComparator(number, irq, periodic_capable));
+    auto timer = adopt(*new HPETComparator(number, irq, periodic_capable));
+    timer->register_interrupt_handler();
+    return timer;
 }
 
 UNMAP_AFTER_INIT HPETComparator::HPETComparator(u8 number, u8 irq, bool periodic_capable)
@@ -134,6 +136,16 @@ size_t HPETComparator::calculate_nearest_possible_frequency(size_t frequency) co
     // HPET::update_periodic_comparator_value and HPET::update_non_periodic_comparator_value
     // calculate the best counter based on the desired frequency.
     return frequency;
+}
+
+u64 HPETComparator::current_raw() const
+{
+    return HPET::the().read_main_counter();
+}
+
+u64 HPETComparator::raw_to_ns(u64 raw_delta) const
+{
+    return HPET::the().raw_counter_ticks_to_ns(raw_delta);
 }
 
 }

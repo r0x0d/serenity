@@ -79,14 +79,19 @@ public:
     Emulator& emulator() { return m_emulator; }
     const Emulator& emulator() const { return m_emulator; }
 
+    template<typename T>
+    bool fast_is() const = delete;
+
 protected:
-    Region(u32 base, u32 size);
+    Region(u32 base, u32 size, bool mmap = false);
+    void set_range(Range r) { m_range = r; };
 
 private:
     Emulator& m_emulator;
 
     Range m_range;
 
+    bool m_mmap { false };
     bool m_stack { false };
     bool m_text { false };
     bool m_readable { true };

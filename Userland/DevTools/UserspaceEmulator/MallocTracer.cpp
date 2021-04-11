@@ -28,10 +28,10 @@
 #include "Emulator.h"
 #include "MmapRegion.h"
 #include <AK/Debug.h>
-#include <AK/LogStream.h>
 #include <AK/TemporaryChange.h>
 #include <mallocdefs.h>
 #include <string.h>
+#include <unistd.h>
 
 namespace UserspaceEmulator {
 
@@ -55,7 +55,7 @@ inline void MallocTracer::for_each_mallocation(Callback callback) const
     });
 }
 
-void MallocTracer::target_did_malloc(Badge<SoftCPU>, FlatPtr address, size_t size)
+void MallocTracer::target_did_malloc(Badge<Emulator>, FlatPtr address, size_t size)
 {
     if (m_emulator.is_in_loader_code())
         return;
@@ -63,9 +63,6 @@ void MallocTracer::target_did_malloc(Badge<SoftCPU>, FlatPtr address, size_t siz
     VERIFY(region);
     VERIFY(is<MmapRegion>(*region));
     auto& mmap_region = static_cast<MmapRegion&>(*region);
-
-    // Mark the containing mmap region as a malloc block!
-    mmap_region.set_malloc(true);
 
     auto* shadow_bits = mmap_region.shadow_data() + address - mmap_region.base();
     memset(shadow_bits, 0, size);
@@ -79,42 +76,57 @@ void MallocTracer::target_did_malloc(Badge<SoftCPU>, FlatPtr address, size_t siz
         return;
     }
 
-    MallocRegionMetadata* malloc_data = static_cast<MmapRegion&>(*region).malloc_metadata();
-    if (!malloc_data) {
-        auto new_malloc_data = make<MallocRegionMetadata>();
-        malloc_data = new_malloc_data.ptr();
-        static_cast<MmapRegion&>(*region).set_malloc_metadata({}, move(new_malloc_data));
-        malloc_data->address = region->base();
-        malloc_data->chunk_size = mmap_region.read32(offsetof(CommonHeader, m_size)).value();
+    if (!mmap_region.is_malloc_block()) {
+        auto chunk_size = mmap_region.read32(offsetof(CommonHeader, m_size)).value();
+        mmap_region.set_malloc_metadata({},
+            adopt_own(*new MallocRegionMetadata {
+                .region = mmap_region,
+                .address = mmap_region.base(),
+                .chunk_size = chunk_size,
+                .mallocations = {},
+            }));
+        auto& malloc_data = *mmap_region.malloc_metadata();
 
-        bool is_chunked_block = malloc_data->chunk_size <= size_classes[num_size_classes - 1];
+        bool is_chunked_block = malloc_data.chunk_size <= size_classes[num_size_classes - 1];
         if (is_chunked_block)
-            malloc_data->mallocations.resize((ChunkedBlock::block_size - sizeof(ChunkedBlock)) / malloc_data->chunk_size);
+            malloc_data.mallocations.resize((ChunkedBlock::block_size - sizeof(ChunkedBlock)) / malloc_data.chunk_size);
         else
-            malloc_data->mallocations.resize(1);
-        dbgln("Tracking malloc block @ {:p} with chunk_size={}, chunk_count={}", malloc_data->address, malloc_data->chunk_size, malloc_data->mallocations.size());
+            malloc_data.mallocations.resize(1);
+
+        // Mark the containing mmap region as a malloc block!
+        mmap_region.set_malloc(true);
     }
-    malloc_data->mallocation_for_address(address) = { address, size, true, false, m_emulator.raw_backtrace(), Vector<FlatPtr>() };
+    auto* mallocation = mmap_region.malloc_metadata()->mallocation_for_address(address);
+    VERIFY(mallocation);
+    *mallocation = { address, size, true, false, m_emulator.raw_backtrace(), Vector<FlatPtr>() };
 }
 
-ALWAYS_INLINE Mallocation& MallocRegionMetadata::mallocation_for_address(FlatPtr address) const
+ALWAYS_INLINE Mallocation* MallocRegionMetadata::mallocation_for_address(FlatPtr address) const
 {
-    return const_cast<Mallocation&>(this->mallocations[chunk_index_for_address(address)]);
+    auto index = chunk_index_for_address(address);
+    if (!index.has_value())
+        return nullptr;
+    return &const_cast<Mallocation&>(this->mallocations[index.value()]);
 }
 
-ALWAYS_INLINE size_t MallocRegionMetadata::chunk_index_for_address(FlatPtr address) const
+ALWAYS_INLINE Optional<size_t> MallocRegionMetadata::chunk_index_for_address(FlatPtr address) const
 {
     bool is_chunked_block = chunk_size <= size_classes[num_size_classes - 1];
     if (!is_chunked_block) {
         // This is a BigAllocationBlock
         return 0;
     }
-    auto chunk_offset = address - (this->address + sizeof(ChunkedBlock));
-    VERIFY(this->chunk_size);
-    return chunk_offset / this->chunk_size;
+    auto offset_into_block = address - this->address;
+    if (offset_into_block < sizeof(ChunkedBlock))
+        return 0;
+    auto chunk_offset = offset_into_block - sizeof(ChunkedBlock);
+    auto chunk_index = chunk_offset / this->chunk_size;
+    if (chunk_index >= mallocations.size())
+        return {};
+    return chunk_index;
 }
 
-void MallocTracer::target_did_free(Badge<SoftCPU>, FlatPtr address)
+void MallocTracer::target_did_free(Badge<Emulator>, FlatPtr address)
 {
     if (!address)
         return;
@@ -138,7 +150,7 @@ void MallocTracer::target_did_free(Badge<SoftCPU>, FlatPtr address)
     m_emulator.dump_backtrace();
 }
 
-void MallocTracer::target_did_realloc(Badge<SoftCPU>, FlatPtr address, size_t size)
+void MallocTracer::target_did_realloc(Badge<Emulator>, FlatPtr address, size_t size)
 {
     if (m_emulator.is_in_loader_code())
         return;
@@ -207,7 +219,7 @@ void MallocTracer::audit_read(const Region& region, FlatPtr address, size_t size
     if (!m_auditing_enabled)
         return;
 
-    if (m_emulator.is_in_malloc_or_free()) {
+    if (m_emulator.is_in_malloc_or_free() || m_emulator.is_in_libsystem()) {
         return;
     }
 
@@ -375,4 +387,5 @@ void MallocTracer::dump_leak_report()
     else
         reportln("\n=={}==  \033[31;1m{} leak(s) found: {} byte(s) leaked\033[0m", getpid(), leaks_found, bytes_leaked);
 }
+
 }

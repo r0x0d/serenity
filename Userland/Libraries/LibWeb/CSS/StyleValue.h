@@ -121,6 +121,45 @@ enum class Clear {
     Both,
 };
 
+enum class Cursor {
+    Auto,
+    Default,
+    None,
+    ContextMenu,
+    Help,
+    Pointer,
+    Progress,
+    Wait,
+    Cell,
+    Crosshair,
+    Text,
+    VerticalText,
+    Alias,
+    Copy,
+    Move,
+    NoDrop,
+    NotAllowed,
+    Grab,
+    Grabbing,
+    EResize,
+    NResize,
+    NeResize,
+    NwResize,
+    SResize,
+    SeResize,
+    SwResize,
+    WResize,
+    EwResize,
+    NsResize,
+    NeswResize,
+    NwseResize,
+    ColResize,
+    RowResize,
+    AllScroll,
+    ZoomIn,
+    ZoomOut,
+};
+
 enum class LineStyle {
     None,
     Hidden,
@@ -148,6 +187,13 @@ enum class Overflow : u8 {
     Hidden,
     Scroll,
     Visible,
+};
+
+enum class Repeat : u8 {
+    NoRepeat,
+    Repeat,
+    Round,
+    Space,
 };
 
 class StyleValue : public RefCounted<StyleValue> {

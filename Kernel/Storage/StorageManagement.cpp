@@ -30,6 +30,7 @@
 #include <Kernel/FileSystem/Ext2FileSystem.h>
 #include <Kernel/PCI/Access.h>
 #include <Kernel/Panic.h>
+#include <Kernel/Storage/AHCIController.h>
 #include <Kernel/Storage/IDEController.h>
 #include <Kernel/Storage/Partition/EBRPartitionTable.h>
 #include <Kernel/Storage/Partition/GUIDPartitionTable.h>
@@ -40,6 +41,7 @@
 namespace Kernel {
 
 static StorageManagement* s_the;
+static size_t s_device_minor_number;
 
 UNMAP_AFTER_INIT StorageManagement::StorageManagement(String boot_argument, bool force_pio)
     : m_boot_argument(boot_argument)
@@ -47,6 +49,7 @@ UNMAP_AFTER_INIT StorageManagement::StorageManagement(String boot_argument, bool
     , m_storage_devices(enumerate_storage_devices())
     , m_disk_partitions(enumerate_disk_partitions())
 {
+    s_device_minor_number = 0;
     if (!boot_argument_contains_partition_uuid()) {
         determine_boot_device();
         return;
@@ -59,13 +62,20 @@ bool StorageManagement::boot_argument_contains_partition_uuid()
     return m_boot_argument.starts_with("PARTUUID=");
 }
 
-NonnullRefPtrVector<StorageController> StorageManagement::enumerate_controllers(bool force_pio) const
+UNMAP_AFTER_INIT NonnullRefPtrVector<StorageController> StorageManagement::enumerate_controllers(bool force_pio) const
 {
     NonnullRefPtrVector<StorageController> controllers;
-    if (!kernel_command_line().contains("disable_ide")) {
+    if (!kernel_command_line().disable_physical_storage()) {
+        if (kernel_command_line().is_ide_enabled()) {
+            PCI::enumerate([&](const PCI::Address& address, PCI::ID) {
+                if (PCI::get_class(address) == 0x1 && PCI::get_subclass(address) == 0x1) {
+                    controllers.append(IDEController::initialize(address, force_pio));
+                }
+            });
+        }
         PCI::enumerate([&](const PCI::Address& address, PCI::ID) {
-            if (PCI::get_class(address) == 0x1 && PCI::get_subclass(address) == 0x1) {
-                controllers.append(IDEController::initialize(address, force_pio));
+            if (PCI::get_class(address) == 0x1 && PCI::get_subclass(address) == 0x6 && PCI::get_programming_interface(address) == 0x1) {
+                controllers.append(AHCIController::initialize(address));
             }
         });
     }
@@ -73,7 +83,7 @@ NonnullRefPtrVector<StorageController> StorageManagement::enumerate_controllers(
     return controllers;
 }
 
-NonnullRefPtrVector<StorageDevice> StorageManagement::enumerate_storage_devices() const
+UNMAP_AFTER_INIT NonnullRefPtrVector<StorageDevice> StorageManagement::enumerate_storage_devices() const
 {
     VERIFY(!m_controllers.is_empty());
     NonnullRefPtrVector<StorageDevice> devices;
@@ -88,7 +98,7 @@ NonnullRefPtrVector<StorageDevice> StorageManagement::enumerate_storage_devices(
     return devices;
 }
 
-OwnPtr<PartitionTable> StorageManagement::try_to_initialize_partition_table(const StorageDevice& device) const
+UNMAP_AFTER_INIT OwnPtr<PartitionTable> StorageManagement::try_to_initialize_partition_table(const StorageDevice& device) const
 {
     auto mbr_table_or_result = MBRPartitionTable::try_to_initialize(device);
     if (!mbr_table_or_result.is_error())
@@ -108,7 +118,7 @@ OwnPtr<PartitionTable> StorageManagement::try_to_initialize_partition_table(cons
     return {};
 }
 
-NonnullRefPtrVector<DiskPartition> StorageManagement::enumerate_disk_partitions() const
+UNMAP_AFTER_INIT NonnullRefPtrVector<DiskPartition> StorageManagement::enumerate_disk_partitions() const
 {
     VERIFY(!m_storage_devices.is_empty());
     NonnullRefPtrVector<DiskPartition> partitions;
@@ -131,7 +141,7 @@ NonnullRefPtrVector<DiskPartition> StorageManagement::enumerate_disk_partitions(
     return partitions;
 }
 
-void StorageManagement::determine_boot_device()
+UNMAP_AFTER_INIT void StorageManagement::determine_boot_device()
 {
     VERIFY(!m_controllers.is_empty());
     if (m_boot_argument.starts_with("/dev/")) {
@@ -151,7 +161,7 @@ void StorageManagement::determine_boot_device()
     }
 }
 
-void StorageManagement::determine_boot_device_with_partition_uuid()
+UNMAP_AFTER_INIT void StorageManagement::determine_boot_device_with_partition_uuid()
 {
     VERIFY(!m_disk_partitions.is_empty());
     VERIFY(m_boot_argument.starts_with("PARTUUID="));
@@ -175,6 +185,15 @@ void StorageManagement::determine_boot_device_with_partition_uuid()
 RefPtr<BlockDevice> StorageManagement::boot_block_device() const
 {
     return m_boot_block_device;
+}
+
+int StorageManagement::major_number()
+{
+    return 3;
+}
+int StorageManagement::minor_number()
+{
+    return s_device_minor_number++;
 }
 
 NonnullRefPtr<FS> StorageManagement::root_filesystem() const

@@ -31,14 +31,15 @@
 #include <LibGUI/Window.h>
 
 class TaskbarWindow final : public GUI::Window {
-    C_OBJECT(TaskbarWindow)
+    C_OBJECT(TaskbarWindow);
+
 public:
-    TaskbarWindow();
     virtual ~TaskbarWindow() override;
 
-    int taskbar_height() const { return 28; }
+    static int taskbar_height() { return 28; }
 
 private:
+    explicit TaskbarWindow(NonnullRefPtr<GUI::Menu> start_menu);
     void create_quick_launch_bar();
     void on_screen_rect_change(const Gfx::IntRect&);
     NonnullRefPtr<GUI::Button> create_button(const WindowIdentifier&);
@@ -48,6 +49,14 @@ private:
     ::Window* find_window_owner(::Window&) const;
 
     virtual void wm_event(GUI::WMEvent&) override;
+    virtual void screen_rect_change_event(GUI::ScreenRectChangeEvent&) override;
 
+    void update_applet_area();
+
+    NonnullRefPtr<GUI::Menu> m_start_menu;
+    RefPtr<GUI::Widget> m_task_button_container;
     RefPtr<Gfx::Bitmap> m_default_icon;
+
+    Gfx::IntSize m_applet_area_size;
+    RefPtr<GUI::Frame> m_applet_area_container;
 };

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2018-2021, Andreas Kling <kling@serenityos.org>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -26,7 +26,6 @@
 
 #include <AK/Debug.h>
 #include <AK/InlineLinkedList.h>
-#include <AK/LogStream.h>
 #include <AK/ScopedValueRollback.h>
 #include <AK/Vector.h>
 #include <LibELF/AuxiliaryVector.h>
@@ -39,27 +38,13 @@
 #include <string.h>
 #include <sys/internals.h>
 #include <sys/mman.h>
+#include <syscall.h>
 
 // FIXME: Thread safety.
 
 #define RECYCLE_BIG_ALLOCATIONS
 
 #define PAGE_ROUND_UP(x) ((((size_t)(x)) + PAGE_SIZE - 1) & (~(PAGE_SIZE - 1)))
-
-ALWAYS_INLINE static void ue_notify_malloc(const void* ptr, size_t size)
-{
-    send_secret_data_to_userspace_emulator(1, size, (FlatPtr)ptr);
-}
-
-ALWAYS_INLINE static void ue_notify_free(const void* ptr)
-{
-    send_secret_data_to_userspace_emulator(2, (FlatPtr)ptr, 0);
-}
-
-ALWAYS_INLINE static void ue_notify_realloc(const void* ptr, size_t size)
-{
-    send_secret_data_to_userspace_emulator(3, size, (FlatPtr)ptr);
-}
 
 static LibThread::Lock& malloc_lock()
 {
@@ -74,6 +59,25 @@ static bool s_log_malloc = false;
 static bool s_scrub_malloc = true;
 static bool s_scrub_free = true;
 static bool s_profiling = false;
+static bool s_in_userspace_emulator = false;
+
+ALWAYS_INLINE static void ue_notify_malloc(const void* ptr, size_t size)
+{
+    if (s_in_userspace_emulator)
+        syscall(SC_emuctl, 1, size, (FlatPtr)ptr);
+}
+
+ALWAYS_INLINE static void ue_notify_free(const void* ptr)
+{
+    if (s_in_userspace_emulator)
+        syscall(SC_emuctl, 2, (FlatPtr)ptr, 0);
+}
+
+ALWAYS_INLINE static void ue_notify_realloc(const void* ptr, size_t size)
+{
+    if (s_in_userspace_emulator)
+        syscall(SC_emuctl, 3, size, (FlatPtr)ptr);
+}
 
 struct MallocStats {
     size_t number_of_malloc_calls;
@@ -424,6 +428,14 @@ void* realloc(void* ptr, size_t size)
 void __malloc_init()
 {
     new (&malloc_lock()) LibThread::Lock();
+
+    s_in_userspace_emulator = (int)syscall(SC_emuctl, 0) != -ENOSYS;
+    if (s_in_userspace_emulator) {
+        // Don't bother scrubbing memory if we're running in UE since it
+        // keeps track of heap memory anyway.
+        s_scrub_malloc = false;
+        s_scrub_free = false;
+    }
 
     if (secure_getenv("LIBC_NOSCRUB_MALLOC"))
         s_scrub_malloc = false;

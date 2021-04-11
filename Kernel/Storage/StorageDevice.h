@@ -41,33 +41,35 @@ public:
     enum class Type : u8 {
         Ramdisk,
         IDE,
+        SATA,
         NVMe,
     };
 
 public:
     virtual Type type() const = 0;
-    virtual size_t max_addressable_block() const { return m_max_addressable_block; }
+    virtual u64 max_addressable_block() const { return m_max_addressable_block; }
 
     NonnullRefPtr<StorageController> controller() const;
 
     // ^BlockDevice
-    virtual KResultOr<size_t> read(FileDescription&, size_t, UserOrKernelBuffer&, size_t) override;
+    virtual KResultOr<size_t> read(FileDescription&, u64, UserOrKernelBuffer&, size_t) override;
     virtual bool can_read(const FileDescription&, size_t) const override;
-    virtual KResultOr<size_t> write(FileDescription&, size_t, const UserOrKernelBuffer&, size_t) override;
+    virtual KResultOr<size_t> write(FileDescription&, u64, const UserOrKernelBuffer&, size_t) override;
     virtual bool can_write(const FileDescription&, size_t) const override;
 
     // ^Device
     virtual mode_t required_mode() const override { return 0600; }
 
 protected:
-    StorageDevice(const StorageController&, int, int, size_t, size_t);
+    StorageDevice(const StorageController&, size_t, u64);
+    StorageDevice(const StorageController&, int, int, size_t, u64);
     // ^DiskDevice
     virtual const char* class_name() const override;
 
 private:
     NonnullRefPtr<StorageController> m_storage_controller;
     NonnullRefPtrVector<DiskPartition> m_partitions;
-    size_t m_max_addressable_block;
+    u64 m_max_addressable_block;
 };
 
 }

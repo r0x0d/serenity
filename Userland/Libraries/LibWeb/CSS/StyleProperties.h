@@ -64,6 +64,7 @@ public:
     CSS::Display display() const;
     Optional<CSS::Float> float_() const;
     Optional<CSS::Clear> clear() const;
+    Optional<CSS::Cursor> cursor() const;
     Optional<CSS::WhiteSpace> white_space() const;
     Optional<CSS::LineStyle> line_style(CSS::PropertyID) const;
     Optional<CSS::TextDecorationLine> text_decoration_line() const;
@@ -72,6 +73,8 @@ public:
     Optional<CSS::FlexDirection> flex_direction() const;
     Optional<CSS::Overflow> overflow_x() const;
     Optional<CSS::Overflow> overflow_y() const;
+    Optional<CSS::Repeat> background_repeat_x() const;
+    Optional<CSS::Repeat> background_repeat_y() const;
 
     const Gfx::Font& font() const
     {

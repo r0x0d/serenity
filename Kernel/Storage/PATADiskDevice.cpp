@@ -33,16 +33,13 @@
 
 namespace Kernel {
 
-UNMAP_AFTER_INIT NonnullRefPtr<PATADiskDevice> PATADiskDevice::create(const IDEController& controller, IDEChannel& channel, DriveType type, InterfaceType interface_type, u16 cylinders, u16 heads, u16 spt, u16 capabilities, int major, int minor)
+UNMAP_AFTER_INIT NonnullRefPtr<PATADiskDevice> PATADiskDevice::create(const IDEController& controller, IDEChannel& channel, DriveType type, InterfaceType interface_type, u16 capabilities, u64 max_addressable_block)
 {
-    return adopt(*new PATADiskDevice(controller, channel, type, interface_type, cylinders, heads, spt, capabilities, major, minor));
+    return adopt(*new PATADiskDevice(controller, channel, type, interface_type, capabilities, max_addressable_block));
 }
 
-UNMAP_AFTER_INIT PATADiskDevice::PATADiskDevice(const IDEController& controller, IDEChannel& channel, DriveType type, InterfaceType interface_type, u16 cylinders, u16 heads, u16 spt, u16 capabilities, int major, int minor)
-    : StorageDevice(controller, major, minor, 512, 0)
-    , m_cylinders(cylinders)
-    , m_heads(heads)
-    , m_sectors_per_track(spt)
+UNMAP_AFTER_INIT PATADiskDevice::PATADiskDevice(const IDEController& controller, IDEChannel& channel, DriveType type, InterfaceType interface_type, u16 capabilities, u64 max_addressable_block)
+    : StorageDevice(controller, 512, max_addressable_block)
     , m_capabilities(capabilities)
     , m_channel(channel)
     , m_drive_type(type)
@@ -61,18 +58,12 @@ const char* PATADiskDevice::class_name() const
 
 void PATADiskDevice::start_request(AsyncBlockDeviceRequest& request)
 {
-    bool use_dma = !m_channel.m_io_group.bus_master_base().is_null() && m_channel.m_dma_enabled.resource();
-    m_channel.start_request(request, use_dma, is_slave(), m_capabilities);
+    m_channel->start_request(request, is_slave(), m_capabilities);
 }
 
 String PATADiskDevice::device_name() const
 {
     return String::formatted("hd{:c}", 'a' + minor());
-}
-
-size_t PATADiskDevice::max_addressable_block() const
-{
-    return m_cylinders * m_heads * m_sectors_per_track;
 }
 
 bool PATADiskDevice::is_slave() const

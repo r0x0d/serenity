@@ -42,6 +42,9 @@
 
 namespace Kernel {
 
+extern bool g_profiling_all_threads;
+extern PerformanceEventBuffer* g_global_perf_events;
+
 class SchedulerPerProcessorData {
     AK_MAKE_NONCOPYABLE(SchedulerPerProcessorData);
     AK_MAKE_NONMOVABLE(SchedulerPerProcessorData);
@@ -542,10 +545,29 @@ void Scheduler::timer_tick(const RegisterState& regs)
     if (!is_bsp)
         return; // TODO: This prevents scheduling on other CPUs!
 #endif
-    if (current_thread->process().is_profiling()) {
+
+    PerformanceEventBuffer* perf_events = nullptr;
+
+    if (g_profiling_all_threads) {
+        VERIFY(g_global_perf_events);
+        // FIXME: We currently don't collect samples while idle.
+        //        That will be an interesting mode to add in the future. :^)
+        if (current_thread != Processor::current().idle_thread()) {
+            perf_events = g_global_perf_events;
+            if (current_thread->process().space().enforces_syscall_regions()) {
+                // FIXME: This is very nasty! We dump the current process's address
+                //        space layout *every time* it's sampled. We should figure out
+                //        a way to do this less often.
+                perf_events->add_process(current_thread->process());
+            }
+        }
+    } else if (current_thread->process().is_profiling()) {
         VERIFY(current_thread->process().perf_events());
-        auto& perf_events = *current_thread->process().perf_events();
-        [[maybe_unused]] auto rc = perf_events.append_with_eip_and_ebp(regs.eip, regs.ebp, PERF_EVENT_SAMPLE, 0, 0);
+        perf_events = current_thread->process().perf_events();
+    }
+
+    if (perf_events) {
+        [[maybe_unused]] auto rc = perf_events->append_with_eip_and_ebp(regs.eip, regs.ebp, PERF_EVENT_SAMPLE, 0, 0);
     }
 
     if (current_thread->tick())

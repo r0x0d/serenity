@@ -40,7 +40,7 @@ namespace Kernel {
 
 class FileDescriptionData {
 public:
-    virtual ~FileDescriptionData() { }
+    virtual ~FileDescriptionData() = default;
 };
 
 class FileDescription : public RefCounted<FileDescription> {
@@ -66,7 +66,7 @@ public:
 
     KResult close();
 
-    off_t seek(off_t, int whence);
+    KResultOr<off_t> seek(off_t, int whence);
     KResultOr<size_t> read(UserOrKernelBuffer&, size_t);
     KResultOr<size_t> write(const UserOrKernelBuffer& data, size_t);
     KResult stat(::stat&);
@@ -108,7 +108,7 @@ public:
     Custody* custody() { return m_custody.ptr(); }
     const Custody* custody() const { return m_custody.ptr(); }
 
-    KResultOr<Region*> mmap(Process&, const Range&, size_t offset, int prot, bool shared);
+    KResultOr<Region*> mmap(Process&, const Range&, u64 offset, int prot, bool shared);
 
     bool is_blocking() const { return m_is_blocking; }
     void set_blocking(bool b) { m_is_blocking = b; }

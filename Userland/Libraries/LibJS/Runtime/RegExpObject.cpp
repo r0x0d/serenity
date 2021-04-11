@@ -39,8 +39,8 @@ static Flags options_from(const String& flags, VM& vm, GlobalObject& global_obje
     Flags options {
         // JS regexps are all 'global' by default as per our definition, but the "global" flag enables "stateful".
         // FIXME: Enable 'BrowserExtended' only if in a browser context.
-        { (regex::ECMAScriptFlags)regex::AllFlags::Global | ECMAScriptFlags::BrowserExtended },
-        {},
+        .effective_flags = { (regex::ECMAScriptFlags)regex::AllFlags::Global | (regex::ECMAScriptFlags)regex::AllFlags::SkipTrimEmptyMatches | regex::ECMAScriptFlags::BrowserExtended },
+        .declared_flags = {},
     };
 
     for (auto ch : flags) {
@@ -166,6 +166,32 @@ JS_DEFINE_NATIVE_SETTER(RegExpObject::set_last_index)
         index = 0;
 
     regexp_object->regex().start_offset = index;
+}
+
+RegExpObject* regexp_create(GlobalObject& global_object, Value pattern, Value flags)
+{
+    // https://tc39.es/ecma262/#sec-regexpcreate
+    String p;
+    if (pattern.is_undefined()) {
+        p = String::empty();
+    } else {
+        p = pattern.to_string(global_object);
+        if (p.is_null())
+            return nullptr;
+    }
+    String f;
+    if (flags.is_undefined()) {
+        f = String::empty();
+    } else {
+        f = flags.to_string(global_object);
+        if (f.is_null())
+            return nullptr;
+    }
+    // FIXME: This is awkward: the RegExpObject C++ constructor may throw a VM exception.
+    auto* obj = RegExpObject::create(global_object, move(p), move(f));
+    if (global_object.vm().exception())
+        return nullptr;
+    return obj;
 }
 
 }

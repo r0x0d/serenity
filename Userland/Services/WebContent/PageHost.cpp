@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2020-2021, Andreas Kling <kling@serenityos.org>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -84,15 +84,7 @@ void PageHost::paint(const Gfx::IntRect& content_rect, Gfx::Bitmap& target)
         return;
     }
 
-    painter.fill_rect(bitmap_rect, layout_root->document().background_color(palette()));
-
-    if (auto background_bitmap = layout_root->document().background_image()) {
-        painter.draw_tiled_bitmap(bitmap_rect, *background_bitmap);
-    }
-
-    painter.translate(-content_rect.x(), -content_rect.y());
-
-    Web::PaintContext context(painter, palette(), Gfx::IntPoint());
+    Web::PaintContext context(painter, palette(), content_rect.top_left());
     context.set_should_show_line_box_borders(m_should_show_line_box_borders);
     context.set_viewport_rect(content_rect);
     layout_root->paint_all_phases(context);
@@ -113,6 +105,11 @@ void PageHost::page_did_change_selection()
     m_client.post_message(Messages::WebContentClient::DidChangeSelection());
 }
 
+void PageHost::page_did_request_cursor_change(Gfx::StandardCursor cursor)
+{
+    m_client.post_message(Messages::WebContentClient::DidRequestCursorChange((u32)cursor));
+}
+
 void PageHost::page_did_layout()
 {
     auto* layout_root = this->layout_root();
@@ -126,9 +123,24 @@ void PageHost::page_did_change_title(const String& title)
     m_client.post_message(Messages::WebContentClient::DidChangeTitle(title));
 }
 
+void PageHost::page_did_request_scroll(int wheel_delta)
+{
+    m_client.post_message(Messages::WebContentClient::DidRequestScroll(wheel_delta));
+}
+
 void PageHost::page_did_request_scroll_into_view(const Gfx::IntRect& rect)
 {
     m_client.post_message(Messages::WebContentClient::DidRequestScrollIntoView(rect));
+}
+
+void PageHost::page_did_enter_tooltip_area(const Gfx::IntPoint& content_position, const String& title)
+{
+    m_client.post_message(Messages::WebContentClient::DidEnterTooltipArea(content_position, title));
+}
+
+void PageHost::page_did_leave_tooltip_area()
+{
+    m_client.post_message(Messages::WebContentClient::DidLeaveTooltipArea());
 }
 
 void PageHost::page_did_hover_link(const URL& url)
@@ -184,6 +196,16 @@ bool PageHost::page_did_request_confirm(const String& message)
 String PageHost::page_did_request_prompt(const String& message, const String& default_)
 {
     return m_client.send_sync<Messages::WebContentClient::DidRequestPrompt>(message, default_)->response();
+}
+
+void PageHost::page_did_change_favicon(const Gfx::Bitmap& favicon)
+{
+    m_client.post_message(Messages::WebContentClient::DidChangeFavicon(favicon.to_shareable_bitmap()));
+}
+
+void PageHost::page_did_request_image_context_menu(const Gfx::IntPoint& content_position, const URL& url, const String& target, unsigned modifiers, const Gfx::Bitmap* bitmap)
+{
+    m_client.post_message(Messages::WebContentClient::DidRequestImageContextMenu(content_position, url, target, modifiers, bitmap->to_shareable_bitmap()));
 }
 
 }

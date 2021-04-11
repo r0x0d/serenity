@@ -31,7 +31,8 @@ namespace Kernel {
 
 UNMAP_AFTER_INIT void SpuriousInterruptHandler::initialize(u8 interrupt_number)
 {
-    new SpuriousInterruptHandler(interrupt_number);
+    auto* handler = new SpuriousInterruptHandler(interrupt_number);
+    handler->register_interrupt_handler();
 }
 
 void SpuriousInterruptHandler::register_handler(GenericInterruptHandler& handler)
@@ -56,6 +57,13 @@ bool SpuriousInterruptHandler::eoi()
     return false;
 }
 
+const char* SpuriousInterruptHandler::purpose() const
+{
+    if (!m_real_handler)
+        return "Spurious Interrupt Handler";
+    return m_real_handler->purpose();
+}
+
 SpuriousInterruptHandler::SpuriousInterruptHandler(u8 irq)
     : GenericInterruptHandler(irq)
     , m_responsible_irq_controller(InterruptManagement::the().get_responsible_irq_controller(irq))
@@ -69,13 +77,13 @@ SpuriousInterruptHandler::~SpuriousInterruptHandler()
 void SpuriousInterruptHandler::handle_interrupt(const RegisterState& state)
 {
     // Actually check if IRQ7 or IRQ15 are spurious, and if not, call the real handler to handle the IRQ.
-    if (m_responsible_irq_controller->get_isr() & (1 << 15)) {
+    if (m_responsible_irq_controller->get_isr() & (1 << interrupt_number())) {
         m_real_irq = true; // remember that we had a real IRQ, when EOI later!
         m_real_handler->increment_invoking_counter();
         m_real_handler->handle_interrupt(state);
         return;
     }
-    klog() << "Spurious Interrupt, vector " << interrupt_number();
+    dbgln("Spurious interrupt, vector {}", interrupt_number());
 }
 
 void SpuriousInterruptHandler::enable_interrupt_vector()

@@ -27,13 +27,13 @@
 #pragma once
 
 #include <AK/Atomic.h>
-#include <AK/LogStream.h>
+#include <AK/Format.h>
 #include <AK/NonnullRefPtr.h>
 #include <AK/StdLibExtras.h>
 #include <AK/Traits.h>
 #include <AK/Types.h>
 #ifdef KERNEL
-#    include <Kernel/Arch/i386/CPU.h>
+#    include <Kernel/Arch/x86/CPU.h>
 #endif
 
 namespace AK {
@@ -379,7 +379,7 @@ public:
 
     ALWAYS_INLINE bool is_null() const { return PtrTraits::is_null(m_bits.load(AK::MemoryOrder::memory_order_relaxed)); }
 
-    template<typename U = T, typename EnableIf<IsSame<U, T>::value && !IsNullPointer<typename PtrTraits::NullType>::value>::Type* = nullptr>
+    template<typename U = T, typename EnableIf<IsSame<U, T> && !IsNullPointer<typename PtrTraits::NullType>>::Type* = nullptr>
     typename PtrTraits::NullType null_value() const
     {
         // make sure we are holding a null value
@@ -387,7 +387,7 @@ public:
         VERIFY(PtrTraits::is_null(bits));
         return PtrTraits::to_null_value(bits);
     }
-    template<typename U = T, typename EnableIf<IsSame<U, T>::value && !IsNullPointer<typename PtrTraits::NullType>::value>::Type* = nullptr>
+    template<typename U = T, typename EnableIf<IsSame<U, T> && !IsNullPointer<typename PtrTraits::NullType>>::Type* = nullptr>
     void set_null_value(typename PtrTraits::NullType value)
     {
         // make sure that new null value would be interpreted as a null value
@@ -461,11 +461,13 @@ private:
     mutable Atomic<FlatPtr> m_bits { PtrTraits::default_null_value };
 };
 
-template<typename T, typename PtrTraits = RefPtrTraits<T>>
-inline const LogStream& operator<<(const LogStream& stream, const RefPtr<T, PtrTraits>& value)
-{
-    return stream << value.ptr();
-}
+template<typename T>
+struct Formatter<RefPtr<T>> : Formatter<const T*> {
+    void format(FormatBuilder& builder, const RefPtr<T>& value)
+    {
+        Formatter<const T*>::format(builder, value.ptr());
+    }
+};
 
 template<typename T>
 struct Traits<RefPtr<T>> : public GenericTraits<RefPtr<T>> {

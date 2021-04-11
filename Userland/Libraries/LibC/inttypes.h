@@ -27,6 +27,9 @@
 #pragma once
 
 #include <bits/stdint.h>
+#include <sys/cdefs.h>
+
+__BEGIN_DECLS
 
 #define PRId8 "d"
 #define PRId16 "d"
@@ -68,3 +71,14 @@
 
 #define SCNu64 __PRI64_PREFIX "u"
 #define SCNd64 __PRI64_PREFIX "d"
+
+typedef struct imaxdiv_t {
+    intmax_t quot;
+    intmax_t rem;
+} imaxdiv_t;
+imaxdiv_t imaxdiv(intmax_t, intmax_t);
+
+intmax_t strtoimax(const char*, char** endptr, int base);
+uintmax_t strtoumax(const char*, char** endptr, int base);
+
+__END_DECLS

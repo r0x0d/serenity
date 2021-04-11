@@ -48,11 +48,8 @@ public:
     Gfx::IntRect rect() const { return m_rect; }
 
     int taskbar_height() const { return 28; }
-    int menubar_height() const { return 19; }
 
     void did_receive_screen_rect(Badge<WindowServerConnection>, const Gfx::IntRect&);
-
-    Function<void(const Gfx::IntRect&)> on_rect_change;
 
 private:
     Gfx::IntRect m_rect;

@@ -33,6 +33,7 @@
 #include <LibWeb/DOM/Window.h>
 #include <LibWeb/HighResolutionTime/Performance.h>
 #include <LibWeb/InProcessWebView.h>
+#include <LibWeb/Layout/InitialContainingBlockBox.h>
 #include <LibWeb/Page/Frame.h>
 
 namespace Web::DOM {
@@ -46,6 +47,7 @@ Window::Window(Document& document)
     : EventTarget(static_cast<Bindings::ScriptExecutionContext&>(document))
     , m_document(document)
     , m_performance(make<HighResolutionTime::Performance>(*this))
+    , m_screen(CSS::Screen::create(*this))
 {
 }
 
@@ -108,6 +110,8 @@ void Window::timer_did_fire(Badge<Timer>, Timer& timer)
     [[maybe_unused]] auto rc = vm.call(timer.callback(), wrapper());
     if (vm.exception())
         vm.clear_exception();
+    vm.run_queued_promise_jobs();
+    VERIFY(!vm.exception());
 }
 
 i32 Window::allocate_timer_id(Badge<Timer>)
@@ -139,9 +143,11 @@ i32 Window::request_animation_frame(JS::Function& callback)
         auto& function = const_cast<JS::Function&>(static_cast<const JS::Function&>(*handle.cell()));
         auto& vm = function.vm();
         fake_timestamp += 10;
-        [[maybe_unused]] auto rc = vm.call(function, {}, JS::Value(fake_timestamp));
+        [[maybe_unused]] auto rc = vm.call(function, JS::js_undefined(), JS::Value(fake_timestamp));
         if (vm.exception())
             vm.clear_exception();
+        vm.run_queued_promise_jobs();
+        VERIFY(!vm.exception());
         GUI::DisplayLink::unregister_callback(link_id);
     });
 
@@ -179,6 +185,20 @@ bool Window::dispatch_event(NonnullRefPtr<Event> event)
 JS::Object* Window::create_wrapper(JS::GlobalObject& global_object)
 {
     return &global_object;
+}
+
+int Window::inner_width() const
+{
+    if (!document().layout_node())
+        return 0;
+    return document().layout_node()->width();
+}
+
+int Window::inner_height() const
+{
+    if (!document().layout_node())
+        return 0;
+    return document().layout_node()->height();
 }
 
 }

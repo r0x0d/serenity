@@ -84,6 +84,7 @@ public:
     void set_bar_visible(bool bar_visible);
     bool is_bar_visible() const { return m_bar_visible; };
 
+    Function<void(size_t)> on_tab_count_change;
     Function<void(Widget&)> on_change;
     Function<void(Widget&)> on_middle_click;
     Function<void(Widget&, const ContextMenuEvent&)> on_context_menu_request;
@@ -107,6 +108,7 @@ private:
     Gfx::IntRect container_rect() const;
     void update_bar();
     void update_focus_policy();
+    int bar_margin() const { return 2; }
 
     RefPtr<Widget> m_active_widget;
 

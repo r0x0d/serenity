@@ -43,7 +43,7 @@ public:
     }
 
     enum LocalVariableTag { LocalVariable };
-    Reference(LocalVariableTag, const String& name, bool strict = false)
+    Reference(LocalVariableTag, const FlyString& name, bool strict = false)
         : m_base(js_null())
         , m_name(name)
         , m_strict(strict)
@@ -52,7 +52,7 @@ public:
     }
 
     enum GlobalVariableTag { GlobalVariable };
-    Reference(GlobalVariableTag, const String& name, bool strict = false)
+    Reference(GlobalVariableTag, const FlyString& name, bool strict = false)
         : m_base(js_null())
         , m_name(name)
         , m_strict(strict)
@@ -64,7 +64,7 @@ public:
     const PropertyName& name() const { return m_name; }
     bool is_strict() const { return m_strict; }
 
-    bool is_unresolvable() const { return m_base.is_undefined(); }
+    bool is_unresolvable() const { return m_base.is_empty(); }
     bool is_property() const
     {
         return m_base.is_object() || has_primitive_base();
@@ -91,7 +91,7 @@ public:
 private:
     void throw_reference_error(GlobalObject&);
 
-    Value m_base { js_undefined() };
+    Value m_base;
     PropertyName m_name;
     bool m_strict { false };
     bool m_local_variable { false };

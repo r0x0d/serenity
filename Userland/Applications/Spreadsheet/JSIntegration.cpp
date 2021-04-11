@@ -64,6 +64,10 @@ Optional<FunctionAndArgumentIndex> get_function_and_argument_index(StringView so
         case JS::TokenType::ParenClose:
             previous_was_identifier = false;
             if (open_parens_since_last_commit == 0) {
+                if (state.is_empty() || names.is_empty()) {
+                    // JS Syntax error.
+                    break;
+                }
                 state.take_last();
                 names.take_last();
                 break;
@@ -73,7 +77,8 @@ Optional<FunctionAndArgumentIndex> get_function_and_argument_index(StringView so
         case JS::TokenType::Comma:
             previous_was_identifier = false;
             if (open_parens_since_last_commit == 0 && open_curlies_and_brackets_since_last_commit == 0) {
-                state.last()++;
+                if (!state.is_empty())
+                    state.last()++;
                 break;
             }
             break;
@@ -151,9 +156,9 @@ bool SheetGlobalObject::put(const JS::PropertyName& name, JS::Value value, JS::V
     return GlobalObject::put(name, value, receiver);
 }
 
-void SheetGlobalObject::initialize()
+void SheetGlobalObject::initialize_global_object()
 {
-    GlobalObject::initialize();
+    Base::initialize_global_object();
     define_native_function("get_real_cell_contents", get_real_cell_contents, 1);
     define_native_function("set_real_cell_contents", set_real_cell_contents, 2);
     define_native_function("parse_cell_name", parse_cell_name, 1);
@@ -444,7 +449,9 @@ JS_DEFINE_NATIVE_FUNCTION(WorkbookObject::sheet)
                 return JS::Value(&sheet.global_object());
         }
     } else {
-        auto index = name_value.as_size_t();
+        auto index = name_value.to_length(global_object);
+        if (vm.exception())
+            return {};
         if (index < workbook.sheets().size())
             return JS::Value(&workbook.sheets()[index].global_object());
     }

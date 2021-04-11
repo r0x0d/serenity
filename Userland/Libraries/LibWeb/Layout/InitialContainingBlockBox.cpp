@@ -24,6 +24,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <LibGfx/Painter.h>
 #include <LibWeb/Dump.h>
 #include <LibWeb/Layout/InitialContainingBlockBox.h>
 #include <LibWeb/Page/Frame.h>
@@ -47,7 +48,7 @@ void InitialContainingBlockBox::build_stacking_context_tree()
 
     set_stacking_context(make<StackingContext>(*this, nullptr));
 
-    for_each_in_subtree_of_type<Box>([&](Box& box) {
+    for_each_in_inclusive_subtree_of_type<Box>([&](Box& box) {
         if (&box == this)
             return IterationDecision::Continue;
         if (!box.establishes_stacking_context()) {
@@ -61,8 +62,21 @@ void InitialContainingBlockBox::build_stacking_context_tree()
     });
 }
 
+void InitialContainingBlockBox::paint_document_background(PaintContext& context)
+{
+    context.painter().fill_rect(Gfx::IntRect { {}, context.viewport_rect().size() }, document().background_color(context.palette()));
+    context.painter().translate(-context.viewport_rect().location());
+
+    if (auto background_bitmap = document().background_image()) {
+        Gfx::IntRect background_rect = { 0, 0, context.viewport_rect().x() + context.viewport_rect().width(), context.viewport_rect().y() + context.viewport_rect().height() };
+        paint_background_image(context, *background_bitmap, document().background_repeat_x(), document().background_repeat_y(), move(background_rect));
+    }
+}
+
 void InitialContainingBlockBox::paint_all_phases(PaintContext& context)
 {
+    paint_document_background(context);
+
     paint(context, PaintPhase::Background);
     paint(context, PaintPhase::Border);
     paint(context, PaintPhase::Foreground);
@@ -87,7 +101,7 @@ void InitialContainingBlockBox::recompute_selection_states()
 
     auto selection = this->selection().normalized();
 
-    for_each_in_subtree([&](auto& layout_node) {
+    for_each_in_inclusive_subtree([&](auto& layout_node) {
         if (!selection.is_valid()) {
             // Everything gets SelectionState::None.
         } else if (&layout_node == selection.start().layout_node && &layout_node == selection.end().layout_node) {

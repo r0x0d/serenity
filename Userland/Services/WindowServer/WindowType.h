@@ -26,7 +26,8 @@
 
 #pragma once
 
-// Keep this in sync with GUI::WindowType.
+namespace WindowServer {
+
 enum class WindowType {
     Invalid = 0,
     Normal,
@@ -34,9 +35,11 @@ enum class WindowType {
     WindowSwitcher,
     Taskbar,
     Tooltip,
-    Menubar,
-    MenuApplet,
+    Applet,
     Notification,
     Desktop,
     ToolWindow,
+    AppletArea,
 };
+
+}

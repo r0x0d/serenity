@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2020, Andreas Kling <kling@serenityos.org>
- * Copyright (c) 2020, Linus Groh <mail@linusgroh.de>
+ * Copyright (c) 2020-2021, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2020-2021, Linus Groh <mail@linusgroh.de>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -25,6 +25,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <AK/Checked.h>
 #include <AK/Function.h>
 #include <AK/StringBuilder.h>
 #include <LibJS/Heap/Heap.h>
@@ -32,6 +33,7 @@
 #include <LibJS/Runtime/Error.h>
 #include <LibJS/Runtime/GlobalObject.h>
 #include <LibJS/Runtime/PrimitiveString.h>
+#include <LibJS/Runtime/RegExpObject.h>
 #include <LibJS/Runtime/StringIterator.h>
 #include <LibJS/Runtime/StringObject.h>
 #include <LibJS/Runtime/StringPrototype.h>
@@ -82,7 +84,7 @@ void StringPrototype::initialize(GlobalObject& global_object)
     StringObject::initialize(global_object);
     u8 attr = Attribute::Writable | Attribute::Configurable;
 
-    define_native_property(vm.names.length, length_getter, {}, 0);
+    define_native_property(vm.names.length, length_getter, nullptr, 0);
     define_native_function(vm.names.charAt, char_at, 1, attr);
     define_native_function(vm.names.charCodeAt, char_code_at, 1, attr);
     define_native_function(vm.names.repeat, repeat, 1, attr);
@@ -104,6 +106,9 @@ void StringPrototype::initialize(GlobalObject& global_object)
     define_native_function(vm.names.slice, slice, 2, attr);
     define_native_function(vm.names.split, split, 2, attr);
     define_native_function(vm.names.lastIndexOf, last_index_of, 1, attr);
+    define_native_function(vm.names.at, at, 1, attr);
+    define_native_function(vm.names.match, match, 1, attr);
+    define_native_function(vm.names.replace, replace, 2, attr);
     define_native_function(vm.well_known_symbol_iterator(), symbol_iterator, 0, attr);
 }
 
@@ -612,6 +617,29 @@ JS_DEFINE_NATIVE_FUNCTION(StringPrototype::last_index_of)
     return Value(-1);
 }
 
+JS_DEFINE_NATIVE_FUNCTION(StringPrototype::at)
+{
+    auto string = ak_string_from(vm, global_object);
+    if (string.is_null())
+        return {};
+    auto length = string.length();
+    auto relative_index = vm.argument(0).to_integer_or_infinity(global_object);
+    if (vm.exception())
+        return {};
+    if (Value(relative_index).is_infinity())
+        return js_undefined();
+    Checked<size_t> index { 0 };
+    if (relative_index >= 0) {
+        index += relative_index;
+    } else {
+        index += length;
+        index -= -relative_index;
+    }
+    if (index.has_overflow() || index.value() >= length)
+        return js_undefined();
+    return js_string(vm, String::formatted("{}", string[index.value()]));
+}
+
 JS_DEFINE_NATIVE_FUNCTION(StringPrototype::symbol_iterator)
 {
     auto this_object = vm.this_value(global_object);
@@ -624,6 +652,81 @@ JS_DEFINE_NATIVE_FUNCTION(StringPrototype::symbol_iterator)
     if (vm.exception())
         return {};
     return StringIterator::create(global_object, string);
+}
+
+JS_DEFINE_NATIVE_FUNCTION(StringPrototype::match)
+{
+    // https://tc39.es/ecma262/#sec-string.prototype.match
+    auto this_object = vm.this_value(global_object);
+    if (this_object.is_nullish()) {
+        vm.throw_exception<TypeError>(global_object, ErrorType::ToObjectNullOrUndefined);
+        return {};
+    }
+    auto regexp = vm.argument(0);
+    if (!regexp.is_nullish()) {
+        if (auto* matcher = get_method(global_object, regexp, vm.well_known_symbol_match()))
+            return vm.call(*matcher, regexp, this_object);
+    }
+    auto s = this_object.to_string(global_object);
+    if (vm.exception())
+        return {};
+    auto rx = regexp_create(global_object, regexp, js_undefined());
+    if (!rx)
+        return {};
+    return rx->invoke(vm.well_known_symbol_match(), js_string(vm, s));
+}
+
+JS_DEFINE_NATIVE_FUNCTION(StringPrototype::replace)
+{
+    // https://tc39.es/ecma262/#sec-string.prototype.replace
+    auto this_object = vm.this_value(global_object);
+    if (this_object.is_nullish()) {
+        vm.throw_exception<TypeError>(global_object, ErrorType::ToObjectNullOrUndefined);
+        return {};
+    }
+
+    auto search_value = vm.argument(0);
+    auto replace_value = vm.argument(1);
+
+    if (!search_value.is_nullish()) {
+        if (auto* replacer = get_method(global_object, search_value, vm.well_known_symbol_replace()))
+            return vm.call(*replacer, search_value, this_object, replace_value);
+    }
+
+    auto string = this_object.to_string(global_object);
+    if (vm.exception())
+        return {};
+    auto search_string = search_value.to_string(global_object);
+    if (vm.exception())
+        return {};
+    Optional<size_t> position = string.index_of(search_string);
+    if (!position.has_value())
+        return js_string(vm, string);
+
+    auto preserved = string.substring(0, position.value());
+    String replacement;
+
+    if (replace_value.is_function()) {
+        auto result = vm.call(replace_value.as_function(), js_undefined(), search_value, Value(position.value()), js_string(vm, string));
+        if (vm.exception())
+            return {};
+
+        replacement = result.to_string(global_object);
+        if (vm.exception())
+            return {};
+    } else {
+        // FIXME: Implement the GetSubstituion algorithm for substituting placeholder '$' characters - https://tc39.es/ecma262/#sec-getsubstitution
+        replacement = replace_value.to_string(global_object);
+        if (vm.exception())
+            return {};
+    }
+
+    StringBuilder builder;
+    builder.append(preserved);
+    builder.append(replacement);
+    builder.append(string.substring(position.value() + search_string.length()));
+
+    return js_string(vm, builder.build());
 }
 
 }

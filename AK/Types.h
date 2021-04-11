@@ -42,7 +42,7 @@ using i8 = __INT8_TYPE__;
 #ifdef __serenity__
 
 using size_t = __SIZE_TYPE__;
-using ssize_t = MakeSigned<size_t>::Type;
+using ssize_t = MakeSigned<size_t>;
 
 using ptrdiff_t = __PTRDIFF_TYPE__;
 
@@ -72,11 +72,14 @@ using __ptrdiff_t = __PTRDIFF_TYPE__;
 
 #endif
 
-using FlatPtr = Conditional<sizeof(void*) == 8, u64, u32>::Type;
+using FlatPtr = Conditional<sizeof(void*) == 8, u64, u32>;
 
-constexpr unsigned KiB = 1024;
-constexpr unsigned MiB = KiB * KiB;
-constexpr unsigned GiB = KiB * KiB * KiB;
+constexpr u64 KiB = 1024;
+constexpr u64 MiB = KiB * KiB;
+constexpr u64 GiB = KiB * KiB * KiB;
+constexpr u64 TiB = KiB * KiB * KiB * KiB;
+constexpr u64 PiB = KiB * KiB * KiB * KiB * KiB;
+constexpr u64 EiB = KiB * KiB * KiB * KiB * KiB * KiB;
 
 namespace std {
 using nullptr_t = decltype(nullptr);

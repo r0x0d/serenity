@@ -2,6 +2,10 @@ html {
     font-family: sans-serif;
 }
 
+a {
+    cursor: pointer;
+}
+
 head,
 link,
 meta,
@@ -200,4 +204,8 @@ input[type=text] {
     border: 1px solid black;
     min-width: 80px;
     min-height: 16px;
+}
+
+option {
+    display: none;
 }

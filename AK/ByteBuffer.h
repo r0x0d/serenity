@@ -214,6 +214,9 @@ public:
         if (is_null())
             return {};
 
+        if (offset == 0 && size == this->size())
+            return *this;
+
         // I cannot hand you a slice I don't have
         VERIFY(offset + size <= this->size());
 
@@ -323,12 +326,6 @@ inline NonnullRefPtr<ByteBufferImpl> ByteBufferImpl::create_zeroed(size_t size)
 inline NonnullRefPtr<ByteBufferImpl> ByteBufferImpl::copy(const void* data, size_t size)
 {
     return ::adopt(*new ByteBufferImpl(data, size));
-}
-
-inline const LogStream& operator<<(const LogStream& stream, const ByteBuffer& value)
-{
-    stream.write((const char*)value.data(), value.size());
-    return stream;
 }
 
 }

@@ -6,8 +6,10 @@ set(LIBC_SOURCES
     dirent.cpp
     dlfcn.cpp
     fcntl.cpp
+    fenv.cpp
     getopt.cpp
     grp.cpp
+    inttypes.cpp
     ioctl.cpp
     libcinit.cpp
     libgen.cpp
@@ -58,6 +60,7 @@ if ("${SERENITY_ARCH}" STREQUAL "i686")
     set(ELF_SOURCES ${ELF_SOURCES} ../LibELF/Arch/i386/plt_trampoline.S)
 elseif ("${SERENITY_ARCH}" STREQUAL "x86_64")
     set(ASM_SOURCES "arch/x86_64/setjmp.S")
+    set(ELF_SOURCES ${ELF_SOURCES} ../LibELF/Arch/x86_64/plt_trampoline.S)
 endif()
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unknown-warning-option -DSERENITY_LIBC_BUILD")
@@ -83,11 +86,31 @@ add_custom_command(
 
 set(SOURCES ${LIBC_SOURCES} ${AK_SOURCES} ${ELF_SOURCES} ${ASM_SOURCES})
 
-serenity_libc_static(LibCStatic c)
-target_link_libraries(LibCStatic crt0 ssp system)
-add_dependencies(LibCStatic LibM LibSystem)
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -static-libstdc++")
+add_library(LibCStaticWithoutDeps STATIC ${SOURCES})
+target_link_libraries(LibCStaticWithoutDeps crt0 ssp)
+add_dependencies(LibCStaticWithoutDeps LibM LibSystem)
+
+add_custom_target(LibCStatic
+        COMMAND ${CMAKE_AR} -x $<TARGET_FILE:LibCStaticWithoutDeps>
+        COMMAND ${CMAKE_AR} -x $<TARGET_FILE:ssp>
+        COMMAND ${CMAKE_AR} -x $<TARGET_FILE:LibSystemStatic>
+        COMMAND ${CMAKE_AR} -qcs ${CMAKE_CURRENT_BINARY_DIR}/libc.a *.o
+        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+        DEPENDS LibCStaticWithoutDeps ssp LibSystemStatic
+        )
+
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/libc.a DESTINATION ${CMAKE_INSTALL_PREFIX}/usr/lib/)
+file(GLOB TEMP_OBJ_FILES ${CMAKE_CURRENT_BINARY_DIR}/*.o)
+set_property(
+        TARGET LibCStatic
+        APPEND
+        PROPERTY ADDITIONAL_CLEAN_FILES ${TEMP_OBJ_FILES}
+)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -static-libstdc++")
 serenity_libc(LibC c)
 target_link_libraries(LibC crt0 ssp system)
-add_dependencies(LibC LibM LibSystem)
+
+# We mark LibCStatic as a dependency of LibC because this triggers the build of the LibCStatic target
+add_dependencies(LibC LibM LibSystem LibCStatic)

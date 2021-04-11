@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2018-2020, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2021, the SerenityOS developers.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -27,33 +28,25 @@
 #pragma once
 
 #include <LibWeb/HTML/HTMLElement.h>
-#include <LibWeb/Loader/Resource.h>
+#include <LibWeb/Loader/CSSLoader.h>
 
 namespace Web::HTML {
 
-class HTMLLinkElement final
-    : public HTMLElement
-    , public ResourceClient {
+class HTMLLinkElement final : public HTMLElement {
 public:
     using WrapperType = Bindings::HTMLLinkElementWrapper;
 
     HTMLLinkElement(DOM::Document&, QualifiedName);
     virtual ~HTMLLinkElement() override;
 
-    virtual void inserted_into(Node&) override;
+    virtual void inserted() override;
 
     String rel() const { return attribute(HTML::AttributeNames::rel); }
     String type() const { return attribute(HTML::AttributeNames::type); }
     String href() const { return attribute(HTML::AttributeNames::href); }
 
 private:
-    // ^ResourceClient
-    virtual void resource_did_fail() override;
-    virtual void resource_did_load() override;
-
     void parse_attribute(const FlyString&, const String&) override;
-
-    void load_stylesheet(const URL&);
 
     struct Relationship {
         enum {
@@ -62,8 +55,8 @@ private:
         };
     };
 
+    CSSLoader m_css_loader;
     unsigned m_relationship { 0 };
-    RefPtr<CSS::StyleSheet> m_style_sheet;
 };
 
 }

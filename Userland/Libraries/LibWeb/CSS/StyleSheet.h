@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 2018-2020, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2018-2021, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2021, the SerenityOS developers.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -26,27 +27,30 @@
 
 #pragma once
 
-#include <AK/NonnullRefPtrVector.h>
-#include <LibWeb/CSS/StyleRule.h>
+#include <AK/RefCounted.h>
+#include <LibWeb/Bindings/Wrappable.h>
+#include <LibWeb/Forward.h>
 
 namespace Web::CSS {
 
-class StyleSheet : public RefCounted<StyleSheet> {
+class StyleSheet
+    : public RefCounted<StyleSheet>
+    , public Bindings::Wrappable {
 public:
-    static NonnullRefPtr<StyleSheet> create(NonnullRefPtrVector<StyleRule>&& rules)
-    {
-        return adopt(*new StyleSheet(move(rules)));
-    }
+    using WrapperType = Bindings::StyleSheetWrapper;
 
-    ~StyleSheet();
+    virtual ~StyleSheet() = default;
 
-    const NonnullRefPtrVector<StyleRule>& rules() const { return m_rules; }
-    NonnullRefPtrVector<StyleRule>& rules() { return m_rules; }
+    virtual String type() const = 0;
+
+    DOM::Element* owner_node() { return m_owner_node; }
+    void set_owner_node(DOM::Element*);
+
+protected:
+    StyleSheet() = default;
 
 private:
-    explicit StyleSheet(NonnullRefPtrVector<StyleRule>&&);
-
-    NonnullRefPtrVector<StyleRule> m_rules;
+    WeakPtr<DOM::Element> m_owner_node;
 };
 
 }

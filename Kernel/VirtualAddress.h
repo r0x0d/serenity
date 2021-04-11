@@ -26,12 +26,12 @@
 
 #pragma once
 
-#include <AK/LogStream.h>
+#include <AK/Format.h>
 #include <AK/Types.h>
 
 class VirtualAddress {
 public:
-    VirtualAddress() { }
+    VirtualAddress() = default;
     explicit VirtualAddress(FlatPtr address)
         : m_address(address)
     {
@@ -69,11 +69,6 @@ private:
 inline VirtualAddress operator-(const VirtualAddress& a, const VirtualAddress& b)
 {
     return VirtualAddress(a.get() - b.get());
-}
-
-inline const LogStream& operator<<(const LogStream& stream, VirtualAddress value)
-{
-    return stream << 'V' << value.as_ptr();
 }
 
 template<>

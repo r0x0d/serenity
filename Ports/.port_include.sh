@@ -1,14 +1,17 @@
 #!/usr/bin/env bash
 set -eu
 
-SCRIPT=`dirname $0`
-export SERENITY_ROOT=`realpath $SCRIPT/../`
-packagesdb="$SERENITY_ROOT/Build/packages.db"
+SCRIPT="$(dirname "${0}")"
+export SERENITY_ROOT="$(realpath "${SCRIPT}/../")"
+export SERENITY_ARCH="${SERENITY_ARCH:-i686}"
+export SERENITY_BUILD_DIR="${SERENITY_ROOT}/Build/${SERENITY_ARCH}"
+export CC="${SERENITY_ARCH}-pc-serenity-gcc"
+export CXX="${SERENITY_ARCH}-pc-serenity-g++"
+export AR="${SERENITY_ARCH}-pc-serenity-ar"
+export RANLIB="${SERENITY_ARCH}-pc-serenity-ranlib"
+export PATH="${SERENITY_ROOT}/Toolchain/Local/${SERENITY_ARCH}/bin:${PATH}"
 
-export CC=i686-pc-serenity-gcc
-export CXX=i686-pc-serenity-g++
-export PATH=$SERENITY_ROOT/Toolchain/Local/i686/bin:$PATH
-export SERENITY_ARCH=i686
+packagesdb="${SERENITY_BUILD_DIR}/packages.db"
 
 MD5SUM=md5sum
 
@@ -152,7 +155,7 @@ func_defined pre_configure || pre_configure() {
 }
 func_defined configure || configure() {
     chmod +x "${workdir}"/"$configscript"
-    run ./"$configscript" --host=i686-pc-serenity $configopts
+    run ./"$configscript" --host="${SERENITY_ARCH}-pc-serenity" $configopts
 }
 func_defined post_configure || post_configure() {
     :
@@ -161,7 +164,7 @@ func_defined build || build() {
     run make $makeopts
 }
 func_defined install || install() {
-    run make DESTDIR="$SERENITY_ROOT"/Build/Root $installopts install
+    run make DESTDIR="${SERENITY_BUILD_DIR}/Root" $installopts install
 }
 func_defined post_install || post_install() {
     echo
@@ -223,10 +226,10 @@ uninstall() {
             for f in `cat plist`; do
                 case $f in
                     */)
-                        run rmdir "$SERENITY_ROOT/Build/Root/$f" || true
+                        run rmdir "${SERENITY_BUILD_DIR}/Root/$f" || true
                         ;;
                     *)
-                        run rm -rf "$SERENITY_ROOT/Build/Root/$f"
+                        run rm -rf "${SERENITY_BUILD_DIR}/Root/$f"
                         ;;
                 esac
             done

@@ -32,27 +32,32 @@
 
 namespace Kernel {
 
-pid_t Process::sys$fork(RegisterState& regs)
+KResultOr<pid_t> Process::sys$fork(RegisterState& regs)
 {
     REQUIRE_PROMISE(proc);
     RefPtr<Thread> child_first_thread;
-    auto child = adopt(*new Process(child_first_thread, m_name, m_uid, m_gid, m_pid, m_is_kernel_process, m_cwd, m_executable, m_tty, this));
+    auto child = adopt(*new Process(child_first_thread, m_name, uid(), gid(), pid(), m_is_kernel_process, m_cwd, m_executable, m_tty, this));
     if (!child_first_thread)
-        return -ENOMEM;
+        return ENOMEM;
     child->m_root_directory = m_root_directory;
     child->m_root_directory_relative_to_global_root = m_root_directory_relative_to_global_root;
-    child->m_promises = m_promises;
-    child->m_execpromises = m_execpromises;
-    child->m_has_promises = m_has_promises;
-    child->m_has_execpromises = m_has_execpromises;
     child->m_veil_state = m_veil_state;
     child->m_unveiled_paths = m_unveiled_paths.deep_copy();
     child->m_fds = m_fds;
-    child->m_sid = m_sid;
     child->m_pg = m_pg;
-    child->m_umask = m_umask;
-    child->m_extra_gids = m_extra_gids;
-    child->m_signal_trampoline = m_signal_trampoline;
+
+    {
+        ProtectedDataMutationScope scope { *child };
+        child->m_promises = m_promises;
+        child->m_execpromises = m_execpromises;
+        child->m_has_promises = m_has_promises;
+        child->m_has_execpromises = m_has_execpromises;
+        child->m_sid = m_sid;
+        child->m_extra_gids = m_extra_gids;
+        child->m_umask = m_umask;
+        child->m_signal_trampoline = m_signal_trampoline;
+        child->m_dumpable = m_dumpable;
+    }
 
     dbgln_if(FORK_DEBUG, "fork: child={}", child);
     child->space().set_enforces_syscall_regions(space().enforces_syscall_regions());
@@ -85,11 +90,11 @@ pid_t Process::sys$fork(RegisterState& regs)
             if (!region_clone) {
                 dbgln("fork: Cannot clone region, insufficient memory");
                 // TODO: tear down new process?
-                return -ENOMEM;
+                return ENOMEM;
             }
 
             auto& child_region = child->space().add_region(region_clone.release_nonnull());
-            child_region.map(child->space().page_directory());
+            child_region.map(child->space().page_directory(), ShouldFlushTLB::No);
 
             if (&region == m_master_tls_region.unsafe_ptr())
                 child->m_master_tls_region = child_region;

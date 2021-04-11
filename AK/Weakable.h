@@ -32,7 +32,7 @@
 #include "RefPtr.h"
 #include "StdLibExtras.h"
 #ifdef KERNEL
-#    include <Kernel/Arch/i386/CPU.h>
+#    include <Kernel/Arch/x86/CPU.h>
 #endif
 
 namespace AK {
@@ -49,7 +49,7 @@ class WeakLink : public RefCounted<WeakLink> {
     friend class WeakPtr;
 
 public:
-    template<typename T, typename PtrTraits = RefPtrTraits<T>, typename EnableIf<IsBaseOf<RefCountedBase, T>::value>::Type* = nullptr>
+    template<typename T, typename PtrTraits = RefPtrTraits<T>, typename EnableIf<IsBaseOf<RefCountedBase, T>>::Type* = nullptr>
     RefPtr<T, PtrTraits> strong_ref() const
     {
         RefPtr<T, PtrTraits> ref;

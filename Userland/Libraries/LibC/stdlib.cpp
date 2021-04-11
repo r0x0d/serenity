@@ -35,6 +35,7 @@
 #include <assert.h>
 #include <ctype.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <signal.h>
 #include <spawn.h>
 #include <stdio.h>
@@ -826,6 +827,19 @@ div_t div(int numerator, int denominator)
 ldiv_t ldiv(long numerator, long denominator)
 {
     ldiv_t result;
+    result.quot = numerator / denominator;
+    result.rem = numerator % denominator;
+
+    if (numerator >= 0 && result.rem < 0) {
+        result.quot++;
+        result.rem -= denominator;
+    }
+    return result;
+}
+
+lldiv_t lldiv(long long numerator, long long denominator)
+{
+    lldiv_t result;
     result.quot = numerator / denominator;
     result.rem = numerator % denominator;
 

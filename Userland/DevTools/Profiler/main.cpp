@@ -37,7 +37,6 @@
 #include <LibGUI/Application.h>
 #include <LibGUI/BoxLayout.h>
 #include <LibGUI/Button.h>
-#include <LibGUI/Desktop.h>
 #include <LibGUI/Label.h>
 #include <LibGUI/Menu.h>
 #include <LibGUI/MenuBar.h>
@@ -50,31 +49,37 @@
 #include <LibGUI/TreeView.h>
 #include <LibGUI/Window.h>
 #include <serenity.h>
-#include <stdio.h>
 #include <string.h>
 
 static bool generate_profile(pid_t& pid);
 
 int main(int argc, char** argv)
 {
-    Core::ArgsParser args_parser;
     int pid = 0;
+    const char* perfcore_file_arg = nullptr;
+    Core::ArgsParser args_parser;
     args_parser.add_option(pid, "PID to profile", "pid", 'p', "PID");
-    args_parser.parse(argc, argv, false);
+    args_parser.add_positional_argument(perfcore_file_arg, "Path of perfcore file", "perfcore-file", Core::ArgsParser::Required::No);
+    args_parser.parse(argc, argv);
+
+    if (pid && perfcore_file_arg) {
+        warnln("-p/--pid option and perfcore-file argument must not be used together!");
+        return 1;
+    }
 
     auto app = GUI::Application::construct(argc, argv);
     auto app_icon = GUI::Icon::default_icon("app-profiler");
 
-    String path;
-    if (argc != 2) {
+    String perfcore_file;
+    if (!perfcore_file_arg) {
         if (!generate_profile(pid))
             return 0;
-        path = String::formatted("/proc/{}/perf_events", pid);
+        perfcore_file = String::formatted("/proc/{}/perf_events", pid);
     } else {
-        path = argv[1];
+        perfcore_file = perfcore_file_arg;
     }
 
-    auto profile_or_error = Profile::load_from_perfcore_file(path);
+    auto profile_or_error = Profile::load_from_perfcore_file(perfcore_file);
     if (profile_or_error.is_error()) {
         GUI::MessageBox::show(nullptr, profile_or_error.error(), "Profiler", GUI::MessageBox::Type::Error);
         return 0;
@@ -136,52 +141,38 @@ int main(int argc, char** argv)
     };
 
     auto menubar = GUI::MenuBar::construct();
-    auto& app_menu = menubar->add_menu("Profiler");
+    auto& app_menu = menubar->add_menu("&File");
     app_menu.add_action(GUI::CommonActions::make_quit_action([&](auto&) { app->quit(); }));
 
-    auto& view_menu = menubar->add_menu("View");
+    auto& view_menu = menubar->add_menu("&View");
 
-    auto update_window_title = [&](auto title, bool is_checked) {
-        StringBuilder name;
-        name.append("Profiler");
-        if (is_checked) {
-            name.append(" - ");
-            name.append(title);
-        }
-        window->set_title(name.to_string());
-    };
-
-    auto invert_action = GUI::Action::create_checkable("Invert tree", { Mod_Ctrl, Key_I }, [&](auto& action) {
+    auto invert_action = GUI::Action::create_checkable("&Invert Tree", { Mod_Ctrl, Key_I }, [&](auto& action) {
         profile->set_inverted(action.is_checked());
-        update_window_title("Invert tree", action.is_checked());
     });
     invert_action->set_checked(false);
     view_menu.add_action(invert_action);
 
-    auto top_functions_action = GUI::Action::create_checkable("Top functions", { Mod_Ctrl, Key_T }, [&](auto& action) {
+    auto top_functions_action = GUI::Action::create_checkable("&Top Functions", { Mod_Ctrl, Key_T }, [&](auto& action) {
         profile->set_show_top_functions(action.is_checked());
-        update_window_title("Top functions", action.is_checked());
     });
     top_functions_action->set_checked(false);
     view_menu.add_action(top_functions_action);
 
-    auto percent_action = GUI::Action::create_checkable("Show percentages", { Mod_Ctrl, Key_P }, [&](auto& action) {
+    auto percent_action = GUI::Action::create_checkable("Show &Percentages", { Mod_Ctrl, Key_P }, [&](auto& action) {
         profile->set_show_percentages(action.is_checked());
         tree_view.update();
         disassembly_view.update();
-        update_window_title("Show percentages", action.is_checked());
     });
     percent_action->set_checked(false);
     view_menu.add_action(percent_action);
 
-    auto& help_menu = menubar->add_menu("Help");
+    auto& help_menu = menubar->add_menu("&Help");
     help_menu.add_action(GUI::CommonActions::make_help_action([](auto&) {
         Desktop::Launcher::open(URL::create_with_file_protocol("/usr/share/man/man1/Profiler.md"), "/bin/Help");
     }));
     help_menu.add_action(GUI::CommonActions::make_about_action("Profiler", app_icon, window));
 
-    app->set_menubar(move(menubar));
-
+    window->set_menubar(move(menubar));
     window->show();
     return app->exec();
 }

@@ -25,7 +25,6 @@
  */
 
 #include "AST.h"
-#include "AK/LogStream.h"
 
 namespace Cpp {
 
@@ -44,7 +43,7 @@ void ASTNode::dump(size_t indent) const
 void TranslationUnit::dump(size_t indent) const
 {
     ASTNode::dump(indent);
-    for (const auto& child : m_children) {
+    for (const auto& child : m_declarations) {
         child.dump(indent + 1);
     }
 }
@@ -52,6 +51,13 @@ void TranslationUnit::dump(size_t indent) const
 void FunctionDeclaration::dump(size_t indent) const
 {
     ASTNode::dump(indent);
+
+    String qualifiers_string;
+    if (!m_qualifiers.is_empty()) {
+        print_indent(indent + 1);
+        outln("[{}]", String::join(" ", m_qualifiers));
+    }
+
     m_return_type->dump(indent + 1);
     if (!m_name.is_null()) {
         print_indent(indent + 1);
@@ -82,17 +88,40 @@ void Type::dump(size_t indent) const
 {
     ASTNode::dump(indent);
     print_indent(indent + 1);
-    outln("{}", m_name);
+    outln("{}", to_string());
+}
+
+String Type::to_string() const
+{
+    String qualifiers_string;
+    if (!m_qualifiers.is_empty())
+        qualifiers_string = String::formatted("[{}] ", String::join(" ", m_qualifiers));
+    return String::formatted("{}{}", qualifiers_string, m_name.is_null() ? "" : m_name->full_name());
+}
+
+String Pointer::to_string() const
+{
+    if (!m_pointee)
+        return {};
+    StringBuilder builder;
+    builder.append(m_pointee->to_string());
+    builder.append("*");
+    return builder.to_string();
 }
 
 void Parameter::dump(size_t indent) const
 {
     ASTNode::dump(indent);
+    if (m_is_ellipsis) {
+        print_indent(indent + 1);
+        outln("...");
+    }
     if (!m_name.is_null()) {
         print_indent(indent);
         outln("{}", m_name);
     }
-    m_type->dump(indent + 1);
+    if (m_type)
+        m_type->dump(indent + 1);
 }
 
 void FunctionDefinition::dump(size_t indent) const
@@ -119,7 +148,8 @@ NonnullRefPtrVector<Declaration> FunctionDefinition::declarations() const
 void VariableDeclaration::dump(size_t indent) const
 {
     ASTNode::dump(indent);
-    m_type->dump(indent + 1);
+    if (m_type)
+        m_type->dump(indent + 1);
     print_indent(indent + 1);
     outln("{}", m_name);
     if (m_initial_value)
@@ -188,6 +218,21 @@ void BinaryExpression::dump(size_t indent) const
     case BinaryOp::RightShift:
         op_string = ">>";
         break;
+    case BinaryOp::EqualsEquals:
+        op_string = "==";
+        break;
+    case BinaryOp::NotEqual:
+        op_string = "!=";
+        break;
+    case BinaryOp::LogicalOr:
+        op_string = "||";
+        break;
+    case BinaryOp::LogicalAnd:
+        op_string = "&&";
+        break;
+    case BinaryOp::Arrow:
+        op_string = "->";
+        break;
     }
 
     m_lhs->dump(indent + 1);
@@ -224,8 +269,7 @@ void AssignmentExpression::dump(size_t indent) const
 void FunctionCall::dump(size_t indent) const
 {
     ASTNode::dump(indent);
-    print_indent(indent);
-    outln("{}", m_name);
+    m_callee->dump(indent + 1);
     for (const auto& arg : m_arguments) {
         arg.dump(indent + 1);
     }
@@ -241,7 +285,8 @@ void StringLiteral::dump(size_t indent) const
 void ReturnStatement::dump(size_t indent) const
 {
     ASTNode::dump(indent);
-    m_value->dump(indent + 1);
+    if (m_value)
+        m_value->dump(indent + 1);
 }
 
 void EnumDeclaration::dump(size_t indent) const
@@ -296,6 +341,9 @@ void UnaryExpression::dump(size_t indent) const
         break;
     case UnaryOp::PlusPlus:
         op_string = "++";
+        break;
+    case UnaryOp::Address:
+        op_string = "&";
         break;
     default:
         op_string = "<invalid>";
@@ -363,8 +411,11 @@ NonnullRefPtrVector<Declaration> Statement::declarations() const
 
 NonnullRefPtrVector<Declaration> ForStatement::declarations() const
 {
-    auto declarations = m_init->declarations();
-    declarations.append(m_body->declarations());
+    NonnullRefPtrVector<Declaration> declarations;
+    if (m_init)
+        declarations.append(m_init->declarations());
+    if (m_body)
+        declarations.append(m_body->declarations());
     return declarations;
 }
 
@@ -400,9 +451,99 @@ void IfStatement::dump(size_t indent) const
 NonnullRefPtrVector<Declaration> IfStatement::declarations() const
 {
     NonnullRefPtrVector<Declaration> declarations;
-    declarations.append(m_predicate->declarations());
-    declarations.append(m_then->declarations());
-    declarations.append(m_else->declarations());
+    if (m_predicate)
+        declarations.append(m_predicate->declarations());
+    if (m_then)
+        declarations.append(m_then->declarations());
+    if (m_else)
+        declarations.append(m_else->declarations());
     return declarations;
 }
+
+void NamespaceDeclaration::dump(size_t indent) const
+{
+    ASTNode::dump(indent);
+    print_indent(indent + 1);
+    outln("{}", m_name);
+    for (auto& decl : m_declarations)
+        decl.dump(indent + 1);
+}
+
+void NullPointerLiteral::dump(size_t indent) const
+{
+    ASTNode::dump(indent);
+}
+
+void Name::dump(size_t indent) const
+{
+    ASTNode::dump(indent);
+    print_indent(indent);
+    outln("{}", full_name());
+}
+
+String Name::full_name() const
+{
+    StringBuilder builder;
+    if (!m_scope.is_empty()) {
+        for (auto& scope : m_scope) {
+            builder.appendff("{}::", scope.m_name);
+        }
+    }
+    return String::formatted("{}{}", builder.to_string(), m_name.is_null() ? "" : m_name->m_name);
+}
+
+String TemplatizedName::full_name() const
+{
+    StringBuilder name;
+    name.append(Name::full_name());
+    name.append('<');
+    for (auto& type : m_template_arguments) {
+        name.append(type.to_string());
+    }
+    name.append('>');
+    return name.to_string();
+}
+
+void CppCastExpression::dump(size_t indent) const
+{
+    ASTNode::dump(indent);
+
+    print_indent(indent);
+    outln("{}", m_cast_type);
+
+    print_indent(indent + 1);
+    outln("<");
+    if (m_type)
+        m_type->dump(indent + 1);
+    print_indent(indent + 1);
+    outln(">");
+
+    if (m_expression)
+        m_expression->dump(indent + 1);
+}
+
+void SizeofExpression::dump(size_t indent) const
+{
+    ASTNode::dump(indent);
+    if (m_type)
+        m_type->dump(indent + 1);
+}
+
+void BracedInitList::dump(size_t indent) const
+{
+    ASTNode::dump(indent);
+    for (auto& exp : m_expressions) {
+        exp.dump(indent + 1);
+    }
+}
+
+void CStyleCastExpression::dump(size_t indent) const
+{
+    ASTNode::dump(indent);
+    if (m_type)
+        m_type->dump(indent + 1);
+    if (m_expression)
+        m_expression->dump(indent + 1);
+}
+
 }

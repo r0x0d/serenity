@@ -24,6 +24,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 #include "TreeMapWidget.h"
+#include <AK/LexicalPath.h>
 #include <AK/Queue.h>
 #include <AK/QuickSort.h>
 #include <AK/RefCounted.h>
@@ -42,6 +43,7 @@
 #include <LibGUI/MessageBox.h>
 #include <LibGUI/StatusBar.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 static const char* APP_NAME = "Space Analyzer";
 
@@ -289,7 +291,7 @@ int main(int argc, char* argv[])
 
     // Configure the menubar.
     auto menubar = GUI::MenuBar::construct();
-    auto& app_menu = menubar->add_menu(APP_NAME);
+    auto& app_menu = menubar->add_menu("File");
     app_menu.add_action(GUI::Action::create("Analyze", [&](auto&) {
         analyze(tree, treemapwidget, statusbar);
     }));
@@ -298,14 +300,15 @@ int main(int argc, char* argv[])
     }));
     auto& help_menu = menubar->add_menu("Help");
     help_menu.add_action(GUI::CommonActions::make_about_action(APP_NAME, app_icon, window));
-    app->set_menubar(move(menubar));
+    window->set_menubar(move(menubar));
 
     // Configure the nodes context menu.
     auto open_folder_action = GUI::Action::create("Open Folder", { Mod_Ctrl, Key_O }, Gfx::Bitmap::load_from_file("/res/icons/16x16/open.png"), [&](auto&) {
         Desktop::Launcher::open(URL::create_with_file_protocol(get_absolute_path_to_selected_node(treemapwidget)));
     });
     auto open_containing_folder_action = GUI::Action::create("Open Containing Folder", { Mod_Ctrl, Key_O }, Gfx::Bitmap::load_from_file("/res/icons/16x16/open.png"), [&](auto&) {
-        Desktop::Launcher::open(URL::create_with_file_protocol(get_absolute_path_to_selected_node(treemapwidget, false)));
+        LexicalPath path { get_absolute_path_to_selected_node(treemapwidget) };
+        Desktop::Launcher::open(URL::create_with_file_protocol(path.dirname(), path.basename()));
     });
     auto copy_path_action = GUI::Action::create("Copy Path to Clipboard", { Mod_Ctrl, Key_C }, Gfx::Bitmap::load_from_file("/res/icons/16x16/edit-copy.png"), [&](auto&) {
         GUI::Clipboard::the().set_plain_text(get_absolute_path_to_selected_node(treemapwidget));
