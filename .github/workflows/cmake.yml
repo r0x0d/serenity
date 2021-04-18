@@ -182,7 +182,14 @@ jobs:
     # === OS SETUP ===
     #
     - name: Install Ubuntu dependencies
-      run: sudo apt-get install ninja-build
+      run: |
+        wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
+        sudo add-apt-repository "deb http://apt.llvm.org/focal/ llvm-toolchain-focal-12 main"
+        sudo apt-get purge -y clang-10
+        sudo apt-get update
+        sudo apt-get install clang-12 ninja-build
+        sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-12 60
+        sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-12 60
       if: ${{ runner.os == 'Linux' }}
     - name: Install macOS dependencies
       run: brew install ninja
@@ -253,31 +260,3 @@ jobs:
         ${{ toJSON(github.event) }}
         ]
         EOF
-
-  notify_discord:
-    needs: [build_and_test_serenity, build_and_test_lagom]
-    runs-on: ubuntu-20.04
-    if: always() && github.repository == 'SerenityOS/serenity' && (github.event_name == 'pull_request_target' || (github.event_name == 'push' && github.ref == 'refs/heads/master'))
-
-    steps:
-    # Sets environment variable env.WORKFLOW_CONCLUSION to one of [neutral, success, skipped, cancelled, timed_out, action_required, failure]
-    # depending on result of all needs jobs
-    - uses: technote-space/workflow-conclusion-action@v2
-
-    # === NOTIFICATIONS ===
-
-    - name: Discord action notification
-      env:
-        DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
-      uses: Ilshidur/action-discord@0.3.0
-      if: ${{ (github.event['pull_request'] && github.event['action'] == 'opened' && !(github.event['pull_request'] == 'draft')) || github.event['commits'] }}
-
-    - name: Discord build result
-      env:
-        DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
-        DISCORD_USERNAME: GitHub # we have to set these manually for non-default messages
-        DISCORD_AVATAR: https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png
-      uses: Ilshidur/action-discord@0.3.0
-      if: ${{ (github.event['pull_request'] && github.event['action'] == 'opened' && !(github.event['pull_request'] == 'draft')) || github.event['commits'] }}
-      with:
-        args: "The build ${{ env.WORKFLOW_CONCLUSION == 'success' && 'passed :white_check_mark:' || 'failed :x:' }}"

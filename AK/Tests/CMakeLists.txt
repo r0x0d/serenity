@@ -28,6 +28,7 @@ set(AK_TEST_SOURCES
     TestHashTable.cpp
     TestIPv4Address.cpp
     TestIndexSequence.cpp
+    TestIntrusiveRedBlackTree.cpp
     TestJSON.cpp
     TestLexicalPath.cpp
     TestMACAddress.cpp
@@ -39,6 +40,7 @@ set(AK_TEST_SOURCES
     TestOptional.cpp
     TestQueue.cpp
     TestQuickSort.cpp
+    TestRedBlackTree.cpp
     TestRefPtr.cpp
     TestSinglyLinkedList.cpp
     TestSourceGenerator.cpp

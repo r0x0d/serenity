@@ -32,8 +32,8 @@
 #include <WindowServer/ClientConnection.h>
 #include <WindowServer/Compositor.h>
 #include <WindowServer/Menu.h>
-#include <WindowServer/MenuBar.h>
 #include <WindowServer/MenuItem.h>
+#include <WindowServer/Menubar.h>
 #include <WindowServer/Screen.h>
 #include <WindowServer/Window.h>
 #include <WindowServer/WindowClientEndpoint.h>
@@ -104,7 +104,7 @@ void ClientConnection::notify_about_new_screen_rect(const Gfx::IntRect& rect)
 OwnPtr<Messages::WindowServer::CreateMenubarResponse> ClientConnection::handle(const Messages::WindowServer::CreateMenubar&)
 {
     int menubar_id = m_next_menubar_id++;
-    auto menubar = MenuBar::create(*this, menubar_id);
+    auto menubar = Menubar::create(*this, menubar_id);
     m_menubars.set(menubar_id, move(menubar));
     return make<Messages::WindowServer::CreateMenubarResponse>(menubar_id);
 }
@@ -155,7 +155,7 @@ OwnPtr<Messages::WindowServer::SetWindowMenubarResponse> ClientConnection::handl
         }
         window = it->value;
     }
-    RefPtr<MenuBar> menubar;
+    RefPtr<Menubar> menubar;
     if (message.menubar_id() != -1) {
         auto it = m_menubars.find(message.menubar_id());
         if (it == m_menubars.end()) {
@@ -302,7 +302,7 @@ OwnPtr<Messages::WindowServer::SetFramelessResponse> ClientConnection::handle(co
         return {};
     }
     it->value->set_frameless(message.frameless());
-    WindowManager::the().tell_wm_listeners_window_state_changed(*it->value);
+    WindowManager::the().tell_wms_window_state_changed(*it->value);
     return make<Messages::WindowServer::SetFramelessResponse>();
 }
 
@@ -393,7 +393,7 @@ OwnPtr<Messages::WindowServer::SetWindowIconBitmapResponse> ClientConnection::ha
     }
 
     window.frame().invalidate_title_bar();
-    WindowManager::the().tell_wm_listeners_window_icon_changed(window);
+    WindowManager::the().tell_wms_window_icon_changed(window);
     return make<Messages::WindowServer::SetWindowIconBitmapResponse>();
 }
 
@@ -616,7 +616,7 @@ void ClientConnection::handle(const Messages::WindowServer::DidFinishPainting& m
     auto& window = *(*it).value;
     for (auto& rect : message.rects())
         window.invalidate(rect);
-    if (window.has_alpha_channel() && window.alpha_hit_threshold() > 0.0)
+    if (window.has_alpha_channel() && window.alpha_hit_threshold() > 0.0f)
         WindowManager::the().reevaluate_hovered_window(&window);
 
     WindowSwitcher::the().refresh_if_needed();
@@ -722,49 +722,6 @@ OwnPtr<Messages::WindowServer::SetWindowAlphaHitThresholdResponse> ClientConnect
     return make<Messages::WindowServer::SetWindowAlphaHitThresholdResponse>();
 }
 
-OwnPtr<Messages::WindowServer::WM_SetAppletAreaPositionResponse> ClientConnection::handle(const Messages::WindowServer::WM_SetAppletAreaPosition& message)
-{
-    AppletManager::the().set_position(message.position());
-    return make<Messages::WindowServer::WM_SetAppletAreaPositionResponse>();
-}
-
-void ClientConnection::handle(const Messages::WindowServer::WM_SetActiveWindow& message)
-{
-    auto* client = ClientConnection::from_client_id(message.client_id());
-    if (!client) {
-        did_misbehave("WM_SetActiveWindow: Bad client ID");
-        return;
-    }
-    auto it = client->m_windows.find(message.window_id());
-    if (it == client->m_windows.end()) {
-        did_misbehave("WM_SetActiveWindow: Bad window ID");
-        return;
-    }
-    auto& window = *(*it).value;
-    WindowManager::the().minimize_windows(window, false);
-    WindowManager::the().move_to_front_and_make_active(window);
-}
-
-void ClientConnection::handle(const Messages::WindowServer::WM_PopupWindowMenu& message)
-{
-    auto* client = ClientConnection::from_client_id(message.client_id());
-    if (!client) {
-        did_misbehave("WM_PopupWindowMenu: Bad client ID");
-        return;
-    }
-    auto it = client->m_windows.find(message.window_id());
-    if (it == client->m_windows.end()) {
-        did_misbehave("WM_PopupWindowMenu: Bad window ID");
-        return;
-    }
-    auto& window = *(*it).value;
-    if (auto* modal_window = window.blocking_modal_window()) {
-        modal_window->popup_window_menu(message.screen_position(), WindowMenuDefaultAction::BasedOnWindowState);
-    } else {
-        window.popup_window_menu(message.screen_position(), WindowMenuDefaultAction::BasedOnWindowState);
-    }
-}
-
 void ClientConnection::handle(const Messages::WindowServer::StartWindowResize& request)
 {
     auto it = m_windows.find(request.window_id());
@@ -778,61 +735,9 @@ void ClientConnection::handle(const Messages::WindowServer::StartWindowResize& r
     WindowManager::the().start_window_resize(window, Screen::the().cursor_location(), MouseButton::Left);
 }
 
-void ClientConnection::handle(const Messages::WindowServer::WM_StartWindowResize& request)
-{
-    auto* client = ClientConnection::from_client_id(request.client_id());
-    if (!client) {
-        did_misbehave("WM_StartWindowResize: Bad client ID");
-        return;
-    }
-    auto it = client->m_windows.find(request.window_id());
-    if (it == client->m_windows.end()) {
-        did_misbehave("WM_StartWindowResize: Bad window ID");
-        return;
-    }
-    auto& window = *(*it).value;
-    // FIXME: We are cheating a bit here by using the current cursor location and hard-coding the left button.
-    //        Maybe the client should be allowed to specify what initiated this request?
-    WindowManager::the().start_window_resize(window, Screen::the().cursor_location(), MouseButton::Left);
-}
-
-void ClientConnection::handle(const Messages::WindowServer::WM_SetWindowMinimized& message)
-{
-    auto* client = ClientConnection::from_client_id(message.client_id());
-    if (!client) {
-        did_misbehave("WM_SetWindowMinimized: Bad client ID");
-        return;
-    }
-    auto it = client->m_windows.find(message.window_id());
-    if (it == client->m_windows.end()) {
-        did_misbehave("WM_SetWindowMinimized: Bad window ID");
-        return;
-    }
-    auto& window = *(*it).value;
-    WindowManager::the().minimize_windows(window, message.minimized());
-}
-
 OwnPtr<Messages::WindowServer::GreetResponse> ClientConnection::handle(const Messages::WindowServer::Greet&)
 {
     return make<Messages::WindowServer::GreetResponse>(Screen::the().rect(), Gfx::current_system_theme_buffer());
-}
-
-void ClientConnection::handle(const Messages::WindowServer::WM_SetWindowTaskbarRect& message)
-{
-    // Because the Taskbar (which should be the only user of this API) does not own the
-    // window or the client id, there is a possibility that it may send this message for
-    // a window or client that may have been destroyed already. This is not an error,
-    // and we should not call did_misbehave() for either.
-    auto* client = ClientConnection::from_client_id(message.client_id());
-    if (!client)
-        return;
-
-    auto it = client->m_windows.find(message.window_id());
-    if (it == client->m_windows.end())
-        return;
-
-    auto& window = *(*it).value;
-    window.set_taskbar_rect(message.rect());
 }
 
 OwnPtr<Messages::WindowServer::StartDragResponse> ClientConnection::handle(const Messages::WindowServer::StartDrag& message)
@@ -940,11 +845,12 @@ OwnPtr<Messages::WindowServer::GetGlobalCursorPositionResponse> ClientConnection
 
 OwnPtr<Messages::WindowServer::SetMouseAccelerationResponse> ClientConnection::handle(const Messages::WindowServer::SetMouseAcceleration& message)
 {
-    if (message.factor() < mouse_accel_min || message.factor() > mouse_accel_max) {
+    double factor = message.factor();
+    if (factor < mouse_accel_min || factor > mouse_accel_max) {
         did_misbehave("SetMouseAcceleration with bad acceleration factor");
         return {};
     }
-    WindowManager::the().set_acceleration_factor(message.factor());
+    WindowManager::the().set_acceleration_factor(factor);
     return make<Messages::WindowServer::SetMouseAccelerationResponse>();
 }
 

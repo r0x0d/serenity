@@ -62,6 +62,7 @@ Configuration Configuration::from_config(const StringView& libname)
     // Read behaviour options.
     auto refresh = config_file->read_entry("behaviour", "refresh", "lazy");
     auto operation = config_file->read_entry("behaviour", "operation_mode");
+    auto default_text_editor = config_file->read_entry("behaviour", "default_text_editor");
 
     if (refresh.equals_ignoring_case("lazy"))
         configuration.set(Configuration::Lazy);
@@ -76,6 +77,11 @@ Configuration Configuration::from_config(const StringView& libname)
         configuration.set(Configuration::OperationMode::NonInteractive);
     else
         configuration.set(Configuration::OperationMode::Unset);
+
+    if (!default_text_editor.is_empty())
+        configuration.set(DefaultTextEditor { move(default_text_editor) });
+    else
+        configuration.set(DefaultTextEditor { "/bin/TextEditor" });
 
     // Read keybinds.
 
@@ -168,6 +174,9 @@ void Editor::set_default_keybinds()
     register_key_input_callback(ctrl('T'), EDITOR_INTERNAL_FUNCTION(transpose_characters));
     register_key_input_callback('\n', EDITOR_INTERNAL_FUNCTION(finish));
 
+    // ^X^E: Edit in external editor
+    register_key_input_callback(Vector<Key> { ctrl('X'), ctrl('E') }, EDITOR_INTERNAL_FUNCTION(edit_in_external_editor));
+
     // ^[.: alt-.: insert last arg of previous command (similar to `!$`)
     register_key_input_callback(Key { '.', Key::Alt }, EDITOR_INTERNAL_FUNCTION(insert_last_words));
     register_key_input_callback(Key { 'b', Key::Alt }, EDITOR_INTERNAL_FUNCTION(cursor_left_word));
@@ -199,6 +208,7 @@ Editor::~Editor()
 void Editor::get_terminal_size()
 {
     struct winsize ws;
+
     if (ioctl(STDERR_FILENO, TIOCGWINSZ, &ws) < 0) {
         m_num_columns = 80;
         m_num_lines = 25;
@@ -493,8 +503,8 @@ void Editor::initialize()
     struct termios termios;
     tcgetattr(0, &termios);
     m_default_termios = termios; // grab a copy to restore
-    if (m_was_resized)
-        get_terminal_size();
+
+    get_terminal_size();
 
     if (m_configuration.operation_mode == Configuration::Unset) {
         auto istty = isatty(STDIN_FILENO) && isatty(STDERR_FILENO);
@@ -619,6 +629,13 @@ auto Editor::get_line(const String& prompt) -> Result<String, Editor::Error>
 
         return Error::ReadFailure;
     }
+
+    auto old_cols = m_num_columns;
+    auto old_lines = m_num_lines;
+    get_terminal_size();
+
+    if (m_num_columns != old_cols || m_num_lines != old_lines)
+        m_refresh_needed = true;
 
     set_prompt(prompt);
     reset();

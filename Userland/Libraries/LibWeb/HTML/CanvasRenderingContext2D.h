@@ -33,6 +33,7 @@
 #include <LibGfx/Painter.h>
 #include <LibGfx/Path.h>
 #include <LibWeb/Bindings/Wrappable.h>
+#include <LibWeb/DOM/ExceptionOr.h>
 
 namespace Web::HTML {
 
@@ -73,7 +74,13 @@ public:
     void move_to(float x, float y);
     void line_to(float x, float y);
     void quadratic_curve_to(float cx, float cy, float x, float y);
+
+    DOM::ExceptionOr<void> arc(float x, float y, float radius, float start_angle, float end_angle, bool counter_clockwise);
+    DOM::ExceptionOr<void> ellipse(float x, float y, float radius_x, float radius_y, float rotation, float start_angle, float end_angle, bool counter_clockwise);
+    void rect(float x, float y, float width, float height);
     void stroke();
+
+    void fill_text(const String&, float x, float y, Optional<double> max_width);
 
     // FIXME: We should only have one fill(), really. Fix the wrapper generator!
     void fill(Gfx::Painter::WindingRule);

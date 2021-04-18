@@ -99,15 +99,23 @@ static void map_library(const String& name, int fd)
 static void map_library(const String& name)
 {
     // TODO: Do we want to also look for libs in other paths too?
-    String path = String::formatted("/usr/lib/{}", name);
-    int fd = open(path.characters(), O_RDONLY);
-    VERIFY(fd >= 0);
-    map_library(name, fd);
+    const char* search_paths[] = { "/usr/lib/{}", "/usr/local/lib/{}" };
+    for (auto& search_path : search_paths) {
+        auto path = String::formatted(search_path, name);
+        int fd = open(path.characters(), O_RDONLY);
+        if (fd < 0)
+            continue;
+        map_library(name, fd);
+        return;
+    }
+
+    fprintf(stderr, "Could not find required shared library: %s\n", name.characters());
+    VERIFY_NOT_REACHED();
 }
 
-static String get_library_name(const StringView& path)
+static String get_library_name(String path)
 {
-    return LexicalPath(path).basename();
+    return LexicalPath(move(path)).basename();
 }
 
 static Vector<String> get_dependencies(const String& name)
@@ -276,7 +284,7 @@ void ELF::DynamicLinker::linker_main(String&& main_program_name, int main_progra
         auto main_executable_loader = load_main_executable(main_program_name);
         auto entry_point = main_executable_loader->image().entry();
         if (main_executable_loader->is_dynamic())
-            entry_point = entry_point.offset(main_executable_loader->text_segment_load_address().get());
+            entry_point = entry_point.offset(main_executable_loader->base_address().get());
         return (EntryPointFunction)(entry_point.as_ptr());
     }();
 

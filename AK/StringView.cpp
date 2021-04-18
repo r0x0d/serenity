@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2018-2021, Andreas Kling <kling@serenityos.org>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -31,20 +31,17 @@
 #include <AK/Memory.h>
 #include <AK/String.h>
 #include <AK/StringView.h>
-#include <AK/Vector.h>
 
 namespace AK {
 
 StringView::StringView(const String& string)
-    : m_impl(string.impl())
-    , m_characters(string.characters())
+    : m_characters(string.characters())
     , m_length(string.length())
 {
 }
 
 StringView::StringView(const FlyString& string)
-    : m_impl(string.impl())
-    , m_characters(string.characters())
+    : m_characters(string.characters())
     , m_length(string.length())
 {
 }
@@ -252,8 +249,6 @@ unsigned StringView::hash() const
 {
     if (is_empty())
         return 0;
-    if (m_impl)
-        return m_impl->hash();
     return string_hash(characters_without_null_termination(), length());
 }
 
@@ -295,20 +290,20 @@ Optional<size_t> StringView::find_first_of(const StringView& view) const
 
 Optional<size_t> StringView::find_last_of(char c) const
 {
-    for (size_t pos = m_length; --pos > 0;) {
-        if (m_characters[pos] == c)
-            return pos;
+    for (size_t pos = m_length; pos != 0; --pos) {
+        if (m_characters[pos - 1] == c)
+            return pos - 1;
     }
     return {};
 }
 
 Optional<size_t> StringView::find_last_of(const StringView& view) const
 {
-    for (size_t pos = m_length - 1; --pos > 0;) {
-        char c = m_characters[pos];
+    for (size_t pos = m_length; pos != 0; --pos) {
+        char c = m_characters[pos - 1];
         for (char view_char : view) {
             if (c == view_char)
-                return pos;
+                return pos - 1;
         }
     }
     return {};

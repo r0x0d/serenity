@@ -64,11 +64,14 @@ static bool should_make_executable_exception_for_dynamic_loader(bool make_readab
     if (!region.vmobject().is_private_inode())
         return false;
 
-    Elf32_Ehdr header;
-    if (!copy_from_user(&header, region.vaddr().as_ptr(), sizeof(header)))
-        return false;
+    auto& inode_vm = static_cast<const InodeVMObject&>(region.vmobject());
+    auto& inode = inode_vm.inode();
 
-    auto& inode = static_cast<const InodeVMObject&>(region.vmobject());
+    Elf32_Ehdr header;
+    auto buffer = UserOrKernelBuffer::for_kernel_buffer((u8*)&header);
+    auto nread = inode.read_bytes(0, sizeof(header), buffer, nullptr);
+    if (nread != sizeof(header))
+        return false;
 
     // The file is a valid ELF binary
     if (!ELF::validate_elf_header(header, inode.size()))
@@ -341,19 +344,23 @@ KResultOr<int> Process::sys$mprotect(Userspace<void*> addr, size_t size, int pro
             return EACCES;
         }
 
+        // Remove the old region from our regions tree, since were going to add another region
+        // with the exact same start address, but dont deallocate it yet
+        auto region = space().take_region(*old_region);
+        VERIFY(region);
+
+        // Unmap the old region here, specifying that we *don't* want the VM deallocated.
+        region->unmap(Region::ShouldDeallocateVirtualMemoryRange::No);
+
         // This vector is the region(s) adjacent to our range.
         // We need to allocate a new region for the range we wanted to change permission bits on.
-        auto adjacent_regions = space().split_region_around_range(*old_region, range_to_mprotect);
+        auto adjacent_regions = space().split_region_around_range(*region, range_to_mprotect);
 
-        size_t new_range_offset_in_vmobject = old_region->offset_in_vmobject() + (range_to_mprotect.base().get() - old_region->range().base().get());
-        auto& new_region = space().allocate_split_region(*old_region, range_to_mprotect, new_range_offset_in_vmobject);
+        size_t new_range_offset_in_vmobject = region->offset_in_vmobject() + (range_to_mprotect.base().get() - region->range().base().get());
+        auto& new_region = space().allocate_split_region(*region, range_to_mprotect, new_range_offset_in_vmobject);
         new_region.set_readable(prot & PROT_READ);
         new_region.set_writable(prot & PROT_WRITE);
         new_region.set_executable(prot & PROT_EXEC);
-
-        // Unmap the old region here, specifying that we *don't* want the VM deallocated.
-        old_region->unmap(Region::ShouldDeallocateVirtualMemoryRange::No);
-        space().deallocate_region(*old_region);
 
         // Map the new regions using our page directory (they were just allocated and don't have one).
         for (auto* adjacent_region : adjacent_regions) {
@@ -475,11 +482,15 @@ KResultOr<int> Process::sys$munmap(Userspace<void*> addr, size_t size)
         if (!old_region->is_mmap())
             return EPERM;
 
-        auto new_regions = space().split_region_around_range(*old_region, range_to_unmap);
+        // Remove the old region from our regions tree, since were going to add another region
+        // with the exact same start address, but dont deallocate it yet
+        auto region = space().take_region(*old_region);
+        VERIFY(region);
 
         // We manually unmap the old region here, specifying that we *don't* want the VM deallocated.
-        old_region->unmap(Region::ShouldDeallocateVirtualMemoryRange::No);
-        space().deallocate_region(*old_region);
+        region->unmap(Region::ShouldDeallocateVirtualMemoryRange::No);
+
+        auto new_regions = space().split_region_around_range(*region, range_to_unmap);
 
         // Instead we give back the unwanted VM manually.
         space().page_directory().range_allocator().deallocate(range_to_unmap);
@@ -512,13 +523,16 @@ KResultOr<int> Process::sys$munmap(Userspace<void*> addr, size_t size)
             continue;
         }
 
-        // otherwise just split the regions and collect them for future mapping
-        new_regions.append(space().split_region_around_range(*old_region, range_to_unmap));
+        // Remove the old region from our regions tree, since were going to add another region
+        // with the exact same start address, but dont deallocate it yet
+        auto region = space().take_region(*old_region);
+        VERIFY(region);
 
         // We manually unmap the old region here, specifying that we *don't* want the VM deallocated.
-        old_region->unmap(Region::ShouldDeallocateVirtualMemoryRange::No);
-        bool res = space().deallocate_region(*old_region);
-        VERIFY(res);
+        region->unmap(Region::ShouldDeallocateVirtualMemoryRange::No);
+
+        // otherwise just split the regions and collect them for future mapping
+        new_regions.append(space().split_region_around_range(*region, range_to_unmap));
     }
     // Instead we give back the unwanted VM manually at the end.
     space().page_directory().range_allocator().deallocate(range_to_unmap);
@@ -555,15 +569,17 @@ KResultOr<FlatPtr> Process::sys$mremap(Userspace<const Syscall::SC_mremap_params
         auto range = old_region->range();
         auto old_name = old_region->name();
         auto old_prot = region_access_flags_to_prot(old_region->access());
+        auto old_offset = old_region->offset_in_vmobject();
         NonnullRefPtr inode = static_cast<SharedInodeVMObject&>(old_region->vmobject()).inode();
 
         // Unmap without deallocating the VM range since we're going to reuse it.
         old_region->unmap(Region::ShouldDeallocateVirtualMemoryRange::No);
-        space().deallocate_region(*old_region);
+        bool success = space().deallocate_region(*old_region);
+        VERIFY(success);
 
         auto new_vmobject = PrivateInodeVMObject::create_with_inode(inode);
 
-        auto new_region_or_error = space().allocate_region_with_vmobject(range, new_vmobject, 0, old_name, old_prot, false);
+        auto new_region_or_error = space().allocate_region_with_vmobject(range, new_vmobject, old_offset, old_name, old_prot, false);
         if (new_region_or_error.is_error())
             return new_region_or_error.error().error();
         auto& new_region = *new_region_or_error.value();

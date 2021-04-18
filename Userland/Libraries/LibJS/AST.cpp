@@ -147,22 +147,35 @@ CallExpression::ThisAndCallee CallExpression::compute_this_and_callee(Interprete
 
     if (is<MemberExpression>(*m_callee)) {
         auto& member_expression = static_cast<const MemberExpression&>(*m_callee);
-        bool is_super_property_lookup = is<SuperExpression>(member_expression.object());
-        auto lookup_target = is_super_property_lookup ? interpreter.current_environment()->get_super_base() : member_expression.object().execute(interpreter, global_object);
-        if (vm.exception())
-            return {};
-        if (is_super_property_lookup && lookup_target.is_nullish()) {
-            vm.throw_exception<TypeError>(global_object, ErrorType::ObjectPrototypeNullOrUndefinedOnSuperPropertyAccess, lookup_target.to_string_without_side_effects());
-            return {};
+        Value callee;
+        Object* this_value = nullptr;
+
+        if (is<SuperExpression>(member_expression.object())) {
+            auto super_base = interpreter.current_environment()->get_super_base();
+            if (super_base.is_nullish()) {
+                vm.throw_exception<TypeError>(global_object, ErrorType::ObjectPrototypeNullOrUndefinedOnSuperPropertyAccess, super_base.to_string_without_side_effects());
+                return {};
+            }
+            auto property_name = member_expression.computed_property_name(interpreter, global_object);
+            if (!property_name.is_valid())
+                return {};
+            auto reference = Reference(super_base, property_name);
+            callee = reference.get(global_object);
+            if (vm.exception())
+                return {};
+            this_value = &vm.this_value(global_object).as_object();
+        } else {
+            auto reference = member_expression.to_reference(interpreter, global_object);
+            if (vm.exception())
+                return {};
+            callee = reference.get(global_object);
+            if (vm.exception())
+                return {};
+            this_value = reference.base().to_object(global_object);
+            if (vm.exception())
+                return {};
         }
 
-        auto* this_value = is_super_property_lookup ? &vm.this_value(global_object).as_object() : lookup_target.to_object(global_object);
-        if (vm.exception())
-            return {};
-        auto property_name = member_expression.computed_property_name(interpreter, global_object);
-        if (!property_name.is_valid())
-            return {};
-        auto callee = lookup_target.to_object(global_object)->get(property_name).value_or(js_undefined());
         return { this_value, callee };
     }
     return { &global_object, m_callee->execute(interpreter, global_object) };
@@ -1734,16 +1747,10 @@ Value MemberExpression::execute(Interpreter& interpreter, GlobalObject& global_o
 {
     InterpreterNodeScope node_scope { interpreter, *this };
 
-    auto object_value = m_object->execute(interpreter, global_object);
+    auto reference = to_reference(interpreter, global_object);
     if (interpreter.exception())
         return {};
-    auto* object_result = object_value.to_object(global_object);
-    if (interpreter.exception())
-        return {};
-    auto property_name = computed_property_name(interpreter, global_object);
-    if (!property_name.is_valid())
-        return {};
-    return object_result->get(property_name).value_or(js_undefined());
+    return reference.get(global_object);
 }
 
 void MetaProperty::dump(int indent) const
@@ -1988,17 +1995,30 @@ Value TryStatement::execute(Interpreter& interpreter, GlobalObject& global_objec
         // execute() the finalizer without an exception in our way.
         auto* previous_exception = interpreter.exception();
         interpreter.vm().clear_exception();
+
+        // Remember what scope type we were unwinding to, and temporarily
+        // clear it as well (e.g. return from handler).
+        auto unwind_until = interpreter.vm().unwind_until();
         interpreter.vm().stop_unwind();
-        result = m_finalizer->execute(interpreter, global_object);
-        // If we previously had an exception and the finalizer didn't
-        // throw a new one, restore the old one.
-        // FIXME: This will print debug output in throw_exception() for
-        // a second time with m_should_log_exceptions enabled.
-        if (previous_exception && !interpreter.exception())
-            interpreter.vm().throw_exception(previous_exception);
+
+        auto finalizer_result = m_finalizer->execute(interpreter, global_object);
+        if (interpreter.vm().should_unwind()) {
+            // This was NOT a 'normal' completion (e.g. return from finalizer).
+            result = finalizer_result;
+        } else {
+            // Continue unwinding to whatever we found ourselves unwinding
+            // to when the finalizer was entered (e.g. return from handler,
+            // which is unaffected by normal completion from finalizer).
+            interpreter.vm().unwind(unwind_until);
+
+            // If we previously had an exception and the finalizer didn't
+            // throw a new one, restore the old one.
+            if (previous_exception && !interpreter.exception())
+                interpreter.vm().set_exception(*previous_exception);
+        }
     }
 
-    return result;
+    return result.value_or(js_undefined());
 }
 
 Value CatchClause::execute(Interpreter& interpreter, GlobalObject&) const

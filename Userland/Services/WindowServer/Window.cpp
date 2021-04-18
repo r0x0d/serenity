@@ -113,12 +113,6 @@ Window::Window(ClientConnection& client, WindowType window_type, int window_id, 
     , m_icon(default_window_icon())
     , m_frame(*this)
 {
-    // FIXME: This should not be hard-coded here.
-    if (m_type == WindowType::Taskbar) {
-        m_wm_event_mask = WMEventMask::WindowStateChanges | WMEventMask::WindowRemovals | WMEventMask::WindowIconChanges;
-        m_listens_to_wm_events = true;
-    }
-
     // Set default minimum size for Normal windows
     if (m_type == WindowType::Normal)
         m_minimum_size = s_default_normal_minimum_size;
@@ -493,7 +487,7 @@ void Window::handle_keydown_event(const KeyEvent& event)
         if (menu_to_open) {
             frame().open_menubar_menu(*menu_to_open);
             if (!menu_to_open->is_empty())
-                menu_to_open->set_hovered_item(0);
+                menu_to_open->set_hovered_index(0);
             return;
         }
     }
@@ -657,22 +651,22 @@ void Window::ensure_window_menu()
         m_window_menu = Menu::construct(nullptr, -1, "(Window Menu)");
         m_window_menu->set_window_menu_of(*this);
 
-        auto minimize_item = make<MenuItem>(*m_window_menu, 1, m_minimized ? "&Unminimize" : "Mi&nimize");
+        auto minimize_item = make<MenuItem>(*m_window_menu, (unsigned)WindowMenuAction::MinimizeOrUnminimize, m_minimized ? "&Unminimize" : "Mi&nimize");
         m_window_menu_minimize_item = minimize_item.ptr();
         m_window_menu->add_item(move(minimize_item));
 
-        auto maximize_item = make<MenuItem>(*m_window_menu, 2, m_maximized ? "&Restore" : "Ma&ximize");
+        auto maximize_item = make<MenuItem>(*m_window_menu, (unsigned)WindowMenuAction::MaximizeOrRestore, m_maximized ? "&Restore" : "Ma&ximize");
         m_window_menu_maximize_item = maximize_item.ptr();
         m_window_menu->add_item(move(maximize_item));
 
         m_window_menu->add_item(make<MenuItem>(*m_window_menu, MenuItem::Type::Separator));
 
-        auto menubar_visibility_item = make<MenuItem>(*m_window_menu, 4, "Menu &Bar");
+        auto menubar_visibility_item = make<MenuItem>(*m_window_menu, (unsigned)WindowMenuAction::ToggleMenubarVisibility, "Menu &Bar");
         m_window_menu_menubar_visibility_item = menubar_visibility_item.ptr();
         menubar_visibility_item->set_checkable(true);
         m_window_menu->add_item(move(menubar_visibility_item));
 
-        auto close_item = make<MenuItem>(*m_window_menu, 3, "&Close");
+        auto close_item = make<MenuItem>(*m_window_menu, (unsigned)WindowMenuAction::Close, "&Close");
         m_window_menu_close_item = close_item.ptr();
         m_window_menu_close_item->set_icon(&close_icon());
         m_window_menu_close_item->set_default(true);
@@ -682,24 +676,25 @@ void Window::ensure_window_menu()
         m_window_menu->item((int)PopupMenuItem::Maximize).set_enabled(m_resizable);
 
         m_window_menu->on_item_activation = [&](auto& item) {
-            switch (item.identifier()) {
-            case 1:
+            switch (static_cast<WindowMenuAction>(item.identifier())) {
+            case WindowMenuAction::MinimizeOrUnminimize:
                 WindowManager::the().minimize_windows(*this, !m_minimized);
                 if (!m_minimized)
                     WindowManager::the().move_to_front_and_make_active(*this);
                 break;
-            case 2:
+            case WindowMenuAction::MaximizeOrRestore:
                 WindowManager::the().maximize_windows(*this, !m_maximized);
                 WindowManager::the().move_to_front_and_make_active(*this);
                 break;
-            case 3:
+            case WindowMenuAction::Close:
                 request_close();
                 break;
-            case 4:
+            case WindowMenuAction::ToggleMenubarVisibility:
                 frame().invalidate();
                 item.set_checked(!item.is_checked());
                 m_should_show_menubar = item.is_checked();
                 frame().invalidate();
+                recalculate_rect();
                 Compositor::the().invalidate_occlusions();
                 Compositor::the().invalidate_screen();
                 break;
@@ -977,7 +972,7 @@ bool Window::hit_test(const Gfx::IntPoint& point, bool include_frame) const
     return color.alpha() >= threshold;
 }
 
-void Window::set_menubar(MenuBar* menubar)
+void Window::set_menubar(Menubar* menubar)
 {
     if (m_menubar == menubar)
         return;
@@ -990,7 +985,7 @@ void Window::set_menubar(MenuBar* menubar)
         Gfx::IntPoint next_menu_location { 0, 0 };
         auto menubar_rect = Gfx::WindowTheme::current().menubar_rect(Gfx::WindowTheme::WindowType::Normal, rect(), wm.palette(), 1);
         m_menubar->for_each_menu([&](Menu& menu) {
-            int text_width = wm.font().width(menu.name());
+            int text_width = wm.font().width(Gfx::parse_ampersand_string(menu.name()));
             menu.set_rect_in_window_menubar({ next_menu_location.x(), 0, text_width + menubar_menu_margin, menubar_rect.height() });
             next_menu_location.move_by(menu.rect_in_window_menubar().width(), 0);
             return IterationDecision::Continue;

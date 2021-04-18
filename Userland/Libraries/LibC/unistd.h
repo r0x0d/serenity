@@ -106,7 +106,7 @@ int chdir(const char* path);
 int fchdir(int fd);
 char* getcwd(char* buffer, size_t size);
 char* getwd(char* buffer);
-int sleep(unsigned seconds);
+unsigned int sleep(unsigned int seconds);
 int usleep(useconds_t);
 int gethostname(char*, size_t);
 int sethostname(const char*, ssize_t);
@@ -187,6 +187,7 @@ enum {
 #define _SC_PAGESIZE _SC_PAGESIZE
 #define _SC_TTY_NAME_MAX _SC_TTY_NAME_MAX
 #define _SC_GETPW_R_SIZE_MAX _SC_GETPW_R_SIZE_MAX
+#define _SC_CLK_TCK _SC_CLK_TCK
 
 long sysconf(int name);
 

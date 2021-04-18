@@ -67,7 +67,7 @@ class Object
     AK_MAKE_NONCOPYABLE(Object);
     AK_MAKE_NONMOVABLE(Object);
 
-    IntrusiveListNode m_all_objects_list_node;
+    IntrusiveListNode<Object> m_all_objects_list_node;
 
 public:
     virtual ~Object();
@@ -75,7 +75,7 @@ public:
     virtual const char* class_name() const = 0;
 
     const String& name() const { return m_name; }
-    void set_name(const StringView& name) { m_name = name; }
+    void set_name(String name) { m_name = move(name); }
 
     NonnullRefPtrVector<Object>& children() { return m_children; }
     const NonnullRefPtrVector<Object>& children() const { return m_children; }
@@ -120,11 +120,11 @@ public:
 
     void save_to(JsonObject&);
 
-    bool set_property(const StringView& name, const JsonValue& value);
-    JsonValue property(const StringView& name) const;
+    bool set_property(String const& name, const JsonValue& value);
+    JsonValue property(String const& name) const;
     const HashMap<String, NonnullOwnPtr<Property>>& properties() const { return m_properties; }
 
-    static IntrusiveList<Object, &Object::m_all_objects_list_node>& all_objects();
+    static IntrusiveList<Object, RawPtr<Object>, &Object::m_all_objects_list_node>& all_objects();
 
     void dispatch_event(Core::Event&, Object* stay_within = nullptr);
 
@@ -190,8 +190,8 @@ template<typename T, typename Callback>
 inline void Object::for_each_child_of_type(Callback callback) requires IsBaseOf<Object, T>
 {
     for_each_child([&](auto& child) {
-        if (auto* child_as_t = dynamic_cast<T*>(&child); child_as_t)
-            return callback(*child_as_t);
+        if (is<T>(child))
+            return callback(static_cast<T&>(child));
         return IterationDecision::Continue;
     });
 }
@@ -212,11 +212,11 @@ T* Object::find_child_of_type_named(const String& name) requires IsBaseOf<Object
 }
 
 template<typename T>
-T* Object::find_descendant_of_type_named(const String& name) requires IsBaseOf<Object, T>
+T* Object::find_descendant_of_type_named(String const& name) requires IsBaseOf<Object, T>
 {
-    auto* this_as_t = dynamic_cast<T*>(this);
-    if (this_as_t && this->name() == name)
-        return this_as_t;
+    if (is<T>(*this) && this->name() == name) {
+        return static_cast<T*>(this);
+    }
     T* found_child = nullptr;
     for_each_child([&](auto& child) {
         found_child = child.template find_descendant_of_type_named<T>(name);

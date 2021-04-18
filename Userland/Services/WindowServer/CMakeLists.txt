@@ -1,5 +1,7 @@
 compile_ipc(WindowServer.ipc WindowServerEndpoint.h)
 compile_ipc(WindowClient.ipc WindowClientEndpoint.h)
+compile_ipc(WindowManagerServer.ipc WindowManagerServerEndpoint.h)
+compile_ipc(WindowManagerClient.ipc WindowManagerClientEndpoint.h)
 
 set(SOURCES
     AppletManager.cpp
@@ -9,7 +11,7 @@ set(SOURCES
     Cursor.cpp
     EventLoop.cpp
     main.cpp
-    MenuBar.cpp
+    Menubar.cpp
     Menu.cpp
     MenuItem.cpp
     MenuManager.cpp
@@ -20,6 +22,9 @@ set(SOURCES
     WindowSwitcher.cpp
     WindowServerEndpoint.h
     WindowClientEndpoint.h
+    WindowManagerServerEndpoint.h
+    WindowManagerClientEndpoint.h
+    WMClientConnection.cpp
 )
 
 serenity_bin(WindowServer)

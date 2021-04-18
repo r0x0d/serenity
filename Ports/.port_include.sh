@@ -2,16 +2,43 @@
 set -eu
 
 SCRIPT="$(dirname "${0}")"
-export SERENITY_ROOT="$(realpath "${SCRIPT}/../")"
 export SERENITY_ARCH="${SERENITY_ARCH:-i686}"
-export SERENITY_BUILD_DIR="${SERENITY_ROOT}/Build/${SERENITY_ARCH}"
-export CC="${SERENITY_ARCH}-pc-serenity-gcc"
-export CXX="${SERENITY_ARCH}-pc-serenity-g++"
-export AR="${SERENITY_ARCH}-pc-serenity-ar"
-export RANLIB="${SERENITY_ARCH}-pc-serenity-ranlib"
-export PATH="${SERENITY_ROOT}/Toolchain/Local/${SERENITY_ARCH}/bin:${PATH}"
 
-packagesdb="${SERENITY_BUILD_DIR}/packages.db"
+HOST_CC="${CC:=cc}"
+HOST_CXX="${CXX:=c++}"
+HOST_AR="${AR:=ar}"
+HOST_RANLIB="${RANLIB:=ranlib}"
+HOST_PATH="${PATH:=}"
+HOST_PKG_CONFIG_DIR="${PKG_CONFIG_DIR:=}"
+HOST_PKG_CONFIG_SYSROOT_DIR="${PKG_CONFIG_SYSROOT_DIR:=}"
+HOST_PKG_CONFIG_LIBDIR="${PKG_CONFIG_LIBDIR:=}"
+
+DESTDIR="/"
+
+maybe_source() {
+    if [ -f "$1" ]; then
+        . "$1"
+    fi
+}
+
+target_env() {
+    maybe_source "${SCRIPT}/.hosted_defs.sh"
+}
+
+target_env
+
+host_env() {
+    export CC="${HOST_CC}"
+    export CXX="${HOST_CXX}"
+    export AR="${HOST_AR}"
+    export RANLIB="${HOST_RANLIB}"
+    export PATH="${HOST_PATH}"
+    export PKG_CONFIG_DIR="${HOST_PKG_CONFIG_DIR}"
+    export PKG_CONFIG_SYSROOT_DIR="${HOST_PKG_CONFIG_SYSROOT_DIR}"
+    export PKG_CONFIG_LIBDIR="${HOST_PKG_CONFIG_LIBDIR}"
+}
+
+packagesdb="${DESTDIR}/usr/Ports/packages.db"
 
 MD5SUM=md5sum
 
@@ -67,11 +94,22 @@ fetch() {
         IFS=$OLDIFS
         read url filename auth_sum<<< $(echo "$f")
         echo "URL: ${url}"
+
+        # FIXME: Serenity's curl port does not support https, even with openssl installed.
+        if which curl && ! curl https://example.com -so /dev/null; then
+            url=$(echo "$url" | sed "s/^https:\/\//http:\/\//")
+        fi
+
+
         # download files
         if [ -f "$filename" ]; then
             echo "$filename already exists"
         else
-            run_nocd curl ${curlopts:-} "$url" -L -o "$filename"
+            if which curl; then
+                run_nocd curl ${curlopts:-} "$url" -L -o "$filename"
+            else
+                run_nocd pro "$url" > "$filename"
+            fi
         fi
 
         # check md5sum if given
@@ -98,8 +136,12 @@ fetch() {
         # extract
         if [ ! -f "$workdir"/.${filename}_extracted ]; then
             case "$filename" in
+                *.tar.gz|*.tgz)
+                    run_nocd tar -xzf "$filename"
+                    run touch .${filename}_extracted
+                    ;;
                 *.tar.gz|*.tar.bz|*.tar.bz2|*.tar.xz|*.tar.lz|.tbz*|*.txz|*.tgz)
-                    run_nocd tar xf "$filename"
+                    run_nocd tar -xf "$filename"
                     run touch .${filename}_extracted
                     ;;
                 *.gz)
@@ -122,16 +164,20 @@ fetch() {
 
     # check signature
     if [ "$auth_type" == "sig" ]; then
-        if $(gpg --verify $auth_opts); then
-            echo "- Signature check OK."
+        if $NO_GPG; then
+            echo "WARNING: gpg signature check was disabled by --no-gpg-verification"
         else
-            echo "- Signature check NOT OK"
-            for f in $files; do
-                rm -f $f
-            done
-            rm -rf "$workdir"
-            echo "  Signature mismatching, removed erronous download. Please run script again."
-            exit 1
+            if $(gpg --verify $auth_opts); then
+                echo "- Signature check OK."
+            else
+                echo "- Signature check NOT OK"
+                for f in $files; do
+                    rm -f $f
+                done
+                rm -rf "$workdir"
+                echo "  Signature mismatching, removed erronous download. Please run script again."
+                exit 1
+            fi
         fi
     fi
 
@@ -164,7 +210,7 @@ func_defined build || build() {
     run make $makeopts
 }
 func_defined install || install() {
-    run make DESTDIR="${SERENITY_BUILD_DIR}/Root" $installopts install
+    run make DESTDIR=$DESTDIR $installopts install
 }
 func_defined post_install || post_install() {
     echo
@@ -194,6 +240,7 @@ func_defined clean_all || clean_all() {
 addtodb() {
     if [ ! -f "$packagesdb" ]; then
         echo "Note: $packagesdb does not exist. Creating."
+        mkdir -p "${DESTDIR}/usr/Ports/"
         touch "$packagesdb"
     fi
     if ! grep -E "^(auto|manual) $port $version" "$packagesdb" > /dev/null; then
@@ -226,10 +273,10 @@ uninstall() {
             for f in `cat plist`; do
                 case $f in
                     */)
-                        run rmdir "${SERENITY_BUILD_DIR}/Root/$f" || true
+                        run rmdir "${DESTDIR}/$f" || true
                         ;;
                     *)
-                        run rm -rf "${SERENITY_BUILD_DIR}/Root/$f"
+                        run rm -rf "${DESTDIR}/$f"
                         ;;
                 esac
             done
@@ -300,19 +347,29 @@ do_all() {
     do_install "${1:-}"
 }
 
-if [ -z "${1:-}" ]; then
-    do_all
-else
-    case "$1" in
-        fetch|patch|configure|build|install|installdepends|clean|clean_dist|clean_all|uninstall)
-            do_$1
-            ;;
-        --auto)
-            do_all $1
-            ;;
-        *)
-            >&2 echo "I don't understand $1! Supported arguments: fetch, patch, configure, build, install, installdepends, clean, clean_dist, clean_all, uninstall."
-            exit 1
-            ;;
-    esac
-fi
+NO_GPG=false
+parse_arguments() {
+    if [ -z "${1:-}" ]; then
+        do_all
+    else
+        case "$1" in
+            fetch|patch|configure|build|install|installdepends|clean|clean_dist|clean_all|uninstall)
+                do_$1
+                ;;
+            --auto)
+                do_all $1
+                ;;
+            --no-gpg-verification)
+                NO_GPG=true
+                shift
+                parse_arguments $@
+                ;;
+            *)
+                >&2 echo "I don't understand $1! Supported arguments: fetch, patch, configure, build, install, installdepends, clean, clean_dist, clean_all, uninstall."
+                exit 1
+                ;;
+        esac
+    fi
+}
+
+parse_arguments $@

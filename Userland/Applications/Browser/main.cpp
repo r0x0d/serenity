@@ -26,6 +26,7 @@
 
 #include "BookmarksBarWidget.h"
 #include "Browser.h"
+#include "CookieJar.h"
 #include "Tab.h"
 #include "WindowActions.h"
 #include <AK/StringBuilder.h>
@@ -148,6 +149,8 @@ int main(int argc, char** argv)
     bool bookmarksbar_enabled = true;
     auto bookmarks_bar = Browser::BookmarksBarWidget::construct(Browser::bookmarks_file_path(), bookmarksbar_enabled);
 
+    Browser::CookieJar cookie_jar;
+
     auto window = GUI::Window::construct();
     window->resize(640, 480);
     window->set_icon(app_icon.bitmap_for_size(16));
@@ -216,6 +219,18 @@ int main(int argc, char** argv)
             });
         };
 
+        new_tab.on_get_cookie = [&](auto& url, auto source) -> String {
+            return cookie_jar.get_cookie(url, source);
+        };
+
+        new_tab.on_set_cookie = [&](auto& url, auto& cookie, auto source) {
+            cookie_jar.set_cookie(url, cookie, source);
+        };
+
+        new_tab.on_dump_cookies = [&]() {
+            cookie_jar.dump_cookies();
+        };
+
         new_tab.load(url);
 
         dbgln("Added new tab {:p}, loading {}", &new_tab, url);
@@ -232,6 +247,20 @@ int main(int argc, char** argv)
             first_url = Browser::url_from_user_input(specified_url);
         }
     }
+
+    app->on_action_enter = [&](GUI::Action& action) {
+        auto* tab = static_cast<Browser::Tab*>(tab_widget.active_widget());
+        if (!tab)
+            return;
+        tab->action_entered(action);
+    };
+
+    app->on_action_leave = [&](auto& action) {
+        auto* tab = static_cast<Browser::Tab*>(tab_widget.active_widget());
+        if (!tab)
+            return;
+        tab->action_left(action);
+    };
 
     window_actions.on_create_new_tab = [&] {
         create_new_tab(Browser::g_home_url, true);

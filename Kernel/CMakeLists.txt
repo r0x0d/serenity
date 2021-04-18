@@ -40,6 +40,9 @@ set(KERNEL_SOURCES
     Devices/SB16.cpp
     Devices/SerialDevice.cpp
     Devices/USB/UHCIController.cpp
+    VirtIO/VirtIO.cpp
+    VirtIO/VirtIOQueue.cpp
+    VirtIO/VirtIOConsole.cpp
     Devices/VMWareBackdoor.cpp
     Devices/ZeroDevice.cpp
     Devices/HID/I8042Controller.cpp
@@ -217,6 +220,10 @@ set(KERNEL_SOURCES
     TimerQueue.cpp
     UBSanitizer.cpp
     UserOrKernelBuffer.cpp
+    VirtIO/VirtIO.cpp
+    VirtIO/VirtIOConsole.cpp
+    VirtIO/VirtIOQueue.cpp
+    VirtIO/VirtIORNG.cpp
     VM/AnonymousVMObject.cpp
     VM/ContiguousVMObject.cpp
     VM/InodeVMObject.cpp
@@ -230,6 +237,7 @@ set(KERNEL_SOURCES
     VM/Range.cpp
     VM/RangeAllocator.cpp
     VM/Region.cpp
+    VM/ScatterGatherList.cpp
     VM/SharedInodeVMObject.cpp
     VM/Space.cpp
     VM/VMObject.cpp
@@ -298,7 +306,7 @@ set(SOURCES
     ${C_SOURCES}
 )
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unknown-warning-option -Wvla")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unknown-warning-option -Wvla -Wnull-dereference")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pie -fPIE -fno-rtti -ffreestanding -fbuiltin")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mno-80387 -mno-mmx -mno-sse -mno-sse2")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-asynchronous-unwind-tables")
@@ -344,8 +352,8 @@ file(GENERATE OUTPUT linker.ld INPUT linker.ld)
 if (${CMAKE_HOST_SYSTEM_NAME} MATCHES SerenityOS)
     include_directories(/usr/local/include/c++/10.2.0/)
 else()
-    include_directories(../Toolchain/Local/${SERENITY_ARCH}/${SERENITY_ARCH}-pc-serenity/include/c++/10.2.0/)
-    include_directories(../Toolchain/Local/${SERENITY_ARCH}/${SERENITY_ARCH}-pc-serenity/include/c++/10.2.0/${SERENITY_ARCH}-pc-serenity/)
+    include_directories(../Toolchain/Local/${SERENITY_ARCH}/${SERENITY_ARCH}-pc-serenity/include/c++/10.3.0/)
+    include_directories(../Toolchain/Local/${SERENITY_ARCH}/${SERENITY_ARCH}-pc-serenity/include/c++/10.3.0/${SERENITY_ARCH}-pc-serenity/)
 endif()
 
 add_executable(Kernel ${SOURCES})

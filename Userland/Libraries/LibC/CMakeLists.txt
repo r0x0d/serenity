@@ -24,7 +24,6 @@ set(LIBC_SOURCES
     qsort.cpp
     scanf.cpp
     sched.cpp
-    semaphore.cpp
     serenity.cpp
     signal.cpp
     spawn.cpp
@@ -88,7 +87,7 @@ set(SOURCES ${LIBC_SOURCES} ${AK_SOURCES} ${ELF_SOURCES} ${ASM_SOURCES})
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -static-libstdc++")
 add_library(LibCStaticWithoutDeps STATIC ${SOURCES})
-target_link_libraries(LibCStaticWithoutDeps crt0 ssp)
+target_link_libraries(LibCStaticWithoutDeps ssp)
 add_dependencies(LibCStaticWithoutDeps LibM LibSystem)
 
 add_custom_target(LibCStatic
@@ -110,7 +109,7 @@ set_property(
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -static-libstdc++")
 serenity_libc(LibC c)
-target_link_libraries(LibC crt0 ssp system)
+target_link_libraries(LibC ssp system)
 
 # We mark LibCStatic as a dependency of LibC because this triggers the build of the LibCStatic target
 add_dependencies(LibC LibM LibSystem LibCStatic)

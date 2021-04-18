@@ -39,6 +39,7 @@
 #include <LibGUI/Menu.h>
 #include <LibGUI/Painter.h>
 #include <LibGUI/Window.h>
+#include <LibGUI/WindowManagerServerConnection.h>
 #include <LibGUI/WindowServerConnection.h>
 #include <LibGfx/FontDatabase.h>
 #include <LibGfx/Palette.h>
@@ -136,7 +137,7 @@ void TaskbarWindow::create_quick_launch_bar()
         const int button_size = 24;
         auto& button = quick_launch_bar.add<GUI::Button>();
         button.set_fixed_size(button_size, button_size);
-        button.set_button_style(Gfx::ButtonStyle::CoolBar);
+        button.set_button_style(Gfx::ButtonStyle::Coolbar);
         button.set_icon(af->icon().bitmap_for_size(16));
         button.set_tooltip(af->name());
         button.on_click = [app_executable](auto) {
@@ -182,7 +183,7 @@ void TaskbarWindow::update_applet_area()
     main_widget()->do_layout();
     Gfx::IntRect new_rect { {}, m_applet_area_size };
     new_rect.center_within(m_applet_area_container->screen_relative_rect());
-    GUI::WindowServerConnection::the().send_sync<Messages::WindowServer::WM_SetAppletAreaPosition>(new_rect.location());
+    GUI::WindowManagerServerConnection::the().send_sync<Messages::WindowManagerServer::SetAppletAreaPosition>(new_rect.location());
 }
 
 NonnullRefPtr<GUI::Button> TaskbarWindow::create_button(const WindowIdentifier& identifier)
@@ -209,9 +210,9 @@ void TaskbarWindow::add_window_button(::Window& window, const WindowIdentifier& 
         // false because window is the modal window's owner (which is not
         // active)
         if (window->is_minimized() || !button->is_checked()) {
-            GUI::WindowServerConnection::the().post_message(Messages::WindowServer::WM_SetActiveWindow(identifier.client_id(), identifier.window_id()));
+            GUI::WindowManagerServerConnection::the().post_message(Messages::WindowManagerServer::SetActiveWindow(identifier.client_id(), identifier.window_id()));
         } else {
-            GUI::WindowServerConnection::the().post_message(Messages::WindowServer::WM_SetWindowMinimized(identifier.client_id(), identifier.window_id(), true));
+            GUI::WindowManagerServerConnection::the().post_message(Messages::WindowManagerServer::SetWindowMinimized(identifier.client_id(), identifier.window_id(), true));
         }
     };
 }

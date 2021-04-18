@@ -33,7 +33,7 @@
 #include <LibGUI/InputBox.h>
 #include <LibGUI/MessageBox.h>
 #include <LibGUI/Painter.h>
-#include <LibGUI/ScrollBar.h>
+#include <LibGUI/Scrollbar.h>
 #include <LibGUI/Window.h>
 #include <LibGfx/ShareableBitmap.h>
 #include <LibWeb/HTML/HTMLAnchorElement.h>
@@ -431,6 +431,19 @@ String InProcessWebView::page_did_request_prompt(const String& message, const St
     if (GUI::InputBox::show(window(), value, message, "Prompt") == GUI::InputBox::ExecOK)
         return value;
     return {};
+}
+
+String InProcessWebView::page_did_request_cookie(const URL& url, Cookie::Source source)
+{
+    if (on_get_cookie)
+        return on_get_cookie(url, source);
+    return {};
+}
+
+void InProcessWebView::page_did_set_cookie(const URL& url, const Cookie::ParsedCookie& cookie, Cookie::Source source)
+{
+    if (on_set_cookie)
+        on_set_cookie(url, cookie, source);
 }
 
 }

@@ -30,7 +30,7 @@
 #include <LibGUI/Icon.h>
 #include <LibGUI/Label.h>
 #include <LibGUI/Menu.h>
-#include <LibGUI/MenuBar.h>
+#include <LibGUI/Menubar.h>
 #include <LibGUI/Painter.h>
 #include <LibGUI/Widget.h>
 #include <LibGUI/Window.h>
@@ -177,12 +177,12 @@ void Cube::timer_event(Core::TimerEvent&)
         normal.normalize();
 
         // Perspective projection
-        a.set_x(WIDTH / 2 + a.x() / (1 + a.z() * 0.35) * WIDTH / 3);
-        a.set_y(HEIGHT / 2 - a.y() / (1 + a.z() * 0.35) * WIDTH / 3);
-        b.set_x(WIDTH / 2 + b.x() / (1 + b.z() * 0.35) * WIDTH / 3);
-        b.set_y(HEIGHT / 2 - b.y() / (1 + b.z() * 0.35) * WIDTH / 3);
-        c.set_x(WIDTH / 2 + c.x() / (1 + c.z() * 0.35) * WIDTH / 3);
-        c.set_y(HEIGHT / 2 - c.y() / (1 + c.z() * 0.35) * WIDTH / 3);
+        a.set_x(WIDTH / 2 + a.x() / (1 + a.z() * 0.35f) * WIDTH / 3);
+        a.set_y(HEIGHT / 2 - a.y() / (1 + a.z() * 0.35f) * WIDTH / 3);
+        b.set_x(WIDTH / 2 + b.x() / (1 + b.z() * 0.35f) * WIDTH / 3);
+        b.set_y(HEIGHT / 2 - b.y() / (1 + b.z() * 0.35f) * WIDTH / 3);
+        c.set_x(WIDTH / 2 + c.x() / (1 + c.z() * 0.35f) * WIDTH / 3);
+        c.set_y(HEIGHT / 2 - c.y() / (1 + c.z() * 0.35f) * WIDTH / 3);
 
         float winding = (b.x() - a.x()) * (c.y() - a.y()) - (b.y() - a.y()) * (c.x() - a.x());
         if (winding < 0)
@@ -263,7 +263,7 @@ int main(int argc, char** argv)
     auto app_icon = GUI::Icon::default_icon("app-cube");
     window->set_icon(app_icon.bitmap_for_size(16));
 
-    auto menubar = GUI::MenuBar::construct();
+    auto menubar = GUI::Menubar::construct();
     auto& app_menu = menubar->add_menu("File");
     auto show_window_frame_action = GUI::Action::create_checkable("Show window frame", [&](auto& action) {
         cube.set_show_window_frame(action.is_checked());

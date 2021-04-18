@@ -27,7 +27,7 @@
 
 #pragma once
 
-#include <AK/NonnullOwnPtrVector.h>
+#include <AK/RedBlackTree.h>
 #include <AK/Vector.h>
 #include <AK/WeakPtr.h>
 #include <Kernel/UnixTypes.h>
@@ -48,8 +48,8 @@ public:
 
     size_t region_count() const { return m_regions.size(); }
 
-    NonnullOwnPtrVector<Region>& regions() { return m_regions; }
-    const NonnullOwnPtrVector<Region>& regions() const { return m_regions; }
+    RedBlackTree<FlatPtr, NonnullOwnPtr<Region>>& regions() { return m_regions; }
+    const RedBlackTree<FlatPtr, NonnullOwnPtr<Region>>& regions() const { return m_regions; }
 
     void dump_regions();
 
@@ -58,6 +58,7 @@ public:
     KResultOr<Region*> allocate_region_with_vmobject(const Range&, NonnullRefPtr<VMObject>, size_t offset_in_vmobject, const String& name, int prot, bool shared);
     KResultOr<Region*> allocate_region(const Range&, const String& name, int prot = PROT_READ | PROT_WRITE, AllocationStrategy strategy = AllocationStrategy::Reserve);
     bool deallocate_region(Region& region);
+    OwnPtr<Region> take_region(Region& region);
 
     Region& allocate_split_region(const Region& source_region, const Range&, size_t offset_in_vmobject);
     Vector<Region*, 2> split_region_around_range(const Region& source_region, const Range&);
@@ -90,7 +91,7 @@ private:
 
     RefPtr<PageDirectory> m_page_directory;
 
-    NonnullOwnPtrVector<Region> m_regions;
+    RedBlackTree<FlatPtr, NonnullOwnPtr<Region>> m_regions;
 
     struct RegionLookupCache {
         Optional<Range> range;

@@ -40,8 +40,9 @@
 #include <LibGUI/GMLSyntaxHighlighter.h>
 #include <LibGUI/INISyntaxHighlighter.h>
 #include <LibGUI/Label.h>
+#include <LibGUI/MessageBox.h>
 #include <LibGUI/Painter.h>
-#include <LibGUI/ScrollBar.h>
+#include <LibGUI/Scrollbar.h>
 #include <LibGUI/Window.h>
 #include <LibJS/SyntaxHighlighter.h>
 #include <LibMarkdown/Document.h>
@@ -271,10 +272,10 @@ void Editor::mousedown_event(GUI::MouseEvent& event)
     if (event.button() == GUI::MouseButton::Left && event.position().x() < ruler_line_rect.width()) {
         if (!breakpoint_lines().contains_slow(text_position.line())) {
             breakpoint_lines().append(text_position.line());
-            Debugger::on_breakpoint_change(wrapper().filename_label().text(), text_position.line(), BreakpointChange::Added);
+            Debugger::the().on_breakpoint_change(wrapper().filename_label().text(), text_position.line(), BreakpointChange::Added);
         } else {
             breakpoint_lines().remove_first_matching([&](size_t line) { return line == text_position.line(); });
-            Debugger::on_breakpoint_change(wrapper().filename_label().text(), text_position.line(), BreakpointChange::Removed);
+            Debugger::the().on_breakpoint_change(wrapper().filename_label().text(), text_position.line(), BreakpointChange::Removed);
         }
     }
 
@@ -300,6 +301,23 @@ void Editor::mousedown_event(GUI::MouseEvent& event)
     }
 
     GUI::TextEditor::mousedown_event(event);
+}
+
+void Editor::drop_event(GUI::DropEvent& event)
+{
+    event.accept();
+    window()->move_to_front();
+
+    if (event.mime_data().has_urls()) {
+        auto urls = event.mime_data().urls();
+        if (urls.is_empty())
+            return;
+        if (urls.size() > 1) {
+            GUI::MessageBox::show(window(), "HackStudio can only open one file at a time!", "One at a time please!", GUI::MessageBox::Type::Error);
+            return;
+        }
+        open_file(urls.first().path());
+    }
 }
 
 void Editor::enter_event(Core::Event& event)

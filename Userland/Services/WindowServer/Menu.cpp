@@ -115,7 +115,7 @@ int Menu::content_width() const
         if (item.type() != MenuItem::Text)
             continue;
         auto& use_font = item.is_default() ? Gfx::FontDatabase::default_bold_font() : font();
-        int text_width = use_font.width(item.text());
+        int text_width = use_font.width(Gfx::parse_ampersand_string(item.text()));
         if (!item.shortcut_text().is_empty()) {
             int shortcut_width = use_font.width(item.shortcut_text());
             widest_shortcut = max(shortcut_width, widest_shortcut);
@@ -300,14 +300,16 @@ MenuItem* Menu::hovered_item() const
 
 void Menu::update_for_new_hovered_item(bool make_input)
 {
-    if (hovered_item() && hovered_item()->is_submenu()) {
-        VERIFY(menu_window());
-        MenuManager::the().close_everyone_not_in_lineage(*hovered_item()->submenu());
-        hovered_item()->submenu()->do_popup(hovered_item()->rect().top_right().translated(menu_window()->rect().location()), make_input, true);
-    } else {
-        MenuManager::the().close_everyone_not_in_lineage(*this);
-        ensure_menu_window();
-        set_visible(true);
+    if (auto* hovered_item = this->hovered_item()) {
+        if (hovered_item->is_submenu()) {
+            VERIFY(menu_window());
+            MenuManager::the().close_everyone_not_in_lineage(*hovered_item->submenu());
+            hovered_item->submenu()->do_popup(hovered_item->rect().top_right().translated(menu_window()->rect().location()), make_input, true);
+        } else {
+            MenuManager::the().close_everyone_not_in_lineage(*this);
+            ensure_menu_window();
+            set_visible(true);
+        }
     }
     redraw();
 }
@@ -330,7 +332,7 @@ void Menu::descend_into_submenu_at_hovered_item()
     auto submenu = hovered_item()->submenu();
     VERIFY(submenu);
     MenuManager::the().open_menu(*submenu, false);
-    submenu->set_hovered_item(0);
+    submenu->set_hovered_index(0);
     VERIFY(submenu->hovered_item()->type() != MenuItem::Separator);
 }
 
@@ -353,12 +355,7 @@ void Menu::handle_mouse_move_event(const MouseEvent& mouse_event)
     }
 
     int index = item_index_at(mouse_event.position());
-    if (m_hovered_item_index == index)
-        return;
-    m_hovered_item_index = index;
-
-    update_for_new_hovered_item();
-    return;
+    set_hovered_index(index);
 }
 
 void Menu::event(Core::Event& event)
@@ -380,11 +377,7 @@ void Menu::event(Core::Event& event)
         m_scroll_offset = clamp(m_scroll_offset, 0, m_max_scroll_offset);
 
         int index = item_index_at(mouse_event.position());
-        if (m_hovered_item_index == index)
-            return;
-
-        m_hovered_item_index = index;
-        update_for_new_hovered_item();
+        set_hovered_index(index);
         return;
     }
 
@@ -402,62 +395,65 @@ void Menu::event(Core::Event& event)
             int counter = 0;
             for (const auto& item : m_items) {
                 if (item.type() != MenuItem::Separator && item.is_enabled()) {
-                    m_hovered_item_index = counter;
+                    set_hovered_index(counter, key == Key_Right);
                     break;
                 }
                 counter++;
             }
-            update_for_new_hovered_item(key == Key_Right);
             return;
         }
 
         if (key == Key_Up) {
-            VERIFY(m_items.at(0).type() != MenuItem::Separator);
+            VERIFY(item(0).type() != MenuItem::Separator);
 
             if (is_scrollable() && m_hovered_item_index == 0)
                 return;
 
             auto original_index = m_hovered_item_index;
+            auto new_index = original_index;
             do {
-                if (m_hovered_item_index == 0)
-                    m_hovered_item_index = m_items.size() - 1;
+                if (new_index == 0)
+                    new_index = m_items.size() - 1;
                 else
-                    --m_hovered_item_index;
-                if (m_hovered_item_index == original_index)
+                    --new_index;
+                if (new_index == original_index)
                     return;
-            } while (hovered_item()->type() == MenuItem::Separator || !hovered_item()->is_enabled());
+            } while (item(new_index).type() == MenuItem::Separator || !item(new_index).is_enabled());
 
-            VERIFY(m_hovered_item_index >= 0 && m_hovered_item_index <= static_cast<int>(m_items.size()) - 1);
+            VERIFY(new_index >= 0);
+            VERIFY(new_index <= static_cast<int>(m_items.size()) - 1);
 
-            if (is_scrollable() && m_hovered_item_index < m_scroll_offset)
+            if (is_scrollable() && new_index < m_scroll_offset)
                 --m_scroll_offset;
 
-            update_for_new_hovered_item();
+            set_hovered_index(new_index);
             return;
         }
 
         if (key == Key_Down) {
-            VERIFY(m_items.at(0).type() != MenuItem::Separator);
+            VERIFY(item(0).type() != MenuItem::Separator);
 
             if (is_scrollable() && m_hovered_item_index == static_cast<int>(m_items.size()) - 1)
                 return;
 
             auto original_index = m_hovered_item_index;
+            auto new_index = original_index;
             do {
-                if (m_hovered_item_index == static_cast<int>(m_items.size()) - 1)
-                    m_hovered_item_index = 0;
+                if (new_index == static_cast<int>(m_items.size()) - 1)
+                    new_index = 0;
                 else
-                    ++m_hovered_item_index;
-                if (m_hovered_item_index == original_index)
+                    ++new_index;
+                if (new_index == original_index)
                     return;
-            } while (hovered_item()->type() == MenuItem::Separator || !hovered_item()->is_enabled());
+            } while (item(new_index).type() == MenuItem::Separator || !item(new_index).is_enabled());
 
-            VERIFY(m_hovered_item_index >= 0 && m_hovered_item_index <= static_cast<int>(m_items.size()) - 1);
+            VERIFY(new_index >= 0);
+            VERIFY(new_index <= static_cast<int>(m_items.size()) - 1);
 
-            if (is_scrollable() && m_hovered_item_index >= (m_scroll_offset + visible_item_count()))
+            if (is_scrollable() && new_index >= (m_scroll_offset + visible_item_count()))
                 ++m_scroll_offset;
 
-            update_for_new_hovered_item();
+            set_hovered_index(new_index);
             return;
         }
     }
@@ -466,10 +462,7 @@ void Menu::event(Core::Event& event)
 
 void Menu::clear_hovered_item()
 {
-    if (!hovered_item())
-        return;
-    m_hovered_item_index = -1;
-    redraw();
+    set_hovered_index(-1);
 }
 
 void Menu::start_activation_animation(MenuItem& item)
@@ -563,8 +556,11 @@ int Menu::item_index_at(const Gfx::IntPoint& position)
 {
     int i = 0;
     for (auto& item : m_items) {
-        if (item.rect().contains(position))
+        if (item.rect().contains(position)) {
+            if (item.type() == MenuItem::Type::Separator)
+                return -1;
             return i;
+        }
         ++i;
     }
     return -1;
@@ -653,6 +649,22 @@ const Vector<size_t>* Menu::items_with_alt_shortcut(u32 alt_shortcut) const
     if (it == m_alt_shortcut_character_to_item_indexes.end())
         return nullptr;
     return &it->value;
+}
+
+void Menu::set_hovered_index(int index, bool make_input)
+{
+    if (m_hovered_item_index == index)
+        return;
+    if (auto* old_hovered_item = hovered_item()) {
+        if (client())
+            client()->post_message(Messages::WindowClient::MenuItemLeft(m_menu_id, old_hovered_item->identifier()));
+    }
+    m_hovered_item_index = index;
+    update_for_new_hovered_item(make_input);
+    if (auto* new_hovered_item = hovered_item()) {
+        if (client())
+            client()->post_message(Messages::WindowClient::MenuItemEntered(m_menu_id, new_hovered_item->identifier()));
+    }
 }
 
 }

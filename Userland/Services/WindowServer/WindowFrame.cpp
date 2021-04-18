@@ -65,12 +65,12 @@ static int s_last_title_button_icons_scale;
 static Gfx::Bitmap* s_active_window_shadow;
 static Gfx::Bitmap* s_inactive_window_shadow;
 static Gfx::Bitmap* s_menu_shadow;
-static Gfx::Bitmap* s_task_bar_shadow;
+static Gfx::Bitmap* s_taskbar_shadow;
 static Gfx::Bitmap* s_tooltip_shadow;
 static String s_last_active_window_shadow_path;
 static String s_last_inactive_window_shadow_path;
 static String s_last_menu_shadow_path;
-static String s_last_task_bar_shadow_path;
+static String s_last_taskbar_shadow_path;
 static String s_last_tooltip_shadow_path;
 
 static Gfx::IntRect frame_rect_for_window(Window& window, const Gfx::IntRect& rect)
@@ -195,7 +195,7 @@ void WindowFrame::reload_config()
     load_shadow(WindowManager::the().palette().active_window_shadow_path(), s_last_active_window_shadow_path, s_active_window_shadow);
     load_shadow(WindowManager::the().palette().inactive_window_shadow_path(), s_last_inactive_window_shadow_path, s_inactive_window_shadow);
     load_shadow(WindowManager::the().palette().menu_shadow_path(), s_last_menu_shadow_path, s_menu_shadow);
-    load_shadow(WindowManager::the().palette().task_bar_shadow_path(), s_last_task_bar_shadow_path, s_task_bar_shadow);
+    load_shadow(WindowManager::the().palette().taskbar_shadow_path(), s_last_taskbar_shadow_path, s_taskbar_shadow);
     load_shadow(WindowManager::the().palette().tooltip_shadow_path(), s_last_tooltip_shadow_path, s_tooltip_shadow);
 }
 
@@ -211,7 +211,7 @@ Gfx::Bitmap* WindowFrame::window_shadow() const
     case WindowType::Tooltip:
         return s_tooltip_shadow;
     case WindowType::Taskbar:
-        return s_task_bar_shadow;
+        return s_taskbar_shadow;
     case WindowType::AppletArea:
         return nullptr;
     default:
@@ -315,7 +315,7 @@ void WindowFrame::paint_menubar(Gfx::Painter& painter)
         bool paint_as_pressed = MenuManager::the().is_open(menu);
         bool paint_as_hovered = !paint_as_pressed && &menu == MenuManager::the().hovered_menu();
         if (paint_as_pressed || paint_as_hovered) {
-            Gfx::StylePainter::paint_button(painter, menu.rect_in_window_menubar(), palette, Gfx::ButtonStyle::CoolBar, paint_as_pressed, paint_as_hovered);
+            Gfx::StylePainter::paint_button(painter, menu.rect_in_window_menubar(), palette, Gfx::ButtonStyle::Coolbar, paint_as_pressed, paint_as_hovered);
         }
         painter.draw_ui_text(text_rect, menu.name(), font, Gfx::TextAlignment::Center, text_color);
         return IterationDecision::Continue;
@@ -843,11 +843,9 @@ void WindowFrame::paint_simple_rect_shadow(Gfx::Painter& painter, const Gfx::Int
         int right_corners_left = max(containing_horizontal_rect.right() - corner_piece_width + 1, left_corners_right + 1);
         painter.blit({ containing_horizontal_rect.left(), y }, shadow_bitmap, { 0, src_row * base_size, corner_piece_width, base_size });
         painter.blit({ right_corners_left, y }, shadow_bitmap, { 5 * base_size - corner_piece_width, src_row * base_size, corner_piece_width, base_size });
-        if (containing_horizontal_rect.width() > 2 * corner_piece_width) {
-            for (int x = left_corners_right; x < right_corners_left; x += base_size) {
-                auto width = min(right_corners_left - x, base_size);
-                painter.blit({ x, y }, shadow_bitmap, { corner_piece_width, src_row * base_size, width, base_size });
-            }
+        for (int x = left_corners_right; x < right_corners_left; x += base_size) {
+            auto width = min(right_corners_left - x, base_size);
+            painter.blit({ x, y }, shadow_bitmap, { corner_piece_width, src_row * base_size, width, base_size });
         }
     };
 
@@ -862,11 +860,9 @@ void WindowFrame::paint_simple_rect_shadow(Gfx::Painter& painter, const Gfx::Int
         int bottom_corners_top = base_size + max(half_height, sides_height - corner_piece_height);
         painter.blit({ x + hshift, containing_rect.top() + top_corners_bottom - corner_piece_height }, shadow_bitmap, { base_size * 5 + hsrcshift, src_row * base_size, base_size - hsrcshift, corner_piece_height });
         painter.blit({ x + hshift, containing_rect.top() + bottom_corners_top }, shadow_bitmap, { base_size * 7 + hsrcshift, src_row * base_size + base_size - corner_piece_height, base_size - hsrcshift, corner_piece_height });
-        if (sides_height > 2 * base_size) {
-            for (int y = top_corners_bottom; y < bottom_corners_top; y += base_size) {
-                auto height = min(bottom_corners_top - y, base_size);
-                painter.blit({ x, containing_rect.top() + y }, shadow_bitmap, { base_size * 6, src_row * base_size, base_size, height });
-            }
+        for (int y = top_corners_bottom; y < bottom_corners_top; y += base_size) {
+            auto height = min(bottom_corners_top - y, base_size);
+            painter.blit({ x, containing_rect.top() + y }, shadow_bitmap, { base_size * 6, src_row * base_size, base_size, height });
         }
     };
 

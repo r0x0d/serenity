@@ -37,7 +37,7 @@
 namespace LanguageServers::Cpp {
 
 ParserAutoComplete::ParserAutoComplete(ClientConnection& connection, const FileDB& filedb)
-    : AutoCompleteEngine(connection, filedb)
+    : AutoCompleteEngine(connection, filedb, true)
 {
 }
 
@@ -308,6 +308,11 @@ NonnullRefPtrVector<Declaration> ParserAutoComplete::get_global_declarations(con
         if (decl.is_namespace()) {
             declarations.append(get_global_declarations(decl));
         }
+        if (decl.is_struct_or_class()) {
+            for (auto& member_decl : static_cast<StructOrClassDeclaration&>(decl).declarations()) {
+                declarations.append(member_decl);
+            }
+        }
     }
 
     return declarations;
@@ -481,6 +486,10 @@ GUI::AutocompleteProvider::DeclarationType ParserAutoComplete::type_of_declarati
         return GUI::AutocompleteProvider::DeclarationType::Function;
     if (decl.is_variable_declaration())
         return GUI::AutocompleteProvider::DeclarationType::Variable;
+    if (decl.is_namespace())
+        return GUI::AutocompleteProvider::DeclarationType::Namespace;
+    if (decl.is_member())
+        return GUI::AutocompleteProvider::DeclarationType::Member;
     return GUI::AutocompleteProvider::DeclarationType::Variable;
 }
 
@@ -511,7 +520,6 @@ OwnPtr<ParserAutoComplete::DocumentData> ParserAutoComplete::create_document_dat
 
 String ParserAutoComplete::scope_of_declaration(const Declaration& decl)
 {
-
     auto parent = decl.parent();
     if (!parent)
         return {};
@@ -521,15 +529,17 @@ String ParserAutoComplete::scope_of_declaration(const Declaration& decl)
 
     auto& parent_decl = static_cast<Declaration&>(*parent);
 
-    if (parent_decl.is_namespace()) {
-        auto& containing_namespace = static_cast<NamespaceDeclaration&>(parent_decl);
-        auto scope_of_parent = scope_of_declaration(parent_decl);
-        if (scope_of_parent.is_null())
-            return containing_namespace.m_name;
-        return String::formatted("{}::{}", scope_of_parent, containing_namespace.m_name);
-    }
+    auto parent_scope = scope_of_declaration(parent_decl);
+    String containing_scope;
+    if (parent_decl.is_namespace())
+        containing_scope = static_cast<NamespaceDeclaration&>(parent_decl).m_name;
+    if (parent_decl.is_struct_or_class())
+        containing_scope = static_cast<StructOrClassDeclaration&>(parent_decl).name();
 
-    return {};
+    if (parent_scope.is_null())
+        return containing_scope;
+
+    return String::formatted("{}::{}", parent_scope, containing_scope);
 }
 
 }

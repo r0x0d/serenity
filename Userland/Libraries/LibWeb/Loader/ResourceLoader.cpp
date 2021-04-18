@@ -48,16 +48,16 @@ ResourceLoader& ResourceLoader::the()
 
 ResourceLoader::ResourceLoader()
     : m_protocol_client(Protocol::Client::construct())
-    , m_user_agent("Mozilla/4.0 (SerenityOS; x86) LibWeb+LibJS (Not KHTML, nor Gecko) LibWeb")
+    , m_user_agent(default_user_agent)
 {
 }
 
-void ResourceLoader::load_sync(const URL& url, Function<void(ReadonlyBytes, const HashMap<String, String, CaseInsensitiveStringTraits>& response_headers, Optional<u32> status_code)> success_callback, Function<void(const String&, Optional<u32> status_code)> error_callback)
+void ResourceLoader::load_sync(const LoadRequest& request, Function<void(ReadonlyBytes, const HashMap<String, String, CaseInsensitiveStringTraits>& response_headers, Optional<u32> status_code)> success_callback, Function<void(const String&, Optional<u32> status_code)> error_callback)
 {
     Core::EventLoop loop;
 
     load(
-        url,
+        request,
         [&](auto data, auto& response_headers, auto status_code) {
             success_callback(data, response_headers, status_code);
             loop.quit(0);

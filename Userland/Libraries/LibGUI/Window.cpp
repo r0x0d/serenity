@@ -35,10 +35,11 @@
 #include <LibGUI/Application.h>
 #include <LibGUI/Desktop.h>
 #include <LibGUI/Event.h>
-#include <LibGUI/MenuBar.h>
+#include <LibGUI/Menubar.h>
 #include <LibGUI/Painter.h>
 #include <LibGUI/Widget.h>
 #include <LibGUI/Window.h>
+#include <LibGUI/WindowManagerServerConnection.h>
 #include <LibGUI/WindowServerConnection.h>
 #include <LibGfx/Bitmap.h>
 #include <fcntl.h>
@@ -220,12 +221,12 @@ void Window::hide()
     }
 }
 
-void Window::set_title(const StringView& title)
+void Window::set_title(String title)
 {
-    m_title_when_windowless = title;
+    m_title_when_windowless = move(title);
     if (!is_visible())
         return;
-    WindowServerConnection::the().send_sync<Messages::WindowServer::SetWindowTitle>(m_window_id, title);
+    WindowServerConnection::the().send_sync<Messages::WindowServer::SetWindowTitle>(m_window_id, m_title_when_windowless);
 }
 
 String Window::title() const
@@ -313,6 +314,14 @@ void Window::set_window_type(WindowType window_type)
         else
             m_minimum_size_when_windowless = { 1, 1 };
     }
+}
+
+void Window::make_window_manager(unsigned event_mask)
+{
+    GUI::WindowManagerServerConnection::the()
+        .post_message(Messages::WindowManagerServer::SetEventMask(event_mask));
+    GUI::WindowManagerServerConnection::the()
+        .post_message(Messages::WindowManagerServer::SetManagerWindow(m_window_id));
 }
 
 void Window::set_cursor(Gfx::StandardCursor cursor)
@@ -1084,7 +1093,7 @@ Gfx::Bitmap* Window::back_bitmap()
     return m_back_store ? &m_back_store->bitmap() : nullptr;
 }
 
-void Window::set_menubar(RefPtr<MenuBar> menubar)
+void Window::set_menubar(RefPtr<Menubar> menubar)
 {
     if (m_menubar == menubar)
         return;

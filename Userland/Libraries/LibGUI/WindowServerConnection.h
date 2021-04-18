@@ -64,13 +64,10 @@ private:
     virtual void handle(const Messages::WindowClient::WindowCloseRequest&) override;
     virtual void handle(const Messages::WindowClient::WindowResized&) override;
     virtual void handle(const Messages::WindowClient::MenuItemActivated&) override;
+    virtual void handle(const Messages::WindowClient::MenuItemEntered&) override;
+    virtual void handle(const Messages::WindowClient::MenuItemLeft&) override;
     virtual void handle(const Messages::WindowClient::MenuVisibilityDidChange&) override;
     virtual void handle(const Messages::WindowClient::ScreenRectChanged&) override;
-    virtual void handle(const Messages::WindowClient::WM_WindowRemoved&) override;
-    virtual void handle(const Messages::WindowClient::WM_WindowStateChanged&) override;
-    virtual void handle(const Messages::WindowClient::WM_WindowIconBitmapChanged&) override;
-    virtual void handle(const Messages::WindowClient::WM_WindowRectChanged&) override;
-    virtual void handle(const Messages::WindowClient::WM_AppletAreaSizeChanged&) override;
     virtual void handle(const Messages::WindowClient::AsyncSetWallpaperFinished&) override;
     virtual void handle(const Messages::WindowClient::DragDropped&) override;
     virtual void handle(const Messages::WindowClient::DragAccepted&) override;

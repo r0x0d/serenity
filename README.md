@@ -98,7 +98,10 @@ Please see the [issue policy](https://github.com/SerenityOS/serenity/blob/master
 
 ## Get in touch
 
-The main communication hub is `#serenityos` on the Freenode IRC network.
+IRC: `#serenityos` on the Freenode IRC network.
+
+Discord: [SerenityOS Discord](https://discord.com/invite/29gCcKsXkF)
+
 
 ## Author
 
@@ -125,6 +128,7 @@ The main communication hub is `#serenityos` on the Freenode IRC network.
 * **Brendan Coles** - [bcoles](https://github.com/bcoles)
 * **Andrew Kaster** - [ADKaster](https://github.com/ADKaster)
 * **thankyouverycool** - [thankyouverycool](https://github.com/thankyouverycool)
+* **Idan Horowitz** - [IdanHo](https://github.com/IdanHo)
 
 (And many more!) The people listed above have landed more than 100 commits in the project. :^)
 

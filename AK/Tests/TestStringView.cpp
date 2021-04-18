@@ -164,6 +164,12 @@ TEST_CASE(find_last_of)
 
     EXPECT_EQ(test_string_view.find_last_of('3').has_value(), false);
     EXPECT_EQ(test_string_view.find_last_of("fghi").has_value(), false);
+
+    test_string_view = "/";
+    EXPECT_EQ(test_string_view.find_last_of('/').has_value(), true);
+    EXPECT_EQ(test_string_view.find_last_of('/').value(), 0U);
+    EXPECT_EQ(test_string_view.find_last_of("/").has_value(), true);
+    EXPECT_EQ(test_string_view.find_last_of("/").value(), 0U);
 }
 
 TEST_CASE(split_view)
@@ -183,6 +189,13 @@ TEST_CASE(split_view)
     test_string_view = "axxbcxxdxx";
     EXPECT_EQ(test_string_view.split_view("xx"), Vector<StringView>({ "a", "bc", "d" }));
     EXPECT_EQ(test_string_view.split_view("xx", true), Vector<StringView>({ "a", "bc", "d", "" }));
+
+    test_string_view = "ax_b_cxd";
+    auto predicate = [](char ch) { return ch == 'x' || ch == '_'; };
+    EXPECT_EQ(test_string_view.split_view_if(predicate), Vector<StringView>({ "a", "b", "c", "d" }));
+    EXPECT_EQ(test_string_view.split_view_if(predicate, true), Vector<StringView>({ "a", "", "b", "c", "d" }));
+    EXPECT_EQ(test_string_view.split_view_if(predicate), Vector<StringView>({ "a", "b", "c", "d" }));
+    EXPECT_EQ(test_string_view.split_view_if(predicate, true), Vector<StringView>({ "a", "", "b", "c", "d" }));
 }
 
 TEST_MAIN(StringView)

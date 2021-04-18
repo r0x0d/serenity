@@ -25,6 +25,7 @@
  */
 
 #include "DirectoryView.h"
+#include "FileOperationProgressWidget.h"
 #include "FileUtils.h"
 #include <AK/LexicalPath.h>
 #include <AK/NumberFormat.h>
@@ -44,6 +45,61 @@
 #include <unistd.h>
 
 namespace FileManager {
+
+enum class FileOperation {
+    Copy,
+};
+
+static HashTable<RefPtr<GUI::Window>> file_operation_windows;
+
+static void run_file_operation([[maybe_unused]] FileOperation operation, const String& source, const String& destination, GUI::Window* parent_window)
+{
+    int pipe_fds[2];
+    if (pipe(pipe_fds) < 0) {
+        perror("pipe");
+        VERIFY_NOT_REACHED();
+    }
+
+    pid_t child_pid = fork();
+    if (child_pid < 0) {
+        perror("fork");
+        VERIFY_NOT_REACHED();
+    }
+
+    if (!child_pid) {
+        if (close(pipe_fds[0]) < 0) {
+            perror("close");
+            _exit(1);
+        }
+        if (dup2(pipe_fds[1], STDOUT_FILENO) < 0) {
+            perror("dup2");
+            _exit(1);
+        }
+        if (execlp("/bin/FileOperation", "/bin/FileOperation", "Copy", source.characters(), LexicalPath(destination).dirname().characters(), nullptr) < 0) {
+            perror("execlp");
+            _exit(1);
+        }
+        VERIFY_NOT_REACHED();
+    } else {
+        if (close(pipe_fds[1]) < 0) {
+            perror("close");
+            _exit(1);
+        }
+    }
+
+    auto window = GUI::Window::construct();
+    file_operation_windows.set(window);
+
+    auto pipe_input_file = Core::File::construct();
+    pipe_input_file->open(pipe_fds[0], Core::IODevice::ReadOnly, Core::File::ShouldCloseFileDescriptor::Yes);
+
+    window->set_title("Copying Files...");
+    window->set_main_widget<FileOperationProgressWidget>(pipe_input_file);
+    window->resize(320, 190);
+    if (parent_window)
+        window->center_within(*parent_window);
+    window->show();
+}
 
 NonnullRefPtr<GUI::Action> LauncherHandler::create_launch_action(Function<void(const LauncherHandler&)> launch_handler)
 {
@@ -336,7 +392,7 @@ void DirectoryView::set_view_mode(ViewMode mode)
     VERIFY_NOT_REACHED();
 }
 
-void DirectoryView::add_path_to_history(const StringView& path)
+void DirectoryView::add_path_to_history(String path)
 {
     if (m_path_history.size() && m_path_history.at(m_path_history_position) == path)
         return;
@@ -344,11 +400,11 @@ void DirectoryView::add_path_to_history(const StringView& path)
     if (m_path_history_position < m_path_history.size())
         m_path_history.resize(m_path_history_position + 1);
 
-    m_path_history.append(path);
+    m_path_history.append(move(path));
     m_path_history_position = m_path_history.size() - 1;
 }
 
-void DirectoryView::open(const StringView& path)
+void DirectoryView::open(String const& path)
 {
     auto real_path = Core::File::real_path_for(path);
 
@@ -401,11 +457,13 @@ void DirectoryView::update_statusbar()
     if (m_view_mode == ViewMode::Invalid)
         return;
 
-    size_t total_size = model().node({}).total_size;
+    StringBuilder builder;
+
     if (current_view().selection().is_empty()) {
-        set_status_message(String::formatted("{} item(s) ({})",
-            model().row_count(),
-            human_readable_size(total_size)));
+        int total_item_count = model().row_count();
+        size_t total_size = model().node({}).total_size;
+        builder.appendff("{} item{} ({})", total_item_count, total_item_count != 1 ? "s" : "", human_readable_size(total_size));
+        set_status_message(builder.string_view());
         return;
     }
 
@@ -417,14 +475,7 @@ void DirectoryView::update_statusbar()
         selected_byte_count += node.size;
     });
 
-    StringBuilder builder;
-    builder.append(String::number(selected_item_count));
-    builder.append(" item");
-    if (selected_item_count != 1)
-        builder.append('s');
-    builder.append(" selected (");
-    builder.append(human_readable_size(selected_byte_count).characters());
-    builder.append(')');
+    builder.appendff("{} item{} selected ({})", selected_item_count, selected_item_count != 1 ? "s" : "", human_readable_size(selected_byte_count));
 
     if (selected_item_count == 1) {
         auto& node = this->node(current_view().selection().first());
@@ -434,7 +485,7 @@ void DirectoryView::update_statusbar()
         }
     }
 
-    set_status_message(builder.to_string());
+    set_status_message(builder.string_view());
 }
 
 void DirectoryView::set_should_show_dotfiles(bool show_dotfiles)
@@ -578,12 +629,8 @@ void DirectoryView::handle_drop(const GUI::ModelIndex& index, const GUI::DropEve
         if (url_to_copy.path() == new_path)
             continue;
 
-        if (auto result = Core::File::copy_file_or_directory(new_path, url_to_copy.path()); result.is_error()) {
-            auto error_message = String::formatted("Could not copy {} into {}: {}", url_to_copy.to_string(), new_path, result.error().error_code);
-            GUI::MessageBox::show(window(), error_message, "File Manager", GUI::MessageBox::Type::Error);
-        } else {
-            had_accepted_drop = true;
-        }
+        run_file_operation(FileOperation::Copy, url_to_copy.path(), new_path, window());
+        had_accepted_drop = true;
     }
     if (had_accepted_drop && on_accepted_drop)
         on_accepted_drop();

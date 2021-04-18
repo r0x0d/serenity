@@ -242,6 +242,11 @@ void Job::on_socket_connected()
                 if (remaining == -1) {
                     // read size
                     auto size_data = read_line(PAGE_SIZE);
+                    if (m_should_read_chunk_ending_line) {
+                        VERIFY(size_data.is_empty());
+                        m_should_read_chunk_ending_line = false;
+                        return IterationDecision::Continue;
+                    }
                     auto size_lines = size_data.view().lines();
                     dbgln_if(JOB_DEBUG, "Job: Received a chunk with size '{}'", size_data);
                     if (size_lines.size() == 0) {
@@ -283,7 +288,8 @@ void Job::on_socket_connected()
             } else {
                 auto transfer_encoding = m_headers.get("Transfer-Encoding");
                 if (transfer_encoding.has_value()) {
-                    auto encoding = transfer_encoding.value();
+                    // Note: Some servers add extra spaces around 'chunked', see #6302.
+                    auto encoding = transfer_encoding.value().trim_whitespace();
 
                     dbgln_if(JOB_DEBUG, "Job: This content has transfer encoding '{}'", encoding);
                     if (encoding.equals_ignoring_case("chunked")) {
@@ -327,10 +333,12 @@ void Job::on_socket_connected()
 
                     // we've read everything, now let's get the next chunk
                     size = -1;
-                    [[maybe_unused]] auto line = read_line(PAGE_SIZE);
-
-                    if constexpr (JOB_DEBUG)
-                        dbgln("Line following (should be empty): '{}'", line);
+                    if (can_read_line()) {
+                        auto line = read_line(PAGE_SIZE);
+                        VERIFY(line.is_empty());
+                    } else {
+                        m_should_read_chunk_ending_line = true;
+                    }
                 }
                 m_current_chunk_remaining_size = size;
             }

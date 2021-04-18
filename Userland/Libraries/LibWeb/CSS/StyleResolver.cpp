@@ -218,7 +218,7 @@ static inline void set_property_border_color(StyleProperties& style, const Style
 
 static inline void set_property_border_style(StyleProperties& style, const StyleValue& value, Edge edge)
 {
-    VERIFY(value.is_string());
+    VERIFY(value.type() == CSS::StyleValue::Type::Identifier);
     if (contains(Edge::Top, edge))
         style.set_property(CSS::PropertyID::BorderTopStyle, value);
     if (contains(Edge::Right, edge))
@@ -330,7 +330,7 @@ static void set_property_expanding_shorthands(StyleProperties& style, CSS::Prope
 
             RefPtr<LengthStyleValue> line_width_value;
             RefPtr<ColorStyleValue> color_value;
-            RefPtr<StringStyleValue> line_style_value;
+            RefPtr<IdentifierStyleValue> line_style_value;
 
             for (auto& part : parts) {
                 if (auto value = parse_line_width(context, part)) {
@@ -367,7 +367,18 @@ static void set_property_expanding_shorthands(StyleProperties& style, CSS::Prope
 
     if (property_id == CSS::PropertyID::BorderStyle) {
         auto parts = split_on_whitespace(value.to_string());
-        if (value.is_string() && parts.size() == 3) {
+        if (value.is_string() && parts.size() == 4) {
+            auto top = parse_css_value(context, parts[0]);
+            auto right = parse_css_value(context, parts[1]);
+            auto bottom = parse_css_value(context, parts[2]);
+            auto left = parse_css_value(context, parts[3]);
+            if (top && right && bottom && left) {
+                style.set_property(CSS::PropertyID::BorderTopStyle, *top);
+                style.set_property(CSS::PropertyID::BorderRightStyle, *right);
+                style.set_property(CSS::PropertyID::BorderBottomStyle, *bottom);
+                style.set_property(CSS::PropertyID::BorderLeftStyle, *left);
+            }
+        } else if (value.is_string() && parts.size() == 3) {
             auto top = parse_css_value(context, parts[0]);
             auto right = parse_css_value(context, parts[1]);
             auto bottom = parse_css_value(context, parts[2]);
@@ -377,6 +388,15 @@ static void set_property_expanding_shorthands(StyleProperties& style, CSS::Prope
                 style.set_property(CSS::PropertyID::BorderRightStyle, *right);
                 style.set_property(CSS::PropertyID::BorderBottomStyle, *bottom);
                 style.set_property(CSS::PropertyID::BorderLeftStyle, *left);
+            }
+        } else if (value.is_string() && parts.size() == 2) {
+            auto vertical = parse_css_value(context, parts[0]);
+            auto horizontal = parse_css_value(context, parts[1]);
+            if (vertical && horizontal) {
+                style.set_property(CSS::PropertyID::BorderTopStyle, *vertical);
+                style.set_property(CSS::PropertyID::BorderRightStyle, *horizontal);
+                style.set_property(CSS::PropertyID::BorderBottomStyle, *vertical);
+                style.set_property(CSS::PropertyID::BorderLeftStyle, *horizontal);
             }
         } else {
             style.set_property(CSS::PropertyID::BorderTopStyle, value);
@@ -641,6 +661,28 @@ static void set_property_expanding_shorthands(StyleProperties& style, CSS::Prope
                 return;
             style.set_property(CSS::PropertyID::ListStyleType, value.release_nonnull());
         }
+        return;
+    }
+
+    // FIXME: parse other values as well
+    if (property_id == CSS::PropertyID::Font) {
+        auto parts = split_on_whitespace(value.to_string());
+        if (parts.size() < 2)
+            return;
+        auto size_parts = parts[0].split_view('/');
+        if (size_parts.size() == 2) {
+            auto size = parse_css_value(context, size_parts[0]);
+            if (!size)
+                return;
+            style.set_property(CSS::PropertyID::FontSize, size.release_nonnull());
+        } else if (size_parts.size() == 1) {
+            auto size = parse_css_value(context, parts[0]);
+            if (!size)
+                return;
+            style.set_property(CSS::PropertyID::FontSize, size.release_nonnull());
+        }
+        auto family = parse_css_value(context, parts[1]);
+        style.set_property(CSS::PropertyID::FontFamily, family.release_nonnull());
         return;
     }
 

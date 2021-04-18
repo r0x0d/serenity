@@ -116,7 +116,13 @@ int islower(int c)
 #undef isascii
 int isascii(int c)
 {
-    return ((unsigned)c <= 127);
+    return __inline_isascii(c);
+}
+
+#undef isblank
+int isblank(int c)
+{
+    return __inline_isblank(c);
 }
 
 #undef toascii

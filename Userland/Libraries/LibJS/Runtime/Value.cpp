@@ -552,7 +552,7 @@ i32 Value::as_i32() const
 u32 Value::as_u32() const
 {
     VERIFY(as_double() >= 0);
-    return min((double)as_i32(), MAX_U32);
+    return min((u32)as_i32(), NumericLimits<u32>::max());
 }
 
 double Value::to_double(GlobalObject& global_object) const
@@ -1020,10 +1020,10 @@ Value in(GlobalObject& global_object, Value lhs, Value rhs)
         global_object.vm().throw_exception<TypeError>(global_object, ErrorType::InOperatorWithObject);
         return {};
     }
-    auto lhs_string = lhs.to_string(global_object);
+    auto lhs_string_or_symbol = StringOrSymbol::from_value(global_object, lhs);
     if (global_object.vm().exception())
         return {};
-    return Value(rhs.as_object().has_property(lhs_string));
+    return Value(rhs.as_object().has_property(lhs_string_or_symbol));
 }
 
 Value instance_of(GlobalObject& global_object, Value lhs, Value rhs)

@@ -28,6 +28,7 @@
 
 #include "History.h"
 #include <AK/URL.h>
+#include <LibGUI/ActionGroup.h>
 #include <LibGUI/Widget.h>
 #include <LibGfx/ShareableBitmap.h>
 #include <LibHTTP/HttpJob.h>
@@ -66,10 +67,16 @@ public:
     void did_become_active();
     void context_menu_requested(const Gfx::IntPoint& screen_position);
 
+    void action_entered(GUI::Action&);
+    void action_left(GUI::Action&);
+
     Function<void(String)> on_title_change;
     Function<void(const URL&)> on_tab_open_request;
     Function<void(Tab&)> on_tab_close_request;
     Function<void(const Gfx::Bitmap&)> on_favicon_change;
+    Function<String(const URL& url, Web::Cookie::Source source)> on_get_cookie;
+    Function<void(const URL& url, const Web::Cookie::ParsedCookie& cookie, Web::Cookie::Source source)> on_set_cookie;
+    Function<void()> on_dump_cookies;
 
     const String& title() const { return m_title; }
     const Gfx::Bitmap* icon() const { return m_icon; }
@@ -100,9 +107,9 @@ private:
     RefPtr<GUI::Button> m_bookmark_button;
     RefPtr<GUI::Window> m_dom_inspector_window;
     RefPtr<GUI::Window> m_console_window;
-    RefPtr<GUI::StatusBar> m_statusbar;
-    RefPtr<GUI::MenuBar> m_menubar;
-    RefPtr<GUI::ToolBarContainer> m_toolbar_container;
+    RefPtr<GUI::Statusbar> m_statusbar;
+    RefPtr<GUI::Menubar> m_menubar;
+    RefPtr<GUI::ToolbarContainer> m_toolbar_container;
 
     RefPtr<GUI::Menu> m_link_context_menu;
     RefPtr<GUI::Action> m_link_context_menu_default_action;
@@ -111,6 +118,9 @@ private:
     RefPtr<GUI::Menu> m_image_context_menu;
     Gfx::ShareableBitmap m_image_context_menu_bitmap;
     URL m_image_context_menu_url;
+
+    GUI::ActionGroup m_user_agent_spoof_actions;
+    RefPtr<GUI::Action> m_disable_user_agent_spoofing;
 
     RefPtr<GUI::Menu> m_tab_context_menu;
     RefPtr<GUI::Menu> m_page_context_menu;

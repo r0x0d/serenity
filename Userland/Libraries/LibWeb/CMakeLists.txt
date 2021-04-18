@@ -11,6 +11,7 @@ set(SOURCES
     Bindings/ScriptExecutionContext.cpp
     Bindings/WindowObject.cpp
     Bindings/Wrappable.cpp
+    Cookie/ParsedCookie.cpp
     CSS/CSSImportRule.cpp
     CSS/CSSRule.cpp
     CSS/CSSStyleDeclaration.cpp
@@ -192,6 +193,7 @@ set(SOURCES
     Loader/FrameLoader.cpp
     Loader/ImageLoader.cpp
     Loader/ImageResource.cpp
+    Loader/LoadRequest.cpp
     Loader/Resource.cpp
     Loader/ResourceLoader.cpp
     Namespace.cpp

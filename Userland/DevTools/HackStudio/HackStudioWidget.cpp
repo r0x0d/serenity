@@ -43,6 +43,7 @@
 #include "HackStudioWidget.h"
 #include "Locator.h"
 #include "Project.h"
+#include "ProjectDeclarations.h"
 #include "TerminalWrapper.h"
 #include "WidgetTool.h"
 #include "WidgetTreeModel.h"
@@ -65,7 +66,7 @@
 #include <LibGUI/ItemListModel.h>
 #include <LibGUI/Label.h>
 #include <LibGUI/Menu.h>
-#include <LibGUI/MenuBar.h>
+#include <LibGUI/Menubar.h>
 #include <LibGUI/MessageBox.h>
 #include <LibGUI/RegularEditingEngine.h>
 #include <LibGUI/Splitter.h>
@@ -74,8 +75,8 @@
 #include <LibGUI/TableView.h>
 #include <LibGUI/TextBox.h>
 #include <LibGUI/TextEditor.h>
-#include <LibGUI/ToolBar.h>
-#include <LibGUI/ToolBarContainer.h>
+#include <LibGUI/Toolbar.h>
+#include <LibGUI/ToolbarContainer.h>
 #include <LibGUI/TreeView.h>
 #include <LibGUI/VimEditingEngine.h>
 #include <LibGUI/Widget.h>
@@ -102,13 +103,13 @@ HackStudioWidget::HackStudioWidget(const String& path_to_project)
 
     open_project(path_to_project);
 
-    auto& toolbar_container = add<GUI::ToolBarContainer>();
+    auto& toolbar_container = add<GUI::ToolbarContainer>();
 
     auto& outer_splitter = add<GUI::HorizontalSplitter>();
 
     auto& left_hand_splitter = outer_splitter.add<GUI::VerticalSplitter>();
     left_hand_splitter.set_fixed_width(150);
-    create_project_tree_view(left_hand_splitter);
+    create_project_tab(left_hand_splitter);
     m_project_tree_view_context_menu = create_project_tree_view_context_menu();
 
     create_open_files_view(left_hand_splitter);
@@ -177,12 +178,11 @@ void HackStudioWidget::update_actions()
 void HackStudioWidget::on_action_tab_change()
 {
     update_actions();
-    auto git_widget = m_action_tab_widget->active_widget();
-    if (!git_widget)
+    auto active_widget = m_action_tab_widget->active_widget();
+    if (!active_widget)
         return;
-    if (StringView { "GitWidget" } != git_widget->class_name())
-        return;
-    reinterpret_cast<GitWidget*>(git_widget)->refresh();
+    if (StringView { "GitWidget" } == active_widget->class_name())
+        reinterpret_cast<GitWidget*>(active_widget)->refresh();
 }
 
 void HackStudioWidget::open_project(const String& root_path)
@@ -198,7 +198,9 @@ void HackStudioWidget::open_project(const String& root_path)
         m_project_tree_view->update();
     }
     if (Debugger::is_initialized()) {
-        Debugger::the().reset_breakpoints();
+        auto& debugger = Debugger::the();
+        debugger.reset_breakpoints();
+        debugger.set_source_root(m_project->root_path());
     }
 }
 
@@ -542,7 +544,7 @@ NonnullRefPtr<GUI::Action> HackStudioWidget::create_remove_current_editor_action
 NonnullRefPtr<GUI::Action> HackStudioWidget::create_open_action()
 {
     return GUI::Action::create("&Open Project...", { Mod_Ctrl | Mod_Shift, Key_O }, Gfx::Bitmap::load_from_file("/res/icons/16x16/open.png"), [this](auto&) {
-        auto open_path = GUI::FilePicker::get_open_filepath(window(), "Open project");
+        auto open_path = GUI::FilePicker::get_open_filepath(window(), "Open project", Core::StandardPaths::home_directory(), true);
         if (!open_path.has_value())
             return;
         open_project(open_path.value());
@@ -741,9 +743,8 @@ void HackStudioWidget::set_current_editor_wrapper(RefPtr<EditorWrapper> editor_w
     m_current_editor_wrapper = editor_wrapper;
 }
 
-void HackStudioWidget::create_project_tree_view(GUI::Widget& parent)
+void HackStudioWidget::configure_project_tree_view()
 {
-    m_project_tree_view = parent.add<GUI::TreeView>();
     m_project_tree_view->set_model(m_project->model());
     m_project_tree_view->set_selection_mode(GUI::AbstractView::SelectionMode::MultiSelection);
 
@@ -784,7 +785,7 @@ void HackStudioWidget::create_form_editor(GUI::Widget& parent)
 {
     m_form_inner_container = parent.add<GUI::Widget>();
     m_form_inner_container->set_layout<GUI::HorizontalBoxLayout>();
-    auto& form_widgets_toolbar = m_form_inner_container->add<GUI::ToolBar>(Orientation::Vertical, 26);
+    auto& form_widgets_toolbar = m_form_inner_container->add<GUI::Toolbar>(Orientation::Vertical, 26);
     form_widgets_toolbar.set_fixed_width(38);
 
     GUI::ActionGroup tool_actions;
@@ -867,7 +868,7 @@ void HackStudioWidget::create_form_editor(GUI::Widget& parent)
 
 void HackStudioWidget::create_toolbar(GUI::Widget& parent)
 {
-    auto& toolbar = parent.add<GUI::ToolBar>();
+    auto& toolbar = parent.add<GUI::Toolbar>();
     toolbar.add_action(*m_new_file_action);
     toolbar.add_action(*m_new_directory_action);
     toolbar.add_action(*m_save_action);
@@ -935,7 +936,21 @@ void HackStudioWidget::create_action_tab(GUI::Widget& parent)
     });
 }
 
-void HackStudioWidget::create_app_menubar(GUI::MenuBar& menubar)
+void HackStudioWidget::create_project_tab(GUI::Widget& parent)
+{
+    m_project_tab = parent.add<GUI::TabWidget>();
+    m_project_tab->set_tab_position(GUI::TabWidget::TabPosition::Bottom);
+    m_project_tree_view = m_project_tab->add_tab<GUI::TreeView>("Files");
+    configure_project_tree_view();
+
+    m_class_view = m_project_tab->add_tab<ClassViewWidget>("ClassView");
+
+    ProjectDeclarations::the().on_update = [this]() {
+        m_class_view->refresh();
+    };
+}
+
+void HackStudioWidget::create_app_menubar(GUI::Menubar& menubar)
 {
     auto& file_menu = menubar.add_menu("&File");
     file_menu.add_action(*m_new_project_action);
@@ -947,7 +962,7 @@ void HackStudioWidget::create_app_menubar(GUI::MenuBar& menubar)
     }));
 }
 
-void HackStudioWidget::create_project_menubar(GUI::MenuBar& menubar)
+void HackStudioWidget::create_project_menubar(GUI::Menubar& menubar)
 {
     auto& project_menu = menubar.add_menu("&Project");
     project_menu.add_action(*m_new_file_action);
@@ -956,7 +971,7 @@ void HackStudioWidget::create_project_menubar(GUI::MenuBar& menubar)
     project_menu.add_action(*create_set_autocomplete_mode_action());
 }
 
-void HackStudioWidget::create_edit_menubar(GUI::MenuBar& menubar)
+void HackStudioWidget::create_edit_menubar(GUI::Menubar& menubar)
 {
     auto& edit_menu = menubar.add_menu("&Edit");
     edit_menu.add_action(GUI::Action::create("Find in Files...", { Mod_Ctrl | Mod_Shift, Key_F }, Gfx::Bitmap::load_from_file("/res/icons/16x16/find.png"), [this](auto&) {
@@ -976,7 +991,7 @@ void HackStudioWidget::create_edit_menubar(GUI::MenuBar& menubar)
     edit_menu.add_action(vim_emulation_setting_action);
 }
 
-void HackStudioWidget::create_build_menubar(GUI::MenuBar& menubar)
+void HackStudioWidget::create_build_menubar(GUI::Menubar& menubar)
 {
     auto& build_menu = menubar.add_menu("&Build");
     build_menu.add_action(*m_build_action);
@@ -987,7 +1002,7 @@ void HackStudioWidget::create_build_menubar(GUI::MenuBar& menubar)
     build_menu.add_action(*m_debug_action);
 }
 
-void HackStudioWidget::create_view_menubar(GUI::MenuBar& menubar)
+void HackStudioWidget::create_view_menubar(GUI::Menubar& menubar)
 {
     auto hide_action_tabs_action = GUI::Action::create("&Hide Action Tabs", { Mod_Ctrl | Mod_Shift, Key_X }, [this](auto&) {
         hide_action_tabs();
@@ -1033,7 +1048,7 @@ void HackStudioWidget::create_view_menubar(GUI::MenuBar& menubar)
     view_menu.add_action(*m_remove_current_terminal_action);
 }
 
-void HackStudioWidget::create_help_menubar(GUI::MenuBar& menubar)
+void HackStudioWidget::create_help_menubar(GUI::Menubar& menubar)
 {
     auto& help_menu = menubar.add_menu("Help");
     help_menu.add_action(GUI::CommonActions::make_about_action("Hack Studio", GUI::Icon::default_icon("app-hack-studio"), window()));
@@ -1058,7 +1073,7 @@ NonnullRefPtr<GUI::Action> HackStudioWidget::create_set_autocomplete_mode_action
     return action;
 }
 
-void HackStudioWidget::initialize_menubar(GUI::MenuBar& menubar)
+void HackStudioWidget::initialize_menubar(GUI::Menubar& menubar)
 {
     create_app_menubar(menubar);
     create_project_menubar(menubar);

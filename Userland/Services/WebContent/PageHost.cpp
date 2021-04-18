@@ -28,6 +28,7 @@
 #include "ClientConnection.h"
 #include <LibGfx/Painter.h>
 #include <LibGfx/SystemTheme.h>
+#include <LibWeb/Cookie/ParsedCookie.h>
 #include <LibWeb/Layout/InitialContainingBlockBox.h>
 #include <LibWeb/Page/Frame.h>
 #include <WebContent/WebContentClientEndpoint.h>
@@ -206,6 +207,16 @@ void PageHost::page_did_change_favicon(const Gfx::Bitmap& favicon)
 void PageHost::page_did_request_image_context_menu(const Gfx::IntPoint& content_position, const URL& url, const String& target, unsigned modifiers, const Gfx::Bitmap* bitmap)
 {
     m_client.post_message(Messages::WebContentClient::DidRequestImageContextMenu(content_position, url, target, modifiers, bitmap->to_shareable_bitmap()));
+}
+
+String PageHost::page_did_request_cookie(const URL& url, Web::Cookie::Source source)
+{
+    return m_client.send_sync<Messages::WebContentClient::DidRequestCookie>(url, static_cast<u8>(source))->cookie();
+}
+
+void PageHost::page_did_set_cookie(const URL& url, const Web::Cookie::ParsedCookie& cookie, Web::Cookie::Source source)
+{
+    m_client.post_message(Messages::WebContentClient::DidSetCookie(url, cookie, static_cast<u8>(source)));
 }
 
 }

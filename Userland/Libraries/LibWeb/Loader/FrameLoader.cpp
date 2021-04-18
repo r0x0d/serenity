@@ -204,9 +204,7 @@ bool FrameLoader::load(const URL& url, Type type)
         return false;
     }
 
-    LoadRequest request;
-    request.set_url(url);
-
+    auto request = LoadRequest::create_for_url_on_page(url, frame().page());
     return load(request, type);
 }
 
@@ -273,6 +271,11 @@ void FrameLoader::resource_did_load()
         load_error_page(url, "Failed to parse content.");
         return;
     }
+
+    // FIXME: Support multiple instances of the Set-Cookie response header.
+    auto set_cookie = resource()->response_headers().get("Set-Cookie");
+    if (set_cookie.has_value())
+        document->set_cookie(set_cookie.value(), Cookie::Source::Http);
 
     if (!url.fragment().is_empty())
         frame().scroll_to_anchor(url.fragment());

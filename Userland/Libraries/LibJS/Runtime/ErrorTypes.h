@@ -148,8 +148,9 @@
                                         "target is non-extensible")                                                                     \
     M(ProxyTwoArguments, "Proxy constructor requires at least two arguments")                                                           \
     M(ReduceNoInitial, "Reduce of empty array with no initial value")                                                                   \
-    M(ReferenceNullishAssignment, "Cannot set property '{}' of {}")                                                                     \
-    M(ReferencePrimitiveAssignment, "Cannot set property '{}' of {} '{}'")                                                              \
+    M(ReferenceNullishGetProperty, "Cannot get property '{}' of {}")                                                                    \
+    M(ReferenceNullishSetProperty, "Cannot set property '{}' of {}")                                                                    \
+    M(ReferencePrimitiveSetProperty, "Cannot set property '{}' of {} '{}'")                                                             \
     M(ReferenceUnresolvable, "Unresolvable reference")                                                                                  \
     M(ReflectArgumentMustBeAFunction, "First argument of Reflect.{}() must be a function")                                              \
     M(ReflectArgumentMustBeAnObject, "First argument of Reflect.{}() must be an object")                                                \
@@ -170,6 +171,7 @@
     M(TypedArrayOutOfRangeByteOffset, "Typed array byte offset {} is out of range for buffer with length {}")                           \
     M(TypedArrayOutOfRangeByteOffsetOrLength, "Typed array range {}:{} is out of range for buffer with length {}")                      \
     M(UnknownIdentifier, "'{}' is not defined")                                                                                         \
+    M(URIMalformed, "URI malformed")                                                                                                    \
     /* LibWeb bindings */                                                                                                               \
     M(NotAByteString, "Argument to {}() must be a byte string")                                                                         \
     M(BadArgCountOne, "{}() needs one argument")                                                                                        \

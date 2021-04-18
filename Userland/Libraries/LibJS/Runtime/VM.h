@@ -86,11 +86,8 @@ public:
     void push_interpreter(Interpreter&);
     void pop_interpreter(Interpreter&);
 
-    Exception* exception()
-    {
-        return m_exception;
-    }
-
+    Exception* exception() { return m_exception; }
+    void set_exception(Exception& exception) { m_exception = &exception; }
     void clear_exception() { m_exception = nullptr; }
 
     class InterpreterExecutionScope {
@@ -124,7 +121,7 @@ public:
         // Ensure we got some stack space left, so the next function call doesn't kill us.
         // This value is merely a guess and might need tweaking at a later point.
         if (m_stack_info.size_free() < 16 * KiB)
-            throw_exception<Error>(global_object, "RuntimeError", "Call stack size limit exceeded");
+            throw_exception<Error>(global_object, "Call stack size limit exceeded");
         else
             m_call_stack.append(&call_frame);
     }
@@ -185,7 +182,11 @@ public:
         m_unwind_until = type;
         m_unwind_until_label = label;
     }
-    void stop_unwind() { m_unwind_until = ScopeType::None; }
+    void stop_unwind()
+    {
+        m_unwind_until = ScopeType::None;
+        m_unwind_until_label = {};
+    }
     bool should_unwind_until(ScopeType type, FlyString label = {}) const
     {
         if (m_unwind_until_label.is_null())
@@ -207,10 +208,10 @@ public:
         return throw_exception(global_object, T::create(global_object, forward<Args>(args)...));
     }
 
-    void throw_exception(Exception*);
+    void throw_exception(Exception&);
     void throw_exception(GlobalObject& global_object, Value value)
     {
-        return throw_exception(heap().allocate<Exception>(global_object, value));
+        return throw_exception(*heap().allocate<Exception>(global_object, value));
     }
 
     template<typename T, typename... Args>

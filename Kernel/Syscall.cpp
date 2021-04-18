@@ -87,7 +87,7 @@ UNMAP_AFTER_INIT void initialize()
 typedef KResultOr<FlatPtr> (Process::*Handler)(FlatPtr, FlatPtr, FlatPtr);
 typedef KResultOr<FlatPtr> (Process::*HandlerWithRegisterState)(RegisterState&);
 #define __ENUMERATE_SYSCALL(x) reinterpret_cast<Handler>(&Process::sys$##x),
-static Handler s_syscall_table[] = {
+static const Handler s_syscall_table[] = {
     ENUMERATE_SYSCALLS(__ENUMERATE_SYSCALL)
 };
 #undef __ENUMERATE_SYSCALL
@@ -138,7 +138,16 @@ KResultOr<FlatPtr> handle(RegisterState& regs, FlatPtr function, FlatPtr arg1, F
         dbgln("Null syscall {} requested, you probably need to rebuild this program!", function);
         return ENOSYS;
     }
+
+    // This appears to be a bogus warning, as s_syscall_table is always
+    // initialized, and the index (function) is always bounded.
+    // TODO: Figure out how to avoid the suppression.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+
     return (process.*(s_syscall_table[function]))(arg1, arg2, arg3);
+
+#pragma GCC diagnostic pop
 }
 
 }

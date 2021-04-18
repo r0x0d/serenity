@@ -183,6 +183,29 @@ test("typed array created from TypedArray do not share buffer", () => {
     expect(u8Array[1]).toBe(2);
 });
 
+test("typed array from Array-Like", () => {
+    TYPED_ARRAYS.forEach(T => {
+        function func() {
+            const newTypedArray = new T(arguments);
+            expect(newTypedArray[0]).toBe(1);
+            expect(newTypedArray[1]).toBe(2);
+            expect(newTypedArray[2]).toBe(3);
+        }
+        func(1, 2, 3);
+    });
+});
+
+test("typed array from Iterable", () => {
+    const from = new String("123");
+
+    TYPED_ARRAYS.forEach(T => {
+        const newTypedArray = new T(from);
+        expect(newTypedArray[0]).toBe(1);
+        expect(newTypedArray[1]).toBe(2);
+        expect(newTypedArray[2]).toBe(3);
+    });
+});
+
 test("TypedArray is not exposed on the global object", () => {
     expect(globalThis.TypedArray).toBeUndefined();
 });

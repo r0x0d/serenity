@@ -48,6 +48,8 @@ public:
     Function<void(DOM::Document*)> on_set_document;
     Function<void(const URL&, const String&)> on_get_source;
     Function<void(const String& method, const String& line)> on_js_console_output;
+    Function<String(const URL& url, Cookie::Source source)> on_get_cookie;
+    Function<void(const URL& url, const Cookie::ParsedCookie& cookie, Cookie::Source source)> on_set_cookie;
 };
 
 }

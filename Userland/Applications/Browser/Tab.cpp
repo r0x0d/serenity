@@ -38,13 +38,14 @@
 #include <LibGUI/BoxLayout.h>
 #include <LibGUI/Button.h>
 #include <LibGUI/Clipboard.h>
+#include <LibGUI/InputBox.h>
 #include <LibGUI/Menu.h>
-#include <LibGUI/MenuBar.h>
-#include <LibGUI/StatusBar.h>
+#include <LibGUI/Menubar.h>
+#include <LibGUI/Statusbar.h>
 #include <LibGUI/TabWidget.h>
 #include <LibGUI/TextBox.h>
-#include <LibGUI/ToolBar.h>
-#include <LibGUI/ToolBarContainer.h>
+#include <LibGUI/Toolbar.h>
+#include <LibGUI/ToolbarContainer.h>
 #include <LibGUI/Window.h>
 #include <LibJS/Interpreter.h>
 #include <LibWeb/Dump.h>
@@ -99,8 +100,8 @@ Tab::Tab(Type type)
 {
     load_from_gml(tab_gml);
 
-    m_toolbar_container = *find_descendant_of_type_named<GUI::ToolBarContainer>("toolbar_container");
-    auto& toolbar = *find_descendant_of_type_named<GUI::ToolBar>("toolbar");
+    m_toolbar_container = *find_descendant_of_type_named<GUI::ToolbarContainer>("toolbar_container");
+    auto& toolbar = *find_descendant_of_type_named<GUI::Toolbar>("toolbar");
 
     auto& webview_container = *find_descendant_of_type_named<GUI::Widget>("webview_container");
 
@@ -136,7 +137,7 @@ Tab::Tab(Type type)
     }));
 
     m_bookmark_button = toolbar.add<GUI::Button>();
-    m_bookmark_button->set_button_style(Gfx::ButtonStyle::CoolBar);
+    m_bookmark_button->set_button_style(Gfx::ButtonStyle::Coolbar);
     m_bookmark_button->set_focus_policy(GUI::FocusPolicy::TabFocus);
     m_bookmark_button->set_icon(Gfx::Bitmap::load_from_file("/res/icons/16x16/bookmark-contour.png"));
     m_bookmark_button->set_fixed_size(22, 22);
@@ -242,6 +243,17 @@ Tab::Tab(Type type)
             on_favicon_change(icon);
     };
 
+    hooks().on_get_cookie = [this](auto& url, auto source) -> String {
+        if (on_get_cookie)
+            return on_get_cookie(url, source);
+        return {};
+    };
+
+    hooks().on_set_cookie = [this](auto& url, auto& cookie, auto source) {
+        if (on_set_cookie)
+            on_set_cookie(url, cookie, source);
+    };
+
     hooks().on_get_source = [this](auto& url, auto& source) {
         view_source(url, source);
     };
@@ -269,7 +281,7 @@ Tab::Tab(Type type)
         },
         this);
 
-    m_statusbar = *find_descendant_of_type_named<GUI::StatusBar>("statusbar");
+    m_statusbar = *find_descendant_of_type_named<GUI::Statusbar>("statusbar");
 
     hooks().on_link_hover = [this](auto& url) {
         if (url.is_valid())
@@ -282,7 +294,7 @@ Tab::Tab(Type type)
         load(url);
     };
 
-    m_menubar = GUI::MenuBar::construct();
+    m_menubar = GUI::Menubar::construct();
 
     auto& app_menu = m_menubar->add_menu("&File");
     app_menu.add_action(WindowActions::the().create_new_tab_action());
@@ -429,6 +441,10 @@ Tab::Tab(Type type)
     debug_menu.add_action(GUI::Action::create("Dump &History", { Mod_Ctrl, Key_H }, [&](auto&) {
         m_history.dump();
     }));
+    debug_menu.add_action(GUI::Action::create("Dump C&ookies", [&](auto&) {
+        if (on_dump_cookies)
+            on_dump_cookies();
+    }));
     debug_menu.add_separator();
     auto line_box_borders_action = GUI::Action::create_checkable(
         "&Line Box Borders", [this](auto& action) {
@@ -460,6 +476,55 @@ Tab::Tab(Type type)
             m_web_content_view->debug_request("clear-cache");
         }
     }));
+
+    m_user_agent_spoof_actions.set_exclusive(true);
+    auto& spoof_user_agent_menu = debug_menu.add_submenu("Spoof User Agent");
+    m_disable_user_agent_spoofing = GUI::Action::create_checkable("Disabled", [&](auto&) {
+        if (m_type == Type::InProcessWebView) {
+            Web::ResourceLoader::the().set_user_agent(Web::default_user_agent);
+        } else {
+            m_web_content_view->debug_request("spoof-user-agent", Web::default_user_agent);
+        }
+    });
+    m_disable_user_agent_spoofing->set_long_text(Web::default_user_agent);
+    spoof_user_agent_menu.add_action(*m_disable_user_agent_spoofing);
+    m_user_agent_spoof_actions.add_action(*m_disable_user_agent_spoofing);
+    m_disable_user_agent_spoofing->set_checked(true);
+
+    auto add_user_agent = [&](auto& name, auto& user_agent) {
+        auto action = GUI::Action::create_checkable(name, [&](auto&) {
+            if (m_type == Type::InProcessWebView) {
+                Web::ResourceLoader::the().set_user_agent(user_agent);
+            } else {
+                m_web_content_view->debug_request("spoof-user-agent", user_agent);
+            }
+        });
+        action->set_long_text(user_agent);
+        spoof_user_agent_menu.add_action(action);
+        m_user_agent_spoof_actions.add_action(action);
+    };
+    add_user_agent("Chrome Linux Desktop", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/89.0.4389.128 Safari/537.36");
+    add_user_agent("Firefox Linux Desktop", "Mozilla/5.0 (X11; Linux i686; rv:87.0) Gecko/20100101 Firefox/87.0");
+    add_user_agent("Safari macOS Desktop", "Mozilla/5.0 (Macintosh; Intel Mac OS X 11_2_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0.3 Safari/605.1.15");
+    add_user_agent("Chrome Android Mobile", "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.66 Mobile Safari/537.36");
+    add_user_agent("Firefox Android Mobile", "Mozilla/5.0 (Android 11; Mobile; rv:68.0) Gecko/68.0 Firefox/86.0");
+    add_user_agent("Safari iOS Mobile", "Mozilla/5.0 (iPhone; CPU iPhone OS 14_4_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1");
+
+    auto custom_user_agent = GUI::Action::create_checkable("Custom", [&](auto& action) {
+        String user_agent;
+        if (GUI::InputBox::show(window(), user_agent, "Enter User Agent:", "Custom User Agent") != GUI::InputBox::ExecOK || user_agent.is_empty() || user_agent.is_null()) {
+            m_disable_user_agent_spoofing->activate();
+            return;
+        }
+        if (m_type == Type::InProcessWebView) {
+            Web::ResourceLoader::the().set_user_agent(user_agent);
+        } else {
+            m_web_content_view->debug_request("spoof-user-agent", user_agent);
+        }
+        action.set_long_text(user_agent);
+    });
+    spoof_user_agent_menu.add_action(custom_user_agent);
+    m_user_agent_spoof_actions.add_action(custom_user_agent);
 
     auto& help_menu = m_menubar->add_menu("&Help");
     help_menu.add_action(WindowActions::the().about_action());
@@ -589,6 +654,27 @@ Web::WebViewHooks& Tab::hooks()
     if (m_type == Type::InProcessWebView)
         return *m_page_view;
     return *m_web_content_view;
+}
+
+void Tab::action_entered(GUI::Action& action)
+{
+    m_user_agent_spoof_actions.for_each_action([&](GUI::Action& user_agent_action) {
+        if (&action != &user_agent_action)
+            return IterationDecision::Continue;
+        if (!user_agent_action.long_text().is_empty())
+            m_statusbar->set_override_text(user_agent_action.long_text());
+        return IterationDecision::Break;
+    });
+}
+
+void Tab::action_left(GUI::Action& action)
+{
+    m_user_agent_spoof_actions.for_each_action([&](auto& user_agent_action) {
+        if (&action != &user_agent_action)
+            return IterationDecision::Continue;
+        m_statusbar->set_override_text({});
+        return IterationDecision::Break;
+    });
 }
 
 }

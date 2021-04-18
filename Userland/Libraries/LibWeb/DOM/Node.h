@@ -93,14 +93,17 @@ public:
 
     virtual bool is_editable() const;
 
-    NonnullRefPtr<Node> pre_insert(NonnullRefPtr<Node>, RefPtr<Node>);
-    NonnullRefPtr<Node> pre_remove(NonnullRefPtr<Node>);
+    ExceptionOr<NonnullRefPtr<Node>> pre_insert(NonnullRefPtr<Node>, RefPtr<Node>);
+    ExceptionOr<NonnullRefPtr<Node>> pre_remove(NonnullRefPtr<Node>);
 
-    NonnullRefPtr<Node> append_child(NonnullRefPtr<Node>);
+    ExceptionOr<NonnullRefPtr<Node>> append_child(NonnullRefPtr<Node>);
     void insert_before(NonnullRefPtr<Node> node, RefPtr<Node> child, bool suppress_observers = false);
     void remove(bool suppress_observers = false);
     void remove_all_children(bool suppress_observers = false);
     u16 compare_document_position(RefPtr<Node> other);
+
+    NonnullRefPtr<Node> clone_node(Document* document = nullptr, bool clone_children = false) const;
+    ExceptionOr<NonnullRefPtr<Node>> clone_node_binding(bool deep) const;
 
     // NOTE: This is intended for the JS bindings.
     bool has_child_nodes() const { return has_children(); }
@@ -174,8 +177,6 @@ public:
     ExceptionOr<void> ensure_pre_insertion_validity(NonnullRefPtr<Node> node, RefPtr<Node> child) const;
 
     bool is_host_including_inclusive_ancestor_of(const Node&) const;
-
-    size_t element_child_count() const;
 
 protected:
     Node(Document&, NodeType);

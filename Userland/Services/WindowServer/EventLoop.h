@@ -51,7 +51,8 @@ private:
     RefPtr<Core::Notifier> m_keyboard_notifier;
     int m_mouse_fd { -1 };
     RefPtr<Core::Notifier> m_mouse_notifier;
-    RefPtr<Core::LocalServer> m_server;
+    RefPtr<Core::LocalServer> m_window_server;
+    RefPtr<Core::LocalServer> m_wm_server;
 };
 
 }

@@ -31,8 +31,8 @@
 
 namespace AK {
 
-LexicalPath::LexicalPath(const StringView& s)
-    : m_string(s)
+LexicalPath::LexicalPath(String s)
+    : m_string(move(s))
 {
     canonicalize();
     m_is_valid = true;
@@ -114,12 +114,12 @@ bool LexicalPath::has_extension(const StringView& extension) const
     return m_string.ends_with(extension, CaseSensitivity::CaseInsensitive);
 }
 
-String LexicalPath::canonicalized_path(const StringView& path)
+String LexicalPath::canonicalized_path(String path)
 {
-    return LexicalPath(path).string();
+    return LexicalPath(move(path)).string();
 }
 
-String LexicalPath::relative_path(const String absolute_path, const String& prefix)
+String LexicalPath::relative_path(String absolute_path, const String& prefix)
 {
     if (!LexicalPath { absolute_path }.is_absolute() || !LexicalPath { prefix }.is_absolute())
         return {};
@@ -127,7 +127,9 @@ String LexicalPath::relative_path(const String absolute_path, const String& pref
     if (!absolute_path.starts_with(prefix))
         return absolute_path;
 
-    size_t prefix_length = LexicalPath { prefix }.string().length() + 1;
+    size_t prefix_length = LexicalPath { prefix }.string().length();
+    if (prefix != "/")
+        prefix_length++;
     if (prefix_length >= absolute_path.length())
         return {};
 

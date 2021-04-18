@@ -39,7 +39,6 @@ public:
 
     void open();
     void close();
-    void set_declared_symbols(const String& filename, const Vector<GUI::AutocompleteProvider::Declaration>&);
 
 private:
     void update_suggestions();
@@ -50,7 +49,6 @@ private:
     RefPtr<GUI::TextBox> m_textbox;
     RefPtr<GUI::Window> m_popup_window;
     RefPtr<GUI::TableView> m_suggestion_view;
-    HashMap<String, Vector<GUI::AutocompleteProvider::Declaration>> m_document_to_declarations;
 };
 
 }

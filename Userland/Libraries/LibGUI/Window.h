@@ -80,8 +80,10 @@ public:
 
     int window_id() const { return m_window_id; }
 
+    void make_window_manager(unsigned event_mask);
+
     String title() const;
-    void set_title(const StringView&);
+    void set_title(String);
 
     Color background_color() const { return m_background_color; }
     void set_background_color(Color color) { m_background_color = color; }
@@ -211,7 +213,7 @@ public:
 
     void did_disable_focused_widget(Badge<Widget>);
 
-    void set_menubar(RefPtr<MenuBar>);
+    void set_menubar(RefPtr<Menubar>);
 
 protected:
     Window(Core::Object* parent = nullptr);
@@ -245,7 +247,7 @@ private:
     OwnPtr<WindowBackingStore> m_front_store;
     OwnPtr<WindowBackingStore> m_back_store;
 
-    RefPtr<MenuBar> m_menubar;
+    RefPtr<Menubar> m_menubar;
 
     RefPtr<Gfx::Bitmap> m_icon;
     RefPtr<Gfx::Bitmap> m_custom_cursor;

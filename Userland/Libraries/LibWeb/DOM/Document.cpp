@@ -34,6 +34,7 @@
 #include <LibWeb/Bindings/MainThreadVM.h>
 #include <LibWeb/Bindings/WindowObject.h>
 #include <LibWeb/CSS/StyleResolver.h>
+#include <LibWeb/Cookie/ParsedCookie.h>
 #include <LibWeb/DOM/Comment.h>
 #include <LibWeb/DOM/DOMException.h>
 #include <LibWeb/DOM/Document.h>
@@ -660,7 +661,7 @@ NonnullRefPtr<Event> Document::create_event(const String& interface)
     } else if (interface_lowercase == "messageevent") {
         event = Event::create(""); // FIXME: Create MessageEvent
     } else if (interface_lowercase.is_one_of("mouseevent", "mouseevents")) {
-        event = UIEvents::MouseEvent::create("", 0, 0);
+        event = UIEvents::MouseEvent::create("", 0, 0, 0, 0);
     } else if (interface_lowercase == "storageevent") {
         event = Event::create(""); // FIXME: Create StorageEvent
     } else if (interface_lowercase == "svgevents") {
@@ -743,17 +744,13 @@ void Document::adopt_node(Node& node)
 }
 
 // https://dom.spec.whatwg.org/#dom-document-adoptnode
-NonnullRefPtr<Node> Document::adopt_node_binding(NonnullRefPtr<Node> node)
+ExceptionOr<NonnullRefPtr<Node>> Document::adopt_node_binding(NonnullRefPtr<Node> node)
 {
-    if (is<Document>(*node)) {
-        dbgln("Document::adopt_node_binding: Cannot adopt a document into a document (FIXME: throw as NotSupportedError exception, see issue #6075");
-        return node;
-    }
+    if (is<Document>(*node))
+        return DOM ::NotSupportedError::create("Cannot adopt a document into a document");
 
-    if (is<ShadowRoot>(*node)) {
-        dbgln("Document::adopt_node_binding: Cannot adopt a shadow root into a document (FIXME: throw as HierarchyRequestError exception, see issue #6075");
-        return node;
-    }
+    if (is<ShadowRoot>(*node))
+        return DOM::HierarchyRequestError::create("Cannot adopt a shadow root into a document");
 
     if (is<DocumentFragment>(*node) && downcast<DocumentFragment>(*node).host())
         return node;
@@ -825,15 +822,21 @@ void Document::completely_finish_loading()
     dispatch_event(DOM::Event::create(HTML::EventNames::load));
 }
 
-String Document::cookie() const
+String Document::cookie(Cookie::Source source)
 {
-    // FIXME: Support cookies!
+    if (auto* page = this->page())
+        return page->client().page_did_request_cookie(m_url, source);
     return {};
 }
 
-void Document::set_cookie(String)
+void Document::set_cookie(String cookie_string, Cookie::Source source)
 {
-    // FIXME: Support cookies!
+    auto cookie = Cookie::parse_cookie(cookie_string);
+    if (!cookie.has_value())
+        return;
+
+    if (auto* page = this->page())
+        page->client().page_did_set_cookie(m_url, cookie.value(), source);
 }
 
 }

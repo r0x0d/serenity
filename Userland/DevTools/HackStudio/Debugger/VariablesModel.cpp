@@ -83,7 +83,8 @@ static String variable_value_as_string(const Debug::DebugInfo::VariableInfo& var
         auto it = variable.type->members.find_if([&enumerator_value = value.value()](const auto& enumerator) {
             return enumerator->constant_data.as_u32 == enumerator_value;
         });
-        VERIFY(!it.is_end());
+        if (it.is_end())
+            return String::formatted("Unknown ({})", value.value());
         return String::formatted("{}::{}", variable.type_name, (*it)->name);
     }
 
@@ -96,7 +97,7 @@ static String variable_value_as_string(const Debug::DebugInfo::VariableInfo& var
     if (variable.type_name == "char") {
         auto value = Debugger::the().session()->peek((u32*)variable_address);
         VERIFY(value.has_value());
-        return String::formatted("'{0:c}' ({0:d})", value.value());
+        return String::formatted("'{0:c}'", (char)value.value());
     }
 
     if (variable.type_name == "bool") {

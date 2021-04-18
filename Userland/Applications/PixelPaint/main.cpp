@@ -44,7 +44,7 @@
 #include <LibGUI/Clipboard.h>
 #include <LibGUI/FilePicker.h>
 #include <LibGUI/Icon.h>
-#include <LibGUI/MenuBar.h>
+#include <LibGUI/Menubar.h>
 #include <LibGUI/MessageBox.h>
 #include <LibGUI/Window.h>
 #include <LibGfx/Bitmap.h>
@@ -114,7 +114,7 @@ int main(int argc, char** argv)
 
     window->show();
 
-    auto menubar = GUI::MenuBar::construct();
+    auto menubar = GUI::Menubar::construct();
     auto& file_menu = menubar->add_menu("&File");
 
     auto open_image_file = [&](auto& path) {
@@ -217,6 +217,25 @@ int main(int argc, char** argv)
         image_editor.redo();
     });
     edit_menu.add_action(redo_action);
+
+    auto& view_menu = menubar->add_menu("&View");
+    view_menu.add_action(GUI::Action::create(
+        "Zoom &In", { Mod_Ctrl, Key_Equal }, [&](auto&) {
+            image_editor.scale_by(0.1f);
+        },
+        window));
+
+    view_menu.add_action(GUI::Action::create(
+        "Zoom &Out", { Mod_Ctrl, Key_Minus }, [&](auto&) {
+            image_editor.scale_by(-0.1f);
+        },
+        window));
+
+    view_menu.add_action(GUI::Action::create(
+        "&Reset Zoom", { Mod_Ctrl, Key_0 }, [&](auto&) {
+            image_editor.reset_scale_and_position();
+        },
+        window));
 
     auto& tool_menu = menubar->add_menu("&Tool");
     toolbox.for_each_tool([&](auto& tool) {

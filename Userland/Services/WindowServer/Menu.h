@@ -41,7 +41,7 @@
 namespace WindowServer {
 
 class ClientConnection;
-class MenuBar;
+class Menubar;
 
 class Menu final : public Core::Object {
     C_OBJECT(Menu);
@@ -101,11 +101,7 @@ public:
 
     MenuItem* hovered_item() const;
 
-    void set_hovered_item(int index)
-    {
-        m_hovered_item_index = index;
-        update_for_new_hovered_item();
-    }
+    void set_hovered_index(int index, bool make_input = false);
 
     void clear_hovered_item();
 

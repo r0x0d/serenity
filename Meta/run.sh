@@ -53,7 +53,11 @@ $SERENITY_EXTRA_QEMU_ARGS
 -drive file=${SERENITY_DISK_IMAGE},format=raw,index=0,media=disk
 -device ich9-ahci
 -usb
--debugcon stdio
+-device virtio-serial
+-chardev stdio,id=stdout,mux=on
+-device virtconsole,chardev=stdout
+-device isa-debugcon,chardev=stdout
+-device virtio-rng-pci
 -soundhw pcspk
 -device sb16
 "
@@ -70,7 +74,11 @@ $SERENITY_EXTRA_QEMU_ARGS
 -device ahci,id=ahci
 -device ide-hd,bus=ahci.0,drive=disk,unit=0
 -usb
--debugcon stdio
+-device virtio-serial
+-chardev stdio,id=stdout,mux=on
+-device virtconsole,chardev=stdout
+-device isa-debugcon,chardev=stdout
+-device virtio-rng-pci
 -soundhw pcspk
 -device sb16
 "
