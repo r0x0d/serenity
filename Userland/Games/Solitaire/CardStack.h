@@ -1,33 +1,16 @@
 /*
  * Copyright (c) 2020, Till Mayer <till.mayer@web.de>
- * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- * 1. Redistributions of source code must retain the above copyright notice, this
- *    list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above copyright notice,
- *    this list of conditions and the following disclaimer in the documentation
- *    and/or other materials provided with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
- * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-2-Clause
  */
 
 #pragma once
 
 #include "Card.h"
+#include <AK/Format.h>
 #include <AK/Vector.h>
+
+namespace Solitaire {
 
 class CardStack final {
 public:
@@ -36,26 +19,27 @@ public:
         Stock,
         Normal,
         Waste,
+        Play,
         Foundation
     };
 
     CardStack();
     CardStack(const Gfx::IntPoint& position, Type type);
 
-    bool is_dirty() const { return m_dirty; }
     bool is_empty() const { return m_stack.is_empty(); }
     bool is_focused() const { return m_focused; }
     Type type() const { return m_type; }
+    const NonnullRefPtrVector<Card>& stack() const { return m_stack; }
     size_t count() const { return m_stack.size(); }
     const Card& peek() const { return m_stack.last(); }
     Card& peek() { return m_stack.last(); }
     const Gfx::IntRect& bounding_box() const { return m_bounding_box; }
 
     void set_focused(bool focused) { m_focused = focused; }
-    void set_dirty() { m_dirty = true; };
 
     void push(NonnullRefPtr<Card> card);
     NonnullRefPtr<Card> pop();
+    void move_to_stack(CardStack&);
     void rebound_cards();
 
     bool is_allowed_to_push(const Card&) const;
@@ -77,10 +61,13 @@ private:
         case Foundation:
             return { 2, 1, 4, 1 };
         case Normal:
-            return { 0, 15, 1, 3 };
+            return { 0, 20, 1, 3 };
         case Stock:
-        case Waste:
             return { 2, 1, 8, 1 };
+        case Waste:
+            return { 0, 0, 1, 0 };
+        case Play:
+            return { 20, 0, 1, 0 };
         default:
             return {};
         }
@@ -95,6 +82,45 @@ private:
     Type m_type { Invalid };
     StackRules m_rules;
     bool m_focused { false };
-    bool m_dirty { false };
     Gfx::IntRect m_base;
+};
+
+}
+
+template<>
+struct AK::Formatter<Solitaire::CardStack> : Formatter<FormatString> {
+    void format(FormatBuilder& builder, const Solitaire::CardStack& stack)
+    {
+        StringView type;
+
+        switch (stack.type()) {
+        case Solitaire::CardStack::Type::Stock:
+            type = "Stock"sv;
+            break;
+        case Solitaire::CardStack::Type::Normal:
+            type = "Normal"sv;
+            break;
+        case Solitaire::CardStack::Type::Foundation:
+            type = "Foundation"sv;
+            break;
+        case Solitaire::CardStack::Type::Waste:
+            type = "Waste"sv;
+            break;
+        case Solitaire::CardStack::Type::Play:
+            type = "Play"sv;
+            break;
+        default:
+            VERIFY_NOT_REACHED();
+        }
+
+        StringBuilder cards;
+        bool first_card = true;
+
+        for (const auto& card : stack.stack()) {
+            cards.appendff("{}{}", (first_card ? "" : " "), card);
+            first_card = false;
+        }
+
+        Formatter<FormatString>::format(builder, "{:<10} {:>16}: {}", type, stack.bounding_box(), cards.build());
+    }
 };

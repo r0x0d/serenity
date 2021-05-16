@@ -1,27 +1,7 @@
 /*
  * Copyright (c) 2018-2021, Andreas Kling <kling@serenityos.org>
- * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- * 1. Redistributions of source code must retain the above copyright notice, this
- *    list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above copyright notice,
- *    this list of conditions and the following disclaimer in the documentation
- *    and/or other materials provided with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
- * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-2-Clause
  */
 
 #include "DevicesModel.h"
@@ -113,17 +93,22 @@ static bool can_access_pid(pid_t pid)
 
 int main(int argc, char** argv)
 {
-    if (pledge("stdio proc recvfd sendfd accept rpath exec unix cpath fattr", nullptr) < 0) {
+    {
+        // Before we do anything else, boost our process priority to the maximum allowed.
+        // It's very frustrating when the system is bogged down under load and you just want
+        // System Monitor to work.
+        sched_param param {
+            .sched_priority = THREAD_PRIORITY_MAX,
+        };
+        sched_setparam(0, &param);
+    }
+
+    if (pledge("stdio proc recvfd sendfd rpath exec unix", nullptr) < 0) {
         perror("pledge");
         return 1;
     }
 
     auto app = GUI::Application::construct(argc, argv);
-
-    if (pledge("stdio proc recvfd sendfd accept rpath exec unix", nullptr) < 0) {
-        perror("pledge");
-        return 1;
-    }
 
     if (unveil("/etc/passwd", "r") < 0) {
         perror("unveil");
@@ -341,8 +326,8 @@ int main(int argc, char** argv)
         &process_table_view);
 
     auto menubar = GUI::Menubar::construct();
-    auto& app_menu = menubar->add_menu("&File");
-    app_menu.add_action(GUI::CommonActions::make_quit_action([](auto&) {
+    auto& file_menu = menubar->add_menu("&File");
+    file_menu.add_action(GUI::CommonActions::make_quit_action([](auto&) {
         GUI::Application::the()->quit();
     }));
 
@@ -363,18 +348,19 @@ int main(int argc, char** argv)
     GUI::ActionGroup frequency_action_group;
     frequency_action_group.set_exclusive(true);
 
-    auto make_frequency_action = [&](auto& title, int interval, bool checked = false) {
-        auto action = GUI::Action::create_checkable(title, [&refresh_timer, interval](auto&) {
-            refresh_timer.restart(interval);
+    auto make_frequency_action = [&](int seconds, bool checked = false) {
+        auto action = GUI::Action::create_checkable(String::formatted("&{} Sec", seconds), [&refresh_timer, seconds](auto&) {
+            refresh_timer.restart(seconds * 1000);
         });
+        action->set_status_tip(String::formatted("Refresh every {} seconds", seconds));
         action->set_checked(checked);
         frequency_action_group.add_action(*action);
         frequency_menu.add_action(*action);
     };
 
-    make_frequency_action("&1 Sec", 1000);
-    make_frequency_action("&3 Sec", 3000, true);
-    make_frequency_action("&5 Sec", 5000);
+    make_frequency_action(1);
+    make_frequency_action(3, true);
+    make_frequency_action(5);
 
     auto& help_menu = menubar->add_menu("&Help");
     help_menu.add_action(GUI::CommonActions::make_about_action("System Monitor", app_icon, window));
@@ -383,6 +369,13 @@ int main(int argc, char** argv)
 
     process_table_view.on_activation = [&](auto&) {
         process_properties_action->activate();
+    };
+
+    app->on_action_enter = [](GUI::Action const& action) {
+        statusbar->set_override_text(action.status_tip());
+    };
+    app->on_action_leave = [](GUI::Action const&) {
+        statusbar->set_override_text({});
     };
 
     window->show();
@@ -430,7 +423,7 @@ NonnullRefPtr<GUI::Window> build_process_window(pid_t pid)
 {
     auto window = GUI::Window::construct();
     window->resize(480, 360);
-    window->set_title(String::formatted("PID {} - SystemMonitor", pid));
+    window->set_title(String::formatted("PID {} - System Monitor", pid));
 
     auto& main_widget = window->set_main_widget<GUI::Widget>();
     main_widget.set_fill_with_background_color(true);

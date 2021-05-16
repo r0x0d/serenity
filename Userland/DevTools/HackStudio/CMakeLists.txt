@@ -5,13 +5,15 @@ compile_gml(Dialogs/NewProjectDialog.gml Dialogs/NewProjectDialogGML.h new_proje
 
 set(SOURCES
     CodeDocument.cpp
-        ClassViewWidget.cpp
-    CursorTool.cpp
+    ClassViewWidget.cpp
     Debugger/BacktraceModel.cpp
     Debugger/DebugInfoWidget.cpp
     Debugger/Debugger.cpp
+    Debugger/DebuggerGlobalJSObject.cpp
+    Debugger/DebuggerVariableJSObject.cpp
     Debugger/DisassemblyModel.cpp
     Debugger/DisassemblyWidget.cpp
+    Debugger/EvaluateExpressionDialog.cpp
     Debugger/RegistersModel.cpp
     Debugger/VariablesModel.cpp
     Dialogs/NewProjectDialog.cpp
@@ -20,8 +22,6 @@ set(SOURCES
     Editor.cpp
     EditorWrapper.cpp
     FindInFilesWidget.cpp
-    FormEditorWidget.cpp
-    FormWidget.cpp
     Git/DiffViewer.cpp
     Git/GitFilesModel.cpp
     Git/GitFilesView.cpp
@@ -36,8 +36,6 @@ set(SOURCES
     ProjectFile.cpp
     ProjectTemplate.cpp
     TerminalWrapper.cpp
-    WidgetTool.cpp
-    WidgetTreeModel.cpp
     main.cpp
 )
 

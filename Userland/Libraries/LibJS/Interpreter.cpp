@@ -1,29 +1,11 @@
 /*
  * Copyright (c) 2020, Andreas Kling <kling@serenityos.org>
- * All rights reserved.
+ * Copyright (c) 2020-2021, Linus Groh <linusg@serenityos.org>
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- * 1. Redistributions of source code must retain the above copyright notice, this
- *    list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above copyright notice,
- *    this list of conditions and the following disclaimer in the documentation
- *    and/or other materials provided with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
- * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-2-Clause
  */
 
+#include <AK/ScopeGuard.h>
 #include <AK/StringBuilder.h>
 #include <LibJS/AST.h>
 #include <LibJS/Interpreter.h>
@@ -74,11 +56,17 @@ void Interpreter::run(GlobalObject& global_object, const Program& program)
     vm.push_call_frame(global_call_frame, global_object);
     VERIFY(!vm.exception());
     program.execute(*this, global_object);
+
+    // Whatever the promise jobs or on_call_stack_emptied do should not affect the effective
+    // 'last value'.
+    auto last_value = vm.last_value();
+
     vm.pop_call_frame();
 
-    // Whatever the promise jobs do should not affect the effective 'last value'.
-    auto last_value = vm.last_value();
+    // At this point we may have already run any queued promise jobs via on_call_stack_emptied,
+    // in which case this is a no-op.
     vm.run_queued_promise_jobs();
+
     vm.set_last_value({}, last_value.value_or(js_undefined()));
 }
 
@@ -94,13 +82,17 @@ const GlobalObject& Interpreter::global_object() const
 
 void Interpreter::enter_scope(const ScopeNode& scope_node, ScopeType scope_type, GlobalObject& global_object)
 {
-    for (auto& declaration : scope_node.functions()) {
-        auto* function = ScriptFunction::create(global_object, declaration.name(), declaration.body(), declaration.parameters(), declaration.function_length(), current_scope(), declaration.is_strict_mode());
-        vm().set_variable(declaration.name(), function, global_object);
-    }
+    ScopeGuard guard([&] {
+        for (auto& declaration : scope_node.functions()) {
+            auto* function = ScriptFunction::create(global_object, declaration.name(), declaration.body(), declaration.parameters(), declaration.function_length(), current_scope(), declaration.is_strict_mode());
+            vm().set_variable(declaration.name(), function, global_object);
+        }
+    });
 
     if (scope_type == ScopeType::Function) {
         push_scope({ scope_type, scope_node, false });
+        for (auto& declaration : scope_node.functions())
+            current_scope()->put_to_scope(declaration.name(), { js_undefined(), DeclarationKind::Var });
         return;
     }
 

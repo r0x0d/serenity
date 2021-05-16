@@ -1,27 +1,7 @@
 /*
  * Copyright (c) 2018-2020, Andreas Kling <kling@serenityos.org>
- * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- * 1. Redistributions of source code must retain the above copyright notice, this
- *    list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above copyright notice,
- *    this list of conditions and the following disclaimer in the documentation
- *    and/or other materials provided with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
- * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-2-Clause
  */
 
 #include "HexEditor.h"
@@ -583,11 +563,6 @@ int HexEditor::find_and_highlight(ByteBuffer& needle, int start)
     if (m_buffer.is_empty())
         return -1;
 
-    if (needle.is_null()) {
-        dbgln("needle is null");
-        return -1;
-    }
-
     auto raw_offset = memmem(m_buffer.data() + start, m_buffer.size(), needle.data(), needle.size());
     if (raw_offset == NULL)
         return -1;
@@ -595,7 +570,7 @@ int HexEditor::find_and_highlight(ByteBuffer& needle, int start)
     int relative_offset = static_cast<const u8*>(raw_offset) - m_buffer.data();
     dbgln("find_and_highlight: start={} raw_offset={} relative_offset={}", start, raw_offset, relative_offset);
 
-    auto end_of_match = relative_offset + needle;
+    auto end_of_match = relative_offset + needle.size();
     set_position(relative_offset);
     m_selection_start = relative_offset;
     m_selection_end = end_of_match;

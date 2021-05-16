@@ -26,7 +26,7 @@ configuration/compilation options, and some other things (see
   script in this directory. This is sometimes required when LibC changes, for
   example. Pass `clean` as first argument to remove old build files beforehand.
 
-Installed ports are being tracked in `Build/packages.db` (a simple text file).
+Installed ports are being tracked in `Build/i686/Root/usr/Ports/packages.db` (a simple text file).
 You can delete this file at any time, in fact it must be edited or removed
 when clearing the build directory as port dependencies may not be installed
 again otherwise.
@@ -190,7 +190,7 @@ keyring and can later be used for verification using [`auth_opts`](#auth_opts).
 
 Options passed to `make install` in the default `install` function.
 
-`DESTDIR="${SERENITY_BUILD_DIR}/Root"` (`"${SERENITY_ROOT}/Build/${SERENITY_ARCH}/Root"`)
+`DESTDIR="${SERENITY_INSTALL_ROOT}"` (`"${SERENITY_SOURCE_DIR}/Build/${SERENITY_ARCH}/Root"`)
 is always passed, override the `install` function if that's undesirable.
 
 #### `makeopts`
@@ -215,7 +215,7 @@ is placed in.
 The location of the ports directory, only used for the `package.db` file for
 now. Don't override this in ports contributed to Serenity.
 
-Defaults to `$SERENITY_ROOT/Ports`.
+Defaults to `$SERENITY_SOURCE_DIR/Ports`.
 
 #### `useconfigure`
 

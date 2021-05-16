@@ -1,45 +1,31 @@
 /*
  * Copyright (c) 2018-2020, Andreas Kling <kling@serenityos.org>
- * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- * 1. Redistributions of source code must retain the above copyright notice, this
- *    list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above copyright notice,
- *    this list of conditions and the following disclaimer in the documentation
- *    and/or other materials provided with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
- * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-2-Clause
  */
 
+#include "Terminal.h"
 #include <AK/Debug.h>
 #include <AK/StringBuilder.h>
 #include <AK/StringView.h>
 #include <LibVT/Terminal.h>
+#ifdef KERNEL
+#    include <Kernel/TTY/VirtualConsole.h>
+#endif
 
 namespace VT {
 
+#ifndef KERNEL
 Terminal::Terminal(TerminalClient& client)
+#else
+Terminal::Terminal(Kernel::VirtualConsole& client)
+#endif
     : m_client(client)
+    , m_parser(*this)
 {
 }
 
-Terminal::~Terminal()
-{
-}
-
+#ifndef KERNEL
 void Terminal::clear()
 {
     for (size_t i = 0; i < rows(); ++i)
@@ -56,71 +42,57 @@ void Terminal::clear_including_history()
 
     m_client.terminal_history_changed();
 }
+#endif
 
-inline bool is_valid_parameter_character(u8 ch)
+void Terminal::alter_mode(bool should_set, Parameters params, Intermediates intermediates)
 {
-    return ch >= 0x30 && ch <= 0x3f;
-}
-
-inline bool is_valid_intermediate_character(u8 ch)
-{
-    return ch >= 0x20 && ch <= 0x2f;
-}
-
-inline bool is_valid_final_character(u8 ch)
-{
-    return ch >= 0x40 && ch <= 0x7e;
-}
-
-void Terminal::alter_mode(bool should_set, bool question_param, const ParamVector& params)
-{
-    int mode = 2;
-    if (params.size() > 0) {
-        mode = params[0];
-    }
-    if (!question_param) {
-        switch (mode) {
-            // FIXME: implement *something* for this
-        default:
-            unimplemented_escape();
-            break;
+    if (intermediates.size() > 0 && intermediates[0] == '?') {
+        for (auto mode : params) {
+            switch (mode) {
+            case 3: {
+                // 80/132-column mode (DECCOLM)
+                unsigned new_columns = should_set ? 80 : 132;
+                dbgln_if(TERMINAL_DEBUG, "Setting {}-column mode", new_columns);
+                set_size(new_columns, rows());
+                clear();
+                break;
+            }
+            case 25:
+                // Hide cursor command, but doesn't need to be run (for now, because
+                // we don't do inverse control codes anyways)
+                if (should_set)
+                    dbgln("Terminal: Hide Cursor escapecode received. Not needed: ignored.");
+                else
+                    dbgln("Terminal: Show Cursor escapecode received. Not needed: ignored.");
+                break;
+            default:
+                dbgln("Terminal::alter_mode: Unimplemented private mode {}", mode);
+                break;
+            }
         }
     } else {
-        switch (mode) {
-        case 3: {
-            // 80/132-column mode (DECCOLM)
-            unsigned new_columns = should_set ? 80 : 132;
-            dbgln("Setting {}-column mode", new_columns);
-            set_size(new_columns, rows());
-            clear();
-            break;
-        }
-        case 25:
-            // Hide cursor command, but doesn't need to be run (for now, because
-            // we don't do inverse control codes anyways)
-            if (should_set)
-                dbgln("Terminal: Hide Cursor escapecode received. Not needed: ignored.");
-            else
-                dbgln("Terminal: Show Cursor escapecode received. Not needed: ignored.");
-            break;
-        default:
-            dbgln("Set Mode: Unimplemented mode {}", mode);
-            break;
+        for (auto mode : params) {
+            switch (mode) {
+            // FIXME: implement *something* for this
+            default:
+                dbgln("Terminal::alter_mode: Unimplemented mode {} (set={})", mode, should_set);
+                break;
+            }
         }
     }
 }
 
-void Terminal::RM(bool question_param, const ParamVector& params)
+void Terminal::RM(Parameters params, Intermediates intermediates)
 {
-    alter_mode(true, question_param, params);
+    alter_mode(true, params, intermediates);
 }
 
-void Terminal::SM(bool question_param, const ParamVector& params)
+void Terminal::SM(Parameters params, Intermediates intermediates)
 {
-    alter_mode(false, question_param, params);
+    alter_mode(false, params, intermediates);
 }
 
-void Terminal::SGR(const ParamVector& params)
+void Terminal::SGR(Parameters params)
 {
     if (params.is_empty()) {
         m_current_attribute.reset();
@@ -235,25 +207,26 @@ void Terminal::SGR(const ParamVector& params)
     }
 }
 
-void Terminal::SCOSC(const ParamVector&)
+void Terminal::SCOSC()
 {
     m_saved_cursor_row = m_cursor_row;
     m_saved_cursor_column = m_cursor_column;
+    m_saved_attribute = m_current_attribute;
 }
 
-void Terminal::SCORC(const ParamVector&)
+void Terminal::SCORC(Parameters)
 {
     set_cursor(m_saved_cursor_row, m_saved_cursor_column);
 }
 
-void Terminal::XTERM_WM(const ParamVector& params)
+void Terminal::XTERM_WM(Parameters params)
 {
     if (params.size() < 1)
         return;
     dbgln("FIXME: XTERM_WM: Ps: {} (param count: {})", params[0], params.size());
 }
 
-void Terminal::DECSTBM(const ParamVector& params)
+void Terminal::DECSTBM(Parameters params)
 {
     unsigned top = 1;
     unsigned bottom = m_rows;
@@ -270,7 +243,7 @@ void Terminal::DECSTBM(const ParamVector& params)
     set_cursor(0, 0);
 }
 
-void Terminal::CUP(const ParamVector& params)
+void Terminal::CUP(Parameters params)
 {
     // CUP – Cursor Position
     unsigned row = 1;
@@ -282,7 +255,7 @@ void Terminal::CUP(const ParamVector& params)
     set_cursor(row - 1, col - 1);
 }
 
-void Terminal::HVP(const ParamVector& params)
+void Terminal::HVP(Parameters params)
 {
     unsigned row = 1;
     unsigned col = 1;
@@ -293,7 +266,7 @@ void Terminal::HVP(const ParamVector& params)
     set_cursor(row - 1, col - 1);
 }
 
-void Terminal::CUU(const ParamVector& params)
+void Terminal::CUU(Parameters params)
 {
     int num = 1;
     if (params.size() >= 1)
@@ -306,7 +279,7 @@ void Terminal::CUU(const ParamVector& params)
     set_cursor(new_row, m_cursor_column);
 }
 
-void Terminal::CUD(const ParamVector& params)
+void Terminal::CUD(Parameters params)
 {
     int num = 1;
     if (params.size() >= 1)
@@ -319,7 +292,7 @@ void Terminal::CUD(const ParamVector& params)
     set_cursor(new_row, m_cursor_column);
 }
 
-void Terminal::CUF(const ParamVector& params)
+void Terminal::CUF(Parameters params)
 {
     int num = 1;
     if (params.size() >= 1)
@@ -332,7 +305,7 @@ void Terminal::CUF(const ParamVector& params)
     set_cursor(m_cursor_row, new_column);
 }
 
-void Terminal::CUB(const ParamVector& params)
+void Terminal::CUB(Parameters params)
 {
     int num = 1;
     if (params.size() >= 1)
@@ -345,7 +318,7 @@ void Terminal::CUB(const ParamVector& params)
     set_cursor(m_cursor_row, new_column);
 }
 
-void Terminal::CHA(const ParamVector& params)
+void Terminal::CHA(Parameters params)
 {
     int new_column = 1;
     if (params.size() >= 1)
@@ -355,7 +328,7 @@ void Terminal::CHA(const ParamVector& params)
     set_cursor(m_cursor_row, new_column);
 }
 
-void Terminal::REP(const ParamVector& params)
+void Terminal::REP(Parameters params)
 {
     if (params.size() < 1)
         return;
@@ -364,7 +337,7 @@ void Terminal::REP(const ParamVector& params)
         put_character_at(m_cursor_row, m_cursor_column++, m_last_code_point);
 }
 
-void Terminal::VPA(const ParamVector& params)
+void Terminal::VPA(Parameters params)
 {
     int new_row = 1;
     if (params.size() >= 1)
@@ -374,7 +347,7 @@ void Terminal::VPA(const ParamVector& params)
     set_cursor(new_row, m_cursor_column);
 }
 
-void Terminal::ECH(const ParamVector& params)
+void Terminal::ECH(Parameters params)
 {
     // Erase characters (without moving cursor)
     int num = 1;
@@ -388,7 +361,7 @@ void Terminal::ECH(const ParamVector& params)
     }
 }
 
-void Terminal::EL(const ParamVector& params)
+void Terminal::EL(Parameters params)
 {
     int mode = 0;
     if (params.size() >= 1)
@@ -413,12 +386,12 @@ void Terminal::EL(const ParamVector& params)
         }
         break;
     default:
-        unimplemented_escape();
+        unimplemented_csi_sequence(params, {}, 'K');
         break;
     }
 }
 
-void Terminal::ED(const ParamVector& params)
+void Terminal::ED(Parameters params)
 {
     int mode = 0;
     if (params.size() >= 1)
@@ -452,12 +425,12 @@ void Terminal::ED(const ParamVector& params)
         clear();
         break;
     default:
-        unimplemented_escape();
+        unimplemented_csi_sequence(params, {}, 'J');
         break;
     }
 }
 
-void Terminal::SU(const ParamVector& params)
+void Terminal::SU(Parameters params)
 {
     int count = 1;
     if (params.size() >= 1)
@@ -467,7 +440,7 @@ void Terminal::SU(const ParamVector& params)
         scroll_up();
 }
 
-void Terminal::SD(const ParamVector& params)
+void Terminal::SD(Parameters params)
 {
     int count = 1;
     if (params.size() >= 1)
@@ -477,7 +450,8 @@ void Terminal::SD(const ParamVector& params)
         scroll_down();
 }
 
-void Terminal::IL(const ParamVector& params)
+#ifndef KERNEL
+void Terminal::IL(Parameters params)
 {
     int count = 1;
     if (params.size() >= 1)
@@ -493,13 +467,15 @@ void Terminal::IL(const ParamVector& params)
 
     m_need_full_flush = true;
 }
+#endif
 
-void Terminal::DA(const ParamVector&)
+void Terminal::DA(Parameters)
 {
     emit_string("\033[?1;0c");
 }
 
-void Terminal::DL(const ParamVector& params)
+#ifndef KERNEL
+void Terminal::DL(Parameters params)
 {
     int count = 1;
     if (params.size() >= 1)
@@ -522,7 +498,7 @@ void Terminal::DL(const ParamVector& params)
     }
 }
 
-void Terminal::DCH(const ParamVector& params)
+void Terminal::DCH(Parameters params)
 {
     int num = 1;
     if (params.size() >= 1)
@@ -543,165 +519,7 @@ void Terminal::DCH(const ParamVector& params)
 
     line.set_dirty(true);
 }
-
-void Terminal::execute_xterm_command()
-{
-    ParamVector numeric_params;
-    auto param_string = String::copy(m_xterm_parameters);
-    auto params = param_string.split(';', true);
-    m_xterm_parameters.clear_with_capacity();
-    for (auto& parampart : params)
-        numeric_params.append(parampart.to_uint().value_or(0));
-
-    while (params.size() < 3) {
-        params.append(String::empty());
-        numeric_params.append(0);
-    }
-
-    m_final = '@';
-
-    if (numeric_params.is_empty()) {
-        dbgln("Empty Xterm params?");
-        return;
-    }
-
-    switch (numeric_params[0]) {
-    case 0:
-    case 1:
-    case 2:
-        m_client.set_window_title(params[1]);
-        break;
-    case 8:
-        if (params[2].is_empty()) {
-            m_current_attribute.href = String();
-            m_current_attribute.href_id = String();
-        } else {
-            m_current_attribute.href = params[2];
-            // FIXME: Respect the provided ID
-            m_current_attribute.href_id = String::format("%u", m_next_href_id++);
-        }
-        break;
-    case 9:
-        m_client.set_window_progress(numeric_params[1], numeric_params[2]);
-        break;
-    default:
-        unimplemented_xterm_escape();
-        break;
-    }
-}
-
-void Terminal::execute_escape_sequence(u8 final)
-{
-    bool question_param = false;
-    m_final = final;
-    ParamVector params;
-
-    if (m_parameters.size() > 0 && m_parameters[0] == '?') {
-        question_param = true;
-        m_parameters.remove(0);
-    }
-    auto paramparts = String::copy(m_parameters).split(';');
-    for (auto& parampart : paramparts) {
-        auto value = parampart.to_uint();
-        if (!value.has_value()) {
-            // FIXME: Should we do something else?
-            m_parameters.clear_with_capacity();
-            m_intermediates.clear_with_capacity();
-            return;
-        }
-        params.append(value.value());
-    }
-
-    switch (final) {
-    case 'A':
-        CUU(params);
-        break;
-    case 'B':
-        CUD(params);
-        break;
-    case 'C':
-        CUF(params);
-        break;
-    case 'D':
-        CUB(params);
-        break;
-    case 'H':
-        CUP(params);
-        break;
-    case 'J':
-        ED(params);
-        break;
-    case 'K':
-        EL(params);
-        break;
-    case 'M':
-        DL(params);
-        break;
-    case 'P':
-        DCH(params);
-        break;
-    case 'S':
-        SU(params);
-        break;
-    case 'T':
-        SD(params);
-        break;
-    case 'L':
-        IL(params);
-        break;
-    case 'G':
-        CHA(params);
-        break;
-    case 'X':
-        ECH(params);
-        break;
-    case 'b':
-        REP(params);
-        break;
-    case 'd':
-        VPA(params);
-        break;
-    case 'm':
-        SGR(params);
-        break;
-    case 's':
-        SCOSC(params);
-        break;
-    case 'u':
-        SCORC(params);
-        break;
-    case 't':
-        XTERM_WM(params);
-        break;
-    case 'r':
-        DECSTBM(params);
-        break;
-    case 'l':
-        RM(question_param, params);
-        break;
-    case 'h':
-        SM(question_param, params);
-        break;
-    case 'c':
-        DA(params);
-        break;
-    case 'f':
-        HVP(params);
-        break;
-    case 'n':
-        DSR(params);
-        break;
-    case '@':
-        ICH(params);
-        break;
-    default:
-        dbgln("Terminal::execute_escape_sequence: Unhandled final '{:c}'", final);
-        break;
-    }
-
-    m_parameters.clear_with_capacity();
-    m_intermediates.clear_with_capacity();
-}
+#endif
 
 void Terminal::newline()
 {
@@ -710,10 +528,15 @@ void Terminal::newline()
         scroll_up();
     } else {
         ++new_row;
-    }
+    };
     set_cursor(new_row, 0);
 }
+void Terminal::carriage_return()
+{
+    set_cursor(m_cursor_row, 0);
+}
 
+#ifndef KERNEL
 void Terminal::scroll_up()
 {
     // NOTE: We have to invalidate the cursor first.
@@ -737,6 +560,20 @@ void Terminal::scroll_down()
     m_need_full_flush = true;
 }
 
+void Terminal::put_character_at(unsigned row, unsigned column, u32 code_point)
+{
+    VERIFY(row < rows());
+    VERIFY(column < columns());
+    auto& line = m_lines[row];
+    line.set_code_point(column, code_point);
+    line.attribute_at(column) = m_current_attribute;
+    line.attribute_at(column).flags |= Attribute::Touched;
+    line.set_dirty(true);
+
+    m_last_code_point = code_point;
+}
+#endif
+
 void Terminal::set_cursor(unsigned a_row, unsigned a_column)
 {
     unsigned row = min(a_row, m_rows - 1u);
@@ -752,22 +589,10 @@ void Terminal::set_cursor(unsigned a_row, unsigned a_column)
     invalidate_cursor();
 }
 
-void Terminal::put_character_at(unsigned row, unsigned column, u32 code_point)
-{
-    VERIFY(row < rows());
-    VERIFY(column < columns());
-    auto& line = m_lines[row];
-    line.set_code_point(column, code_point);
-    line.attribute_at(column) = m_current_attribute;
-    line.attribute_at(column).flags |= Attribute::Touched;
-    line.set_dirty(true);
-
-    m_last_code_point = code_point;
-}
-
 void Terminal::NEL()
 {
     newline();
+    carriage_return();
 }
 
 void Terminal::IND()
@@ -780,20 +605,21 @@ void Terminal::RI()
     CUU({});
 }
 
-void Terminal::DSR(const ParamVector& params)
+void Terminal::DSR(Parameters params)
 {
     if (params.size() == 1 && params[0] == 5) {
         // Device status
         emit_string("\033[0n"); // Terminal status OK!
     } else if (params.size() == 1 && params[0] == 6) {
         // Cursor position query
-        emit_string(String::format("\033[%d;%dR", m_cursor_row + 1, m_cursor_column + 1));
+        emit_string(String::formatted("\e[{};{}R", m_cursor_row + 1, m_cursor_column + 1));
     } else {
         dbgln("Unknown DSR");
     }
 }
 
-void Terminal::ICH(const ParamVector& params)
+#ifndef KERNEL
+void Terminal::ICH(Parameters params)
 {
     int num = 0;
     if (params.size() >= 1) {
@@ -814,155 +640,45 @@ void Terminal::ICH(const ParamVector& params)
 
     line.set_dirty(true);
 }
-
-void Terminal::on_input(u8 ch)
-{
-#if TERMINAL_DEBUG
-    dbgln("Terminal::on_input: {:#02x} ({:c}), fg={}, bg={}\n", ch, ch, m_current_attribute.foreground_color, m_current_attribute.background_color);
 #endif
 
-    auto fail_utf8_parse = [this] {
-        m_parser_state = Normal;
-        on_code_point(U'�');
-    };
+void Terminal::on_input(u8 byte)
+{
+    m_parser.on_input(byte);
+}
 
-    auto advance_utf8_parse = [this, ch] {
-        m_parser_code_point <<= 6;
-        m_parser_code_point |= ch & 0x3f;
-        if (m_parser_state == UTF8Needs1Byte) {
-            on_code_point(m_parser_code_point);
-            m_parser_state = Normal;
-        } else {
-            m_parser_state = (ParserState)(m_parser_state + 1);
-        }
-    };
-
-    switch (m_parser_state) {
-    case GotEscape:
-        if (ch == '[') {
-            m_parser_state = ExpectParameter;
-        } else if (ch == '(') {
-            m_swallow_current = true;
-            m_parser_state = ExpectParameter;
-        } else if (ch == ']') {
-            m_parser_state = ExpectXtermParameter;
-            m_xterm_parameters.clear_with_capacity();
-        } else if (ch == '#') {
-            m_parser_state = ExpectHashtagDigit;
-        } else if (ch == 'D') {
-            IND();
-            m_parser_state = Normal;
-            return;
-        } else if (ch == 'M') {
-            RI();
-            m_parser_state = Normal;
-            return;
-        } else if (ch == 'E') {
-            NEL();
-            m_parser_state = Normal;
-            return;
-        } else {
-            dbgln("Unexpected character in GotEscape '{}'", (char)ch);
-            m_parser_state = Normal;
-        }
-        return;
-    case ExpectHashtagDigit:
-        if (ch >= '0' && ch <= '9') {
-            execute_hashtag(ch);
-            m_parser_state = Normal;
-        }
-        return;
-    case ExpectXtermParameter:
-        if (ch == 27) {
-            m_parser_state = ExpectStringTerminator;
-            return;
-        }
-        if (ch == 7) {
-            execute_xterm_command();
-            m_parser_state = Normal;
-            return;
-        }
-        m_xterm_parameters.append(ch);
-        return;
-    case ExpectStringTerminator:
-        if (ch == '\\')
-            execute_xterm_command();
-        else
-            dbgln("Unexpected string terminator: {:#02x}", ch);
-        m_parser_state = Normal;
-        return;
-    case ExpectParameter:
-        if (is_valid_parameter_character(ch)) {
-            m_parameters.append(ch);
-            return;
-        }
-        m_parser_state = ExpectIntermediate;
-        [[fallthrough]];
-    case ExpectIntermediate:
-        if (is_valid_intermediate_character(ch)) {
-            m_intermediates.append(ch);
-            return;
-        }
-        m_parser_state = ExpectFinal;
-        [[fallthrough]];
-    case ExpectFinal:
-        if (is_valid_final_character(ch)) {
-            m_parser_state = Normal;
-            if (!m_swallow_current)
-                execute_escape_sequence(ch);
-            m_swallow_current = false;
-            return;
-        }
-        m_parser_state = Normal;
-        m_swallow_current = false;
-        return;
-    case UTF8Needs1Byte:
-    case UTF8Needs2Bytes:
-    case UTF8Needs3Bytes:
-        if ((ch & 0xc0) != 0x80) {
-            fail_utf8_parse();
-        } else {
-            advance_utf8_parse();
-        }
-        return;
-
-    case Normal:
-        if (!(ch & 0x80))
-            break;
-        if ((ch & 0xe0) == 0xc0) {
-            m_parser_state = UTF8Needs1Byte;
-            m_parser_code_point = ch & 0x1f;
-            return;
-        }
-        if ((ch & 0xf0) == 0xe0) {
-            m_parser_state = UTF8Needs2Bytes;
-            m_parser_code_point = ch & 0x0f;
-            return;
-        }
-        if ((ch & 0xf8) == 0xf0) {
-            m_parser_state = UTF8Needs3Bytes;
-            m_parser_code_point = ch & 0x07;
-            return;
-        }
-        fail_utf8_parse();
+void Terminal::emit_code_point(u32 code_point)
+{
+    auto new_column = m_cursor_column + 1;
+    if (new_column < columns()) {
+        put_character_at(m_cursor_row, m_cursor_column, code_point);
+        set_cursor(m_cursor_row, new_column);
         return;
     }
+    if (m_stomp) {
+        m_stomp = false;
+        carriage_return();
+        newline();
+        put_character_at(m_cursor_row, m_cursor_column, code_point);
+        set_cursor(m_cursor_row, 1);
+    } else {
+        // Curious: We wait once on the right-hand side
+        m_stomp = true;
+        put_character_at(m_cursor_row, m_cursor_column, code_point);
+    }
+}
 
-    switch (ch) {
-    case '\0':
+void Terminal::execute_control_code(u8 code)
+{
+    switch (code) {
+    case '\a':
+        m_client.beep();
         return;
-    case '\033':
-        m_parser_state = GotEscape;
-        m_swallow_current = false;
-        return;
-    case 8: // Backspace
+    case '\b':
         if (m_cursor_column) {
             set_cursor(m_cursor_row, m_cursor_column - 1);
             return;
         }
-        return;
-    case '\a':
-        m_client.beep();
         return;
     case '\t': {
         for (unsigned i = m_cursor_column + 1; i < columns(); ++i) {
@@ -973,35 +689,214 @@ void Terminal::on_input(u8 ch)
         }
         return;
     }
-    case '\r':
-        set_cursor(m_cursor_row, 0);
-        return;
     case '\n':
         newline();
         return;
+    case '\r':
+        carriage_return();
+        return;
+    default:
+        unimplemented_control_code(code);
     }
-
-    on_code_point(ch);
 }
 
-void Terminal::on_code_point(u32 code_point)
+void Terminal::execute_escape_sequence(Intermediates intermediates, bool ignore, u8 last_byte)
 {
-    auto new_column = m_cursor_column + 1;
-    if (new_column < columns()) {
-        put_character_at(m_cursor_row, m_cursor_column, code_point);
-        set_cursor(m_cursor_row, new_column);
-        return;
+    // FIXME: Handle it somehow?
+    if (ignore)
+        dbgln("Escape sequence has its ignore flag set.");
+
+    if (intermediates.size() == 0) {
+        switch (last_byte) {
+        case 'D':
+            IND();
+            return;
+        case 'E':
+            NEL();
+            return;
+        case 'M':
+            RI();
+            return;
+        case '\\':
+            // ST (string terminator) -- do nothing
+            return;
+        }
+    } else if (intermediates[0] == '#') {
+        switch (last_byte) {
+        case '8':
+            // Confidence Test - Fill screen with E's
+            for (size_t row = 0; row < m_rows; ++row) {
+                for (size_t column = 0; column < m_columns; ++column) {
+                    put_character_at(row, column, 'E');
+                }
+            }
+            return;
+        }
     }
-    if (m_stomp) {
-        m_stomp = false;
-        newline();
-        put_character_at(m_cursor_row, m_cursor_column, code_point);
-        set_cursor(m_cursor_row, 1);
+    unimplemented_escape_sequence(intermediates, last_byte);
+}
+
+void Terminal::execute_csi_sequence(Parameters parameters, Intermediates intermediates, bool ignore, u8 last_byte)
+{
+    // FIXME: Handle it somehow?
+    if (ignore)
+        dbgln("CSI sequence has its ignore flag set.");
+
+    switch (last_byte) {
+    case '@':
+        ICH(parameters);
+        break;
+    case 'A':
+        CUU(parameters);
+        break;
+    case 'B':
+        CUD(parameters);
+        break;
+    case 'C':
+        CUF(parameters);
+        break;
+    case 'D':
+        CUB(parameters);
+        break;
+    case 'G':
+        CHA(parameters);
+        break;
+    case 'H':
+        CUP(parameters);
+        break;
+    case 'J':
+        ED(parameters);
+        break;
+    case 'K':
+        EL(parameters);
+        break;
+    case 'L':
+        IL(parameters);
+        break;
+    case 'M':
+        DL(parameters);
+        break;
+    case 'P':
+        DCH(parameters);
+        break;
+    case 'S':
+        SU(parameters);
+        break;
+    case 'T':
+        SD(parameters);
+        break;
+    case 'X':
+        ECH(parameters);
+        break;
+    case 'b':
+        REP(parameters);
+        break;
+    case 'd':
+        VPA(parameters);
+        break;
+    case 'm':
+        SGR(parameters);
+        break;
+    case 's':
+        SCOSC();
+        break;
+    case 'u':
+        SCORC(parameters);
+        break;
+    case 't':
+        XTERM_WM(parameters);
+        break;
+    case 'r':
+        DECSTBM(parameters);
+        break;
+    case 'l':
+        RM(parameters, intermediates);
+        break;
+    case 'h':
+        SM(parameters, intermediates);
+        break;
+    case 'c':
+        DA(parameters);
+        break;
+    case 'f':
+        HVP(parameters);
+        break;
+    case 'n':
+        DSR(parameters);
+        break;
+    default:
+        unimplemented_csi_sequence(parameters, intermediates, last_byte);
+    }
+}
+
+void Terminal::execute_osc_sequence(OscParameters parameters, u8 last_byte)
+{
+    auto stringview_ify = [&](size_t param_idx) {
+        return StringView((const char*)(&parameters[param_idx][0]), parameters[param_idx].size());
+    };
+
+    if (parameters.size() > 0 && !parameters[0].is_empty()) {
+        auto command_number = stringview_ify(0).to_uint();
+        if (command_number.has_value()) {
+            switch (command_number.value()) {
+            case 0:
+            case 1:
+            case 2:
+                if (parameters[1].is_empty())
+                    dbgln("Attempted to set window title without any parameters");
+                else
+                    m_client.set_window_title(stringview_ify(1));
+                // FIXME: the split breaks titles containing semicolons.
+                // Should we expose the raw OSC string from the parser? Or join by semicolon?
+                break;
+            case 8:
+#ifndef KERNEL
+                if (parameters.size() < 2) {
+                    dbgln("Attempted to set href but gave too few parameters");
+                } else if (parameters[2].is_empty()) {
+                    m_current_attribute.href = String();
+                    m_current_attribute.href_id = String();
+                } else {
+                    m_current_attribute.href = stringview_ify(2);
+                    // FIXME: Respect the provided ID
+                    m_current_attribute.href_id = String::number(m_next_href_id++);
+                }
+#endif
+                break;
+            case 9:
+                if (parameters.size() < 2 || parameters[1].is_empty() || parameters[2].is_empty())
+                    dbgln("Atttempted to set window progress but gave too few parameters");
+                else
+                    m_client.set_window_progress(stringview_ify(1).to_int().value_or(0), stringview_ify(2).to_int().value_or(0));
+                break;
+            default:
+                unimplemented_osc_sequence(parameters, last_byte);
+            }
+        } else {
+            unimplemented_osc_sequence(parameters, last_byte);
+        }
     } else {
-        // Curious: We wait once on the right-hand side
-        m_stomp = true;
-        put_character_at(m_cursor_row, m_cursor_column, code_point);
+        unimplemented_osc_sequence(parameters, last_byte);
     }
+}
+
+void Terminal::dcs_hook(Parameters parameters, Intermediates intermediates, bool ignore, u8 last_byte)
+{
+    dbgln("Received DCS parameters, but we don't support it yet");
+    (void)parameters;
+    (void)last_byte;
+    (void)intermediates;
+    (void)ignore;
+}
+
+void Terminal::receive_dcs_char(u8 byte)
+{
+    dbgln_if(TERMINAL_DEBUG, "DCS string character {:c}", byte);
+    (void)byte;
+}
+
+void Terminal::execute_dcs_sequence()
+{
 }
 
 void Terminal::inject_string(const StringView& str)
@@ -1024,15 +919,15 @@ void Terminal::handle_key_press(KeyCode key, u32 code_point, u8 flags)
 
     auto emit_final_with_modifier = [this, modifier_mask](char final) {
         if (modifier_mask)
-            emit_string(String::format("\e[1;%d%c", modifier_mask + 1, final));
+            emit_string(String::formatted("\e[1;{}{:c}", modifier_mask + 1, final));
         else
-            emit_string(String::format("\e[%c", final));
+            emit_string(String::formatted("\e[{:c}", final));
     };
     auto emit_tilde_with_modifier = [this, modifier_mask](unsigned num) {
         if (modifier_mask)
-            emit_string(String::format("\e[%d;%d~", num, modifier_mask + 1));
+            emit_string(String::formatted("\e[{};{}~", num, modifier_mask + 1));
         else
-            emit_string(String::format("\e[%d~", num));
+            emit_string(String::formatted("\e[{}~", num));
     };
 
     switch (key) {
@@ -1100,28 +995,61 @@ void Terminal::handle_key_press(KeyCode key, u32 code_point, u8 flags)
     emit_string(sb.to_string());
 }
 
-void Terminal::unimplemented_escape()
+void Terminal::unimplemented_control_code(u8 code)
+{
+    dbgln("Unimplemented control code {:02x}", code);
+}
+
+void Terminal::unimplemented_escape_sequence(Intermediates intermediates, u8 last_byte)
 {
     StringBuilder builder;
-    builder.appendff("Unimplemented escape: {:c}", m_final);
-    if (!m_parameters.is_empty()) {
-        builder.append(", parameters:");
-        for (size_t i = 0; i < m_parameters.size(); ++i)
-            builder.append((char)m_parameters[i]);
-    }
-    if (!m_intermediates.is_empty()) {
-        builder.append(", intermediates:");
-        for (size_t i = 0; i < m_intermediates.size(); ++i)
-            builder.append((char)m_intermediates[i]);
+    builder.appendff("Unimplemented escape sequence {:c}", last_byte);
+    if (!intermediates.is_empty()) {
+        builder.append(", intermediates: ");
+        for (size_t i = 0; i < intermediates.size(); ++i)
+            builder.append((char)intermediates[i]);
     }
     dbgln("{}", builder.string_view());
 }
 
-void Terminal::unimplemented_xterm_escape()
+void Terminal::unimplemented_csi_sequence(Parameters parameters, Intermediates intermediates, u8 last_byte)
 {
-    dbgln("Unimplemented xterm escape: {:c}", m_final);
+    StringBuilder builder;
+    builder.appendff("Unimplemented CSI sequence: {:c}", last_byte);
+    if (!parameters.is_empty()) {
+        builder.append(", parameters: [");
+        for (size_t i = 0; i < parameters.size(); ++i)
+            builder.appendff("{}{}", (i == 0) ? "" : ", ", parameters[i]);
+        builder.append("]");
+    }
+    if (!intermediates.is_empty()) {
+        builder.append(", intermediates:");
+        for (size_t i = 0; i < intermediates.size(); ++i)
+            builder.append((char)intermediates[i]);
+    }
+    dbgln("{}", builder.string_view());
 }
 
+void Terminal::unimplemented_osc_sequence(OscParameters parameters, u8 last_byte)
+{
+    StringBuilder builder;
+    builder.appendff("Unimplemented OSC sequence parameters: (bel_terminated={}) [ ", last_byte == '\a');
+    bool first = true;
+    for (auto parameter : parameters) {
+        if (!first)
+            builder.append(", ");
+        builder.append("[");
+        for (auto character : parameter)
+            builder.append((char)character);
+        builder.append("]");
+        first = false;
+    }
+
+    builder.append(" ]");
+    dbgln("{}", builder.string_view());
+}
+
+#ifndef KERNEL
 void Terminal::set_size(u16 columns, u16 rows)
 {
     if (!columns)
@@ -1161,26 +1089,12 @@ void Terminal::set_size(u16 columns, u16 rows)
 
     m_client.terminal_did_resize(m_columns, m_rows);
 }
+#endif
 
+#ifndef KERNEL
 void Terminal::invalidate_cursor()
 {
     m_lines[m_cursor_row].set_dirty(true);
-}
-
-void Terminal::execute_hashtag(u8 hashtag)
-{
-    switch (hashtag) {
-    case '8':
-        // Confidence Test - Fill screen with E's
-        for (size_t row = 0; row < m_rows; ++row) {
-            for (size_t column = 0; column < m_columns; ++column) {
-                put_character_at(row, column, 'E');
-            }
-        }
-        break;
-    default:
-        dbgln("Unknown hashtag: '{}'", (char)hashtag);
-    }
 }
 
 Attribute Terminal::attribute_at(const Position& position) const
@@ -1194,5 +1108,6 @@ Attribute Terminal::attribute_at(const Position& position) const
         return {};
     return line.attribute_at(position.column());
 }
+#endif
 
 }

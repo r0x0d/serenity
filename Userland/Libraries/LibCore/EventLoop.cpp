@@ -1,27 +1,7 @@
 /*
  * Copyright (c) 2018-2020, Andreas Kling <kling@serenityos.org>
- * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- * 1. Redistributions of source code must retain the above copyright notice, this
- *    list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above copyright notice,
- *    this list of conditions and the following disclaimer in the documentation
- *    and/or other materials provided with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
- * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-2-Clause
  */
 
 #include <AK/Badge.h>
@@ -41,7 +21,6 @@
 #include <LibCore/LocalSocket.h>
 #include <LibCore/Notifier.h>
 #include <LibCore/Object.h>
-#include <LibCore/SyscallUtils.h>
 #include <LibThread/Lock.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -58,7 +37,9 @@
 
 namespace Core {
 
-class RPCClient;
+class InspectorServerConnection;
+
+[[maybe_unused]] static bool connect_to_inspector_server();
 
 struct EventLoopTimer {
     int timer_id { 0 };
@@ -82,8 +63,7 @@ static NeverDestroyed<IDAllocator> s_id_allocator;
 static HashMap<int, NonnullOwnPtr<EventLoopTimer>>* s_timers;
 static HashTable<Notifier*>* s_notifiers;
 int EventLoop::s_wake_pipe_fds[2];
-static RefPtr<LocalServer> s_rpc_server;
-HashMap<int, RefPtr<RPCClient>> s_rpc_clients;
+static RefPtr<InspectorServerConnection> s_inspector_server_connection;
 
 class SignalHandlers : public RefCounted<SignalHandlers> {
     AK_MAKE_NONCOPYABLE(SignalHandlers);
@@ -141,15 +121,14 @@ inline SignalHandlersInfo* signals_info()
 
 pid_t EventLoop::s_pid;
 
-class RPCClient : public Object {
-    C_OBJECT(RPCClient)
+class InspectorServerConnection : public Object {
+    C_OBJECT(InspectorServerConnection)
 public:
-    explicit RPCClient(RefPtr<LocalSocket> socket)
+    explicit InspectorServerConnection(RefPtr<LocalSocket> socket)
         : m_socket(move(socket))
         , m_client_id(s_id_allocator->allocate())
     {
 #ifdef __serenity__
-        s_rpc_clients.set(m_client_id, this);
         add_child(*m_socket);
         m_socket->on_ready_to_read = [this] {
             u32 length;
@@ -175,7 +154,7 @@ public:
         warnln("RPC Client constructed outside serenity, this is very likely a bug!");
 #endif
     }
-    virtual ~RPCClient() override
+    virtual ~InspectorServerConnection() override
     {
         if (auto inspected_object = m_inspected_object.strong_ref())
             inspected_object->decrement_inspector_count({});
@@ -265,7 +244,6 @@ public:
 
     void shutdown()
     {
-        s_rpc_clients.remove(m_client_id);
         s_id_allocator->deallocate(m_client_id);
     }
 
@@ -275,7 +253,7 @@ private:
     int m_client_id { -1 };
 };
 
-EventLoop::EventLoop()
+EventLoop::EventLoop([[maybe_unused]] MakeInspectable make_inspectable)
     : m_private(make<Private>())
 {
     if (!s_event_loop_stack) {
@@ -299,9 +277,11 @@ EventLoop::EventLoop()
         s_event_loop_stack->append(this);
 
 #ifdef __serenity__
-        if (!s_rpc_server) {
-            if (!start_rpc_server())
-                dbgln("Core::EventLoop: Failed to start an RPC server");
+        if (getuid() != 0
+            && make_inspectable == MakeInspectable::Yes
+            && !s_inspector_server_connection) {
+            if (!connect_to_inspector_server())
+                dbgln("Core::EventLoop: Failed to connect to InspectorServer");
         }
 #endif
     }
@@ -313,15 +293,14 @@ EventLoop::~EventLoop()
 {
 }
 
-bool EventLoop::start_rpc_server()
+bool connect_to_inspector_server()
 {
 #ifdef __serenity__
-    s_rpc_server = LocalServer::construct();
-    s_rpc_server->set_name("Core::EventLoop_RPC_server");
-    s_rpc_server->on_ready_to_accept = [&] {
-        RPCClient::construct(s_rpc_server->accept());
-    };
-    return s_rpc_server->listen(String::formatted("/tmp/rpc/{}", getpid()));
+    auto socket = Core::LocalSocket::construct();
+    if (!socket->connect(SocketAddress::local("/tmp/portal/inspectables")))
+        return false;
+    s_inspector_server_connection = InspectorServerConnection::construct(move(socket));
+    return true;
 #else
     VERIFY_NOT_REACHED();
 #endif
@@ -393,7 +372,7 @@ void EventLoop::pump(WaitMode mode)
 
     decltype(m_queued_events) events;
     {
-        LOCKER(m_private->lock);
+        LibThread::Locker locker(m_private->lock);
         events = move(m_queued_events);
     }
 
@@ -414,9 +393,7 @@ void EventLoop::pump(WaitMode mode)
                 break;
             }
         } else if (event.type() == Event::Type::DeferredInvoke) {
-#if DEFERRED_INVOKE_DEBUG
-            dbgln("DeferredInvoke: receiver = {}", *receiver);
-#endif
+            dbgln_if(DEFERRED_INVOKE_DEBUG, "DeferredInvoke: receiver = {}", *receiver);
             static_cast<DeferredInvocationEvent&>(event).m_invokee(*receiver);
         } else {
             NonnullRefPtr<Object> protector(*receiver);
@@ -424,7 +401,7 @@ void EventLoop::pump(WaitMode mode)
         }
 
         if (m_exit_requested) {
-            LOCKER(m_private->lock);
+            LibThread::Locker locker(m_private->lock);
             dbgln_if(EVENTLOOP_DEBUG, "Core::EventLoop: Exit requested. Rejigging {} events.", events.size() - i);
             decltype(m_queued_events) new_event_queue;
             new_event_queue.ensure_capacity(m_queued_events.size() + events.size());
@@ -439,7 +416,7 @@ void EventLoop::pump(WaitMode mode)
 
 void EventLoop::post_event(Object& receiver, NonnullOwnPtr<Event>&& event)
 {
-    LOCKER(m_private->lock);
+    LibThread::Locker lock(m_private->lock);
     dbgln_if(EVENTLOOP_DEBUG, "Core::EventLoop::post_event: ({}) << receivier={}, event={}", m_queued_events.size(), receiver, event);
     m_queued_events.empend(receiver, move(event));
 }
@@ -546,7 +523,7 @@ int EventLoop::register_signal(int signo, Function<void(int)> handler)
     auto& info = *signals_info();
     auto handlers = info.signal_handlers.find(signo);
     if (handlers == info.signal_handlers.end()) {
-        auto signal_handlers = adopt(*new SignalHandlers(signo, EventLoop::handle_signal));
+        auto signal_handlers = adopt_ref(*new SignalHandlers(signo, EventLoop::handle_signal));
         auto handler_id = signal_handlers->add(move(handler));
         info.signal_handlers.set(signo, move(signal_handlers));
         return handler_id;
@@ -586,8 +563,7 @@ void EventLoop::notify_forked(ForkEvent event)
         }
         s_pid = 0;
 #ifdef __serenity__
-        s_rpc_server = nullptr;
-        s_rpc_clients.clear();
+        s_inspector_server_connection = nullptr;
 #endif
         return;
     }
@@ -624,7 +600,7 @@ retry:
 
     bool queued_events_is_empty;
     {
-        LOCKER(m_private->lock);
+        LibThread::Locker locker(m_private->lock);
         queued_events_is_empty = m_queued_events.is_empty();
     }
 
@@ -658,8 +634,6 @@ try_select_again:
             goto try_select_again;
         }
         dbgln_if(EVENTLOOP_DEBUG, "Core::EventLoop::wait_for_event: {} ({}: {})", marked_fd_count, saved_errno, strerror(saved_errno));
-
-        // Blow up, similar to Core::safe_syscall.
         VERIFY_NOT_REACHED();
     }
     if (FD_ISSET(s_wake_pipe_fds[0], &rfds)) {

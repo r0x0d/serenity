@@ -1,28 +1,8 @@
 /*
  * Copyright (c) 2020, Andreas Kling <kling@serenityos.org>
- * Copyright (c) 2020, Linus Groh <mail@linusgroh.de>
- * All rights reserved.
+ * Copyright (c) 2020, Linus Groh <linusg@serenityos.org>
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- * 1. Redistributions of source code must retain the above copyright notice, this
- *    list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above copyright notice,
- *    this list of conditions and the following disclaimer in the documentation
- *    and/or other materials provided with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
- * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-2-Clause
  */
 
 #pragma once
@@ -47,7 +27,7 @@ template<class T, class... Args>
 static inline NonnullRefPtr<T>
 create_ast_node(SourceRange range, Args&&... args)
 {
-    return adopt(*new T(range, forward<Args>(args)...));
+    return adopt_ref(*new T(range, forward<Args>(args)...));
 }
 
 class ASTNode : public RefCounted<ASTNode> {
@@ -678,21 +658,21 @@ public:
 
 class RegExpLiteral final : public Literal {
 public:
-    explicit RegExpLiteral(SourceRange source_range, String content, String flags)
+    explicit RegExpLiteral(SourceRange source_range, String pattern, String flags)
         : Literal(move(source_range))
-        , m_content(content)
-        , m_flags(flags)
+        , m_pattern(move(pattern))
+        , m_flags(move(flags))
     {
     }
 
     virtual Value execute(Interpreter&, GlobalObject&) const override;
     virtual void dump(int indent) const override;
 
-    const String& content() const { return m_content; }
+    const String& pattern() const { return m_pattern; }
     const String& flags() const { return m_flags; }
 
 private:
-    String m_content;
+    String m_pattern;
     String m_flags;
 };
 

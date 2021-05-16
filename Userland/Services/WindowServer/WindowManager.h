@@ -1,27 +1,7 @@
 /*
  * Copyright (c) 2018-2020, Andreas Kling <kling@serenityos.org>
- * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- * 1. Redistributions of source code must retain the above copyright notice, this
- *    list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above copyright notice,
- *    this list of conditions and the following disclaimer in the documentation
- *    and/or other materials provided with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
- * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-2-Clause
  */
 
 #pragma once
@@ -98,6 +78,7 @@ public:
     void notify_opacity_changed(Window&);
     void notify_occlusion_state_changed(Window&);
     void notify_progress_changed(Window&);
+    void notify_modified_changed(Window&);
 
     Gfx::IntRect maximized_window_rect(const Window&) const;
 
@@ -175,11 +156,14 @@ public:
     void tell_wms_window_icon_changed(Window&);
     void tell_wms_window_rect_changed(Window&);
     void tell_wms_applet_area_size_changed(const Gfx::IntSize&);
+    void tell_wms_super_key_pressed();
 
     bool is_active_window_or_accessory(Window&) const;
 
     void start_window_resize(Window&, const Gfx::IntPoint&, MouseButton);
     void start_window_resize(Window&, const MouseEvent&);
+    void start_window_move(Window&, const MouseEvent&);
+    void start_window_move(Window&, const Gfx::IntPoint&);
 
     const Window* active_fullscreen_window() const
     {
@@ -255,7 +239,7 @@ private:
     bool process_ongoing_window_resize(const MouseEvent&, Window*& hovered_window);
     bool process_ongoing_window_move(MouseEvent&, Window*& hovered_window);
     bool process_ongoing_drag(MouseEvent&, Window*& hovered_window);
-    void start_window_move(Window&, const MouseEvent&);
+
     template<typename Callback>
     IterationDecision for_each_visible_window_of_type_from_back_to_front(WindowType, Callback, bool ignore_highlight = false);
     template<typename Callback>
@@ -334,6 +318,7 @@ private:
     DoubleClickInfo m_double_click_info;
     int m_double_click_speed { 0 };
     int m_max_distance_for_double_click { 4 };
+    bool m_previous_event_was_super_keydown { false };
 
     WeakPtr<Window> m_active_window;
     WeakPtr<Window> m_hovered_window;

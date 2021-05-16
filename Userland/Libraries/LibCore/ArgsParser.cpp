@@ -1,27 +1,7 @@
 /*
  * Copyright (c) 2020, Sergey Bugaev <bugaevc@serenityos.org>
- * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- * 1. Redistributions of source code must retain the above copyright notice, this
- *    list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above copyright notice,
- *    this list of conditions and the following disclaimer in the documentation
- *    and/or other materials provided with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
- * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-2-Clause
  */
 
 #include <AK/Format.h>
@@ -126,7 +106,8 @@ bool ArgsParser::parse(int argc, char** argv, bool exit_on_failure)
     // We're done processing options, now let's parse positional arguments.
 
     int values_left = argc - optind;
-    int num_values_for_arg[m_positional_args.size()];
+    Vector<int, 16> num_values_for_arg;
+    num_values_for_arg.resize(m_positional_args.size(), true);
     int total_values_required = 0;
     for (size_t i = 0; i < m_positional_args.size(); i++) {
         auto& arg = m_positional_args[i];
@@ -288,6 +269,22 @@ void ArgsParser::add_option(const char*& value, const char* help_string, const c
     add_option(move(option));
 }
 
+void ArgsParser::add_option(String& value, const char* help_string, const char* long_name, char short_name, const char* value_name)
+{
+    Option option {
+        true,
+        help_string,
+        long_name,
+        short_name,
+        value_name,
+        [&value](const char* s) {
+            value = s;
+            return true;
+        }
+    };
+    add_option(move(option));
+}
+
 void ArgsParser::add_option(int& value, const char* help_string, const char* long_name, char short_name, const char* value_name)
 {
     Option option {
@@ -390,6 +387,21 @@ void ArgsParser::add_positional_argument(double& value, const char* help_string,
 }
 
 void ArgsParser::add_positional_argument(Vector<const char*>& values, const char* help_string, const char* name, Required required)
+{
+    Arg arg {
+        help_string,
+        name,
+        required == Required::Yes ? 1 : 0,
+        INT_MAX,
+        [&values](const char* s) {
+            values.append(s);
+            return true;
+        }
+    };
+    add_positional_argument(move(arg));
+}
+
+void ArgsParser::add_positional_argument(Vector<String>& values, const char* help_string, const char* name, Required required)
 {
     Arg arg {
         help_string,

@@ -1,37 +1,20 @@
 /*
  * Copyright (c) 2018-2020, Andreas Kling <kling@serenityos.org>
- * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- * 1. Redistributions of source code must retain the above copyright notice, this
- *    list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above copyright notice,
- *    this list of conditions and the following disclaimer in the documentation
- *    and/or other materials provided with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
- * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-2-Clause
  */
 
 #pragma once
 
-#ifdef __serenity__
+#include <AK/Assertions.h>
+#include <AK/Atomic.h>
+#include <AK/Types.h>
 
-#    include <AK/Assertions.h>
-#    include <AK/Atomic.h>
-#    include <AK/Types.h>
+#ifdef __serenity__
 #    include <unistd.h>
+#else
+#    include <pthread.h>
+#endif
 
 namespace LibThread {
 
@@ -44,7 +27,22 @@ public:
     void unlock();
 
 private:
-    Atomic<pid_t> m_holder { 0 };
+#ifdef __serenity__
+    using ThreadID = int;
+
+    ALWAYS_INLINE static ThreadID self()
+    {
+        return gettid();
+    }
+#else
+    using ThreadID = pthread_t;
+
+    ALWAYS_INLINE static ThreadID self()
+    {
+        return pthread_self();
+    }
+#endif
+    Atomic<ThreadID> m_holder { 0 };
     u32 m_level { 0 };
 };
 
@@ -65,32 +63,32 @@ private:
 
 ALWAYS_INLINE void Lock::lock()
 {
-    pid_t tid = gettid();
+    ThreadID tid = self();
     if (m_holder == tid) {
         ++m_level;
         return;
     }
     for (;;) {
-        int expected = 0;
+        ThreadID expected = 0;
         if (m_holder.compare_exchange_strong(expected, tid, AK::memory_order_acq_rel)) {
             m_level = 1;
             return;
         }
+#ifdef __serenity__
         donate(expected);
+#endif
     }
 }
 
 inline void Lock::unlock()
 {
-    VERIFY(m_holder == gettid());
+    VERIFY(m_holder == self());
     VERIFY(m_level);
     if (m_level == 1)
         m_holder.store(0, AK::memory_order_release);
     else
         --m_level;
 }
-
-#    define LOCKER(lock) LibThread::Locker locker(lock)
 
 template<typename T>
 class Lockable {
@@ -112,7 +110,7 @@ public:
 
     T lock_and_copy()
     {
-        LOCKER(m_lock);
+        Locker locker(m_lock);
         return m_resource;
     }
 
@@ -122,19 +120,3 @@ private:
 };
 
 }
-
-#else
-
-namespace LibThread {
-
-class Lock {
-public:
-    Lock() { }
-    ~Lock() { }
-};
-
-}
-
-#    define LOCKER(x)
-
-#endif

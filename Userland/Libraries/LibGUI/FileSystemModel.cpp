@@ -1,27 +1,8 @@
 /*
  * Copyright (c) 2018-2020, Andreas Kling <kling@serenityos.org>
- * All rights reserved.
+ * Copyright (c) 2021, sin-ack <sin-ack@protonmail.com>
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- * 1. Redistributions of source code must retain the above copyright notice, this
- *    list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above copyright notice,
- *    this list of conditions and the following disclaimer in the documentation
- *    and/or other materials provided with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
- * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-2-Clause
  */
 
 #include <AK/LexicalPath.h>
@@ -145,21 +126,18 @@ void FileSystemModel::Node::traverse_if_needed()
     children.append(move(directory_children));
     children.append(move(file_children));
 
-    if (!m_file_watcher) {
+    if (!m_model.m_file_watcher->is_watching(full_path)) {
+        // We are not already watching this file, watch it
+        auto result = m_model.m_file_watcher->add_watch(full_path,
+            Core::FileWatcherEvent::Type::MetadataModified
+                | Core::FileWatcherEvent::Type::ChildCreated
+                | Core::FileWatcherEvent::Type::ChildDeleted
+                | Core::FileWatcherEvent::Type::Deleted);
 
-        // We are not already watching this file, create a new watcher
-        auto watcher_or_error = Core::FileWatcher::watch(full_path);
-
-        // Note : the watcher may not be created (e.g. we do not have access rights.) This is expected, just don't watch if that's the case.
-        if (!watcher_or_error.is_error()) {
-            m_file_watcher = watcher_or_error.release_value();
-            m_file_watcher->on_change = [this](auto) {
-                has_traversed = false;
-                mode = 0;
-                children.clear();
-                reify_if_needed();
-                m_model.did_update();
-            };
+        if (result.is_error()) {
+            dbgln("Couldn't watch '{}': {}", full_path, result.error());
+        } else if (result.value() == false) {
+            dbgln("Couldn't watch '{}', probably already watching", full_path);
         }
     }
 }
@@ -201,10 +179,29 @@ String FileSystemModel::Node::full_path() const
 
 ModelIndex FileSystemModel::index(String path, int column) const
 {
-    LexicalPath lexical_path(move(path));
+    Node const* node = node_for_path(move(path));
+    if (node != nullptr) {
+        return node->index(column);
+    }
+
+    return {};
+}
+
+FileSystemModel::Node const* FileSystemModel::node_for_path(String const& path) const
+{
+    LexicalPath lexical_path;
+    if (path == m_root_path) {
+        lexical_path = LexicalPath { "/" };
+    } else if (!m_root_path.is_empty() && path.starts_with(m_root_path)) {
+        lexical_path = LexicalPath { LexicalPath::relative_path(path, m_root_path) };
+    } else {
+        lexical_path = LexicalPath { move(path) };
+    }
+
     const Node* node = m_root->m_parent_of_root ? &m_root->children.first() : m_root;
     if (lexical_path.string() == "/")
-        return node->index(column);
+        return node;
+
     for (size_t i = 0; i < lexical_path.parts().size(); ++i) {
         auto& part = lexical_path.parts()[i];
         bool found = false;
@@ -214,14 +211,14 @@ ModelIndex FileSystemModel::index(String path, int column) const
                 node = &child;
                 found = true;
                 if (i == lexical_path.parts().size() - 1)
-                    return child.index(column);
+                    return node;
                 break;
             }
         }
         if (!found)
-            return {};
+            return nullptr;
     }
-    return {};
+    return nullptr;
 }
 
 String FileSystemModel::full_path(const ModelIndex& index) const
@@ -244,6 +241,31 @@ FileSystemModel::FileSystemModel(String root_path, Mode mode)
     while (auto* group = getgrent())
         m_group_names.set(group->gr_gid, group->gr_name);
     endgrent();
+
+    auto result = Core::FileWatcher::create();
+    if (result.is_error()) {
+        dbgln("{}", result.error());
+        VERIFY_NOT_REACHED();
+    }
+
+    m_file_watcher = result.release_value();
+    m_file_watcher->on_change = [this](Core::FileWatcherEvent const& event) {
+        Node const* maybe_node = node_for_path(event.event_path);
+        if (maybe_node == nullptr) {
+            dbgln("Received event at \"{}\" but we don't have that node", event.event_path);
+            return;
+        }
+        auto& node = *const_cast<Node*>(maybe_node);
+
+        dbgln("Event at \"{}\" on Node {}: {}", node.full_path(), &node, event);
+
+        // FIXME: Your time is coming, un-granular updates.
+        node.has_traversed = false;
+        node.mode = 0;
+        node.children.clear();
+        node.reify_if_needed();
+        did_update();
+    };
 
     update();
 }
@@ -288,20 +310,19 @@ static String permission_string(mode_t mode)
     else
         builder.append("?");
 
-    builder.appendf("%c%c%c%c%c%c%c%c",
-        mode & S_IRUSR ? 'r' : '-',
-        mode & S_IWUSR ? 'w' : '-',
-        mode & S_ISUID ? 's' : (mode & S_IXUSR ? 'x' : '-'),
-        mode & S_IRGRP ? 'r' : '-',
-        mode & S_IWGRP ? 'w' : '-',
-        mode & S_ISGID ? 's' : (mode & S_IXGRP ? 'x' : '-'),
-        mode & S_IROTH ? 'r' : '-',
-        mode & S_IWOTH ? 'w' : '-');
+    builder.append(mode & S_IRUSR ? 'r' : '-');
+    builder.append(mode & S_IWUSR ? 'w' : '-');
+    builder.append(mode & S_ISUID ? 's' : (mode & S_IXUSR ? 'x' : '-'));
+    builder.append(mode & S_IRGRP ? 'r' : '-');
+    builder.append(mode & S_IWGRP ? 'w' : '-');
+    builder.append(mode & S_ISGID ? 's' : (mode & S_IXGRP ? 'x' : '-'));
+    builder.append(mode & S_IROTH ? 'r' : '-');
+    builder.append(mode & S_IWOTH ? 'w' : '-');
 
     if (mode & S_ISVTX)
-        builder.append("t");
+        builder.append('t');
     else
-        builder.appendf("%c", mode & S_IXOTH ? 'x' : '-');
+        builder.append(mode & S_IXOTH ? 'x' : '-');
     return builder.to_string();
 }
 
@@ -649,17 +670,17 @@ Vector<ModelIndex, 1> FileSystemModel::matches(const StringView& searching, unsi
 {
     Node& node = const_cast<Node&>(this->node(index));
     node.reify_if_needed();
-    Vector<ModelIndex, 1> found_indexes;
+    Vector<ModelIndex, 1> found_indices;
     for (auto& child : node.children) {
         if (string_matches(child.name, searching, flags)) {
             const_cast<Node&>(child).reify_if_needed();
-            found_indexes.append(child.index(Column::Name));
+            found_indices.append(child.index(Column::Name));
             if (flags & FirstMatchOnly)
                 break;
         }
     }
 
-    return found_indexes;
+    return found_indices;
 }
 
 }

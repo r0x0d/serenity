@@ -1,27 +1,7 @@
 /*
  * Copyright (c) 2018-2020, Andreas Kling <kling@serenityos.org>
- * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- * 1. Redistributions of source code must retain the above copyright notice, this
- *    list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above copyright notice,
- *    this list of conditions and the following disclaimer in the documentation
- *    and/or other materials provided with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
- * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-2-Clause
  */
 
 #pragma once
@@ -43,9 +23,18 @@ namespace Kernel {
 
 class NetworkAdapter;
 
+using NetworkByteBuffer = AK::Detail::ByteBuffer<1500>;
+
 class NetworkAdapter : public RefCounted<NetworkAdapter> {
 public:
-    static void for_each(Function<void(NetworkAdapter&)>);
+    template<typename Callback>
+    static inline void for_each(Callback callback)
+    {
+        Locker locker(all_adapters().lock());
+        for (auto& it : all_adapters().resource())
+            callback(*it);
+    }
+
     static RefPtr<NetworkAdapter> from_ipv4_address(const IPv4Address&);
     static RefPtr<NetworkAdapter> lookup_by_name(const StringView&);
     virtual ~NetworkAdapter();
@@ -56,6 +45,7 @@ public:
     MACAddress mac_address() { return m_mac_address; }
     IPv4Address ipv4_address() const { return m_ipv4_address; }
     IPv4Address ipv4_netmask() const { return m_ipv4_netmask; }
+    IPv4Address ipv4_broadcast() const { return IPv4Address { (m_ipv4_address.to_u32() & m_ipv4_netmask.to_u32()) | ~m_ipv4_netmask.to_u32() }; }
     IPv4Address ipv4_gateway() const { return m_ipv4_gateway; }
     virtual bool link_up() { return false; }
 
@@ -64,8 +54,8 @@ public:
     void set_ipv4_gateway(const IPv4Address&);
 
     void send(const MACAddress&, const ARPPacket&);
-    KResult send_ipv4(const MACAddress&, const IPv4Address&, IPv4Protocol, const UserOrKernelBuffer& payload, size_t payload_size, u8 ttl);
-    KResult send_ipv4_fragmented(const MACAddress&, const IPv4Address&, IPv4Protocol, const UserOrKernelBuffer& payload, size_t payload_size, u8 ttl);
+    KResult send_ipv4(const IPv4Address& source_ipv4, const MACAddress&, const IPv4Address&, IPv4Protocol, const UserOrKernelBuffer& payload, size_t payload_size, u8 ttl);
+    KResult send_ipv4_fragmented(const IPv4Address& source_ipv4, const MACAddress&, const IPv4Address&, IPv4Protocol, const UserOrKernelBuffer& payload, size_t payload_size, u8 ttl);
 
     size_t dequeue_packet(u8* buffer, size_t buffer_size, Time& packet_timestamp);
 
@@ -89,6 +79,8 @@ protected:
     void did_receive(ReadonlyBytes);
 
 private:
+    static Lockable<HashTable<NetworkAdapter*>>& all_adapters();
+
     MACAddress m_mac_address;
     IPv4Address m_ipv4_address;
     IPv4Address m_ipv4_netmask;
@@ -99,7 +91,11 @@ private:
         Time timestamp;
     };
 
+    // FIXME: Make this configurable
+    static constexpr size_t max_packet_buffers = 1024;
+
     SinglyLinkedList<PacketWithTimestamp> m_packet_queue;
+    size_t m_packet_queue_size { 0 };
     SinglyLinkedList<KBuffer> m_unused_packet_buffers;
     size_t m_unused_packet_buffers_count { 0 };
     String m_name;

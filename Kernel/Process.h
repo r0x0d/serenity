@@ -1,32 +1,13 @@
 /*
  * Copyright (c) 2018-2021, Andreas Kling <kling@serenityos.org>
- * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- * 1. Redistributions of source code must retain the above copyright notice, this
- *    list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above copyright notice,
- *    this list of conditions and the following disclaimer in the documentation
- *    and/or other materials provided with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
- * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-2-Clause
  */
 
 #pragma once
 
 #include <AK/Checked.h>
+#include <AK/Concepts.h>
 #include <AK/HashMap.h>
 #include <AK/InlineLinkedList.h>
 #include <AK/NonnullOwnPtrVector.h>
@@ -40,6 +21,7 @@
 #include <Kernel/Forward.h>
 #include <Kernel/FutexQueue.h>
 #include <Kernel/Lock.h>
+#include <Kernel/PerformanceEventBuffer.h>
 #include <Kernel/ProcessGroup.h>
 #include <Kernel/StdLib.h>
 #include <Kernel/Thread.h>
@@ -49,8 +31,8 @@
 #include <Kernel/VM/AllocationStrategy.h>
 #include <Kernel/VM/RangeAllocator.h>
 #include <Kernel/VM/Space.h>
+#include <LibC/elf.h>
 #include <LibC/signal_numbers.h>
-#include <LibELF/exec_elf.h>
 
 namespace Kernel {
 
@@ -243,16 +225,30 @@ public:
     RefPtr<FileDescription> file_description(int fd) const;
     int fd_flags(int fd) const;
 
-    template<typename Callback>
+    // Breakable iteration functions
+    template<IteratorFunction<Process&> Callback>
     static void for_each(Callback);
-    template<typename Callback>
+    template<IteratorFunction<Process&> Callback>
     static void for_each_in_pgrp(ProcessGroupID, Callback);
-    template<typename Callback>
+    template<IteratorFunction<Process&> Callback>
     void for_each_child(Callback);
 
-    template<typename Callback>
+    template<IteratorFunction<Thread&> Callback>
     IterationDecision for_each_thread(Callback);
-    template<typename Callback>
+    template<IteratorFunction<Thread&> Callback>
+    IterationDecision for_each_thread(Callback callback) const;
+
+    // Non-breakable iteration functions
+    template<VoidFunction<Process&> Callback>
+    static void for_each(Callback);
+    template<VoidFunction<Process&> Callback>
+    static void for_each_in_pgrp(ProcessGroupID, Callback);
+    template<VoidFunction<Process&> Callback>
+    void for_each_child(Callback);
+
+    template<VoidFunction<Thread&> Callback>
+    IterationDecision for_each_thread(Callback);
+    template<VoidFunction<Thread&> Callback>
     IterationDecision for_each_thread(Callback callback) const;
 
     void die();
@@ -260,7 +256,7 @@ public:
 
     ThreadTracer* tracer() { return m_tracer.ptr(); }
     bool is_traced() const { return !!m_tracer; }
-    void start_tracing_from(ProcessID tracer);
+    KResult start_tracing_from(ProcessID tracer);
     void stop_tracing();
     void tracer_trap(Thread&, const RegisterState&);
 
@@ -270,9 +266,11 @@ public:
     KResultOr<int> sys$beep();
     KResultOr<int> sys$get_process_name(Userspace<char*> buffer, size_t buffer_size);
     KResultOr<int> sys$set_process_name(Userspace<const char*> user_name, size_t user_name_length);
-    KResultOr<int> sys$watch_file(Userspace<const char*> path, size_t path_length);
+    KResultOr<int> sys$create_inode_watcher(u32 flags);
+    KResultOr<int> sys$inode_watcher_add_watch(Userspace<const Syscall::SC_inode_watcher_add_watch_params*> user_params);
+    KResultOr<int> sys$inode_watcher_remove_watch(int fd, int wd);
     KResultOr<int> sys$dbgputch(u8);
-    KResultOr<int> sys$dbgputstr(Userspace<const u8*>, int length);
+    KResultOr<size_t> sys$dbgputstr(Userspace<const u8*>, int length);
     KResultOr<int> sys$dump_backtrace();
     KResultOr<pid_t> sys$gettid();
     KResultOr<int> sys$donate(pid_t tid);
@@ -343,6 +341,7 @@ public:
     KResultOr<int> sys$setegid(gid_t);
     KResultOr<int> sys$setuid(uid_t);
     KResultOr<int> sys$setgid(gid_t);
+    KResultOr<int> sys$setreuid(uid_t, uid_t);
     KResultOr<int> sys$setresuid(uid_t, uid_t, uid_t);
     KResultOr<int> sys$setresgid(gid_t, gid_t, gid_t);
     KResultOr<unsigned> sys$alarm(unsigned seconds);
@@ -374,6 +373,7 @@ public:
     KResultOr<int> sys$setsockopt(Userspace<const Syscall::SC_setsockopt_params*>);
     KResultOr<int> sys$getsockname(Userspace<const Syscall::SC_getsockname_params*>);
     KResultOr<int> sys$getpeername(Userspace<const Syscall::SC_getpeername_params*>);
+    KResultOr<int> sys$socketpair(Userspace<const Syscall::SC_socketpair_params*>);
     KResultOr<int> sys$sched_setparam(pid_t pid, Userspace<const struct sched_param*>);
     KResultOr<int> sys$sched_getparam(pid_t pid, Userspace<struct sched_param*>);
     KResultOr<int> sys$create_thread(void* (*)(void*), Userspace<const Syscall::SC_create_thread_params*>);
@@ -387,13 +387,14 @@ public:
     KResultOr<int> sys$halt();
     KResultOr<int> sys$reboot();
     KResultOr<int> sys$realpath(Userspace<const Syscall::SC_realpath_params*>);
-    KResultOr<ssize_t> sys$getrandom(Userspace<void*>, size_t, unsigned int);
+    KResultOr<size_t> sys$getrandom(Userspace<void*>, size_t, unsigned int);
     KResultOr<int> sys$getkeymap(Userspace<const Syscall::SC_getkeymap_params*>);
     KResultOr<int> sys$setkeymap(Userspace<const Syscall::SC_setkeymap_params*>);
     KResultOr<int> sys$module_load(Userspace<const char*> path, size_t path_length);
     KResultOr<int> sys$module_unload(Userspace<const char*> name, size_t name_length);
     KResultOr<int> sys$profiling_enable(pid_t);
     KResultOr<int> sys$profiling_disable(pid_t);
+    KResultOr<int> sys$profiling_free_buffer(pid_t);
     KResultOr<int> sys$futex(Userspace<const Syscall::SC_futex_params*>);
     KResultOr<int> sys$chroot(Userspace<const char*> path, size_t path_length, int mount_flags);
     KResultOr<int> sys$pledge(Userspace<const Syscall::SC_pledge_params*>);
@@ -405,10 +406,9 @@ public:
     KResultOr<int> sys$recvfd(int sockfd, int options);
     KResultOr<long> sys$sysconf(int name);
     KResultOr<int> sys$disown(ProcessID);
-    KResultOr<FlatPtr> sys$allocate_tls(size_t);
+    KResultOr<FlatPtr> sys$allocate_tls(Userspace<const char*> initial_data, size_t);
     KResultOr<int> sys$prctl(int option, FlatPtr arg1, FlatPtr arg2);
     KResultOr<int> sys$set_coredump_metadata(Userspace<const Syscall::SC_set_coredump_metadata_params*>);
-    [[noreturn]] void sys$abort();
     KResultOr<int> sys$anon_create(size_t, int options);
 
     template<bool sockname, typename Params>
@@ -509,11 +509,14 @@ private:
     friend class MemoryManager;
     friend class Scheduler;
     friend class Region;
+    friend class PerformanceManager;
 
     bool add_thread(Thread&);
     bool remove_thread(Thread&);
 
-    Process(RefPtr<Thread>& first_thread, const String& name, uid_t, gid_t, ProcessID ppid, bool is_kernel_process, RefPtr<Custody> cwd = nullptr, RefPtr<Custody> executable = nullptr, TTY* = nullptr, Process* fork_parent = nullptr);
+    Process(const String& name, uid_t uid, gid_t gid, ProcessID ppid, bool is_kernel_process, RefPtr<Custody> cwd, RefPtr<Custody> executable, TTY* tty);
+    static RefPtr<Process> create(RefPtr<Thread>& first_thread, const String& name, uid_t, gid_t, ProcessID ppid, bool is_kernel_process, RefPtr<Custody> cwd = nullptr, RefPtr<Custody> executable = nullptr, TTY* = nullptr, Process* fork_parent = nullptr);
+    KResult attach_resources(RefPtr<Thread>& first_thread, Process* fork_parent);
     static ProcessID allocate_pid();
 
     void kill_threads_except_self();
@@ -521,6 +524,7 @@ private:
     bool dump_core();
     bool dump_perfcore();
     bool create_perf_events_buffer_if_needed();
+    void delete_perf_events_buffer();
 
     KResult do_exec(NonnullRefPtr<FileDescription> main_program_description, Vector<String> arguments, Vector<String> environment, RefPtr<FileDescription> interpreter_description, Thread*& new_main_thread, u32& prev_flags, const Elf32_Ehdr& main_program_header);
     KResultOr<ssize_t> do_write(FileDescription&, const UserOrKernelBuffer&, size_t);
@@ -546,6 +550,13 @@ private:
     bool has_tracee_thread(ProcessID tracer_pid);
 
     void clear_futex_queues_on_exec();
+
+    void setup_socket_fd(int fd, NonnullRefPtr<FileDescription> description, int type);
+
+    inline PerformanceEventBuffer* current_perf_events_buffer()
+    {
+        return g_profiling_all_threads ? g_global_perf_events : m_perf_event_buffer.ptr();
+    }
 
     Process* m_prev { nullptr };
     Process* m_next { nullptr };
@@ -632,7 +643,7 @@ private:
 extern InlineLinkedList<Process>* g_processes;
 extern RecursiveSpinLock g_processes_lock;
 
-template<typename Callback>
+template<IteratorFunction<Process&> Callback>
 inline void Process::for_each(Callback callback)
 {
     VERIFY_INTERRUPTS_DISABLED();
@@ -645,7 +656,7 @@ inline void Process::for_each(Callback callback)
     }
 }
 
-template<typename Callback>
+template<IteratorFunction<Process&> Callback>
 inline void Process::for_each_child(Callback callback)
 {
     VERIFY_INTERRUPTS_DISABLED();
@@ -661,7 +672,7 @@ inline void Process::for_each_child(Callback callback)
     }
 }
 
-template<typename Callback>
+template<IteratorFunction<Thread&> Callback>
 inline IterationDecision Process::for_each_thread(Callback callback) const
 {
     ScopedSpinLock thread_list_lock(m_thread_list_lock);
@@ -673,7 +684,7 @@ inline IterationDecision Process::for_each_thread(Callback callback) const
     return IterationDecision::Continue;
 }
 
-template<typename Callback>
+template<IteratorFunction<Thread&> Callback>
 inline IterationDecision Process::for_each_thread(Callback callback)
 {
     ScopedSpinLock thread_list_lock(m_thread_list_lock);
@@ -685,7 +696,7 @@ inline IterationDecision Process::for_each_thread(Callback callback)
     return IterationDecision::Continue;
 }
 
-template<typename Callback>
+template<IteratorFunction<Process&> Callback>
 inline void Process::for_each_in_pgrp(ProcessGroupID pgid, Callback callback)
 {
     VERIFY_INTERRUPTS_DISABLED();
@@ -698,6 +709,51 @@ inline void Process::for_each_in_pgrp(ProcessGroupID pgid, Callback callback)
         }
         process = next_process;
     }
+}
+
+template<VoidFunction<Process&> Callback>
+inline void Process::for_each(Callback callback)
+{
+    return for_each([&](auto& item) {
+        callback(item);
+        return IterationDecision::Continue;
+    });
+}
+
+template<VoidFunction<Process&> Callback>
+inline void Process::for_each_child(Callback callback)
+{
+    return for_each_child([&](auto& item) {
+        callback(item);
+        return IterationDecision::Continue;
+    });
+}
+
+template<VoidFunction<Thread&> Callback>
+inline IterationDecision Process::for_each_thread(Callback callback) const
+{
+    ScopedSpinLock thread_list_lock(m_thread_list_lock);
+    for (auto& thread : m_thread_list)
+        callback(thread);
+    return IterationDecision::Continue;
+}
+
+template<VoidFunction<Thread&> Callback>
+inline IterationDecision Process::for_each_thread(Callback callback)
+{
+    ScopedSpinLock thread_list_lock(m_thread_list_lock);
+    for (auto& thread : m_thread_list)
+        callback(thread);
+    return IterationDecision::Continue;
+}
+
+template<VoidFunction<Process&> Callback>
+inline void Process::for_each_in_pgrp(ProcessGroupID pgid, Callback callback)
+{
+    return for_each_in_pgrp(pgid, [&](auto& item) {
+        callback(item);
+        return IterationDecision::Continue;
+    });
 }
 
 inline bool InodeMetadata::may_read(const Process& process) const

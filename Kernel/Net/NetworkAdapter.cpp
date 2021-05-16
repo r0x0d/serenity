@@ -1,27 +1,7 @@
 /*
  * Copyright (c) 2018-2020, Andreas Kling <kling@serenityos.org>
- * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- * 1. Redistributions of source code must retain the above copyright notice, this
- *    list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above copyright notice,
- *    this list of conditions and the following disclaimer in the documentation
- *    and/or other materials provided with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
- * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-2-Clause
  */
 
 #include <AK/HashTable.h>
@@ -41,25 +21,20 @@ namespace Kernel {
 
 static AK::Singleton<Lockable<HashTable<NetworkAdapter*>>> s_table;
 
-static Lockable<HashTable<NetworkAdapter*>>& all_adapters()
+Lockable<HashTable<NetworkAdapter*>>& NetworkAdapter::all_adapters()
 {
     return *s_table;
 }
 
-void NetworkAdapter::for_each(Function<void(NetworkAdapter&)> callback)
-{
-    LOCKER(all_adapters().lock());
-    for (auto& it : all_adapters().resource())
-        callback(*it);
-}
-
 RefPtr<NetworkAdapter> NetworkAdapter::from_ipv4_address(const IPv4Address& address)
 {
-    LOCKER(all_adapters().lock());
+    Locker locker(all_adapters().lock());
     for (auto* adapter : all_adapters().resource()) {
-        if (adapter->ipv4_address() == address)
+        if (adapter->ipv4_address() == address || adapter->ipv4_broadcast() == address)
             return adapter;
     }
+    if (address[0] == 0 && address[1] == 0 && address[2] == 0 && address[3] == 0)
+        return LoopbackAdapter::the();
     if (address[0] == 127)
         return LoopbackAdapter::the();
     return nullptr;
@@ -90,7 +65,7 @@ NetworkAdapter::~NetworkAdapter()
 void NetworkAdapter::send(const MACAddress& destination, const ARPPacket& packet)
 {
     size_t size_in_bytes = sizeof(EthernetFrameHeader) + sizeof(ARPPacket);
-    auto buffer = ByteBuffer::create_zeroed(size_in_bytes);
+    auto buffer = NetworkByteBuffer::create_zeroed(size_in_bytes);
     auto* eth = (EthernetFrameHeader*)buffer.data();
     eth->set_source(mac_address());
     eth->set_destination(destination);
@@ -101,14 +76,14 @@ void NetworkAdapter::send(const MACAddress& destination, const ARPPacket& packet
     send_raw({ (const u8*)eth, size_in_bytes });
 }
 
-KResult NetworkAdapter::send_ipv4(const MACAddress& destination_mac, const IPv4Address& destination_ipv4, IPv4Protocol protocol, const UserOrKernelBuffer& payload, size_t payload_size, u8 ttl)
+KResult NetworkAdapter::send_ipv4(const IPv4Address& source_ipv4, const MACAddress& destination_mac, const IPv4Address& destination_ipv4, IPv4Protocol protocol, const UserOrKernelBuffer& payload, size_t payload_size, u8 ttl)
 {
     size_t ipv4_packet_size = sizeof(IPv4Packet) + payload_size;
     if (ipv4_packet_size > mtu())
-        return send_ipv4_fragmented(destination_mac, destination_ipv4, protocol, payload, payload_size, ttl);
+        return send_ipv4_fragmented(source_ipv4, destination_mac, destination_ipv4, protocol, payload, payload_size, ttl);
 
     size_t ethernet_frame_size = sizeof(EthernetFrameHeader) + sizeof(IPv4Packet) + payload_size;
-    auto buffer = ByteBuffer::create_zeroed(ethernet_frame_size);
+    auto buffer = NetworkByteBuffer::create_zeroed(ethernet_frame_size);
     auto& eth = *(EthernetFrameHeader*)buffer.data();
     eth.set_source(mac_address());
     eth.set_destination(destination_mac);
@@ -116,7 +91,7 @@ KResult NetworkAdapter::send_ipv4(const MACAddress& destination_mac, const IPv4A
     auto& ipv4 = *(IPv4Packet*)eth.payload();
     ipv4.set_version(4);
     ipv4.set_internet_header_length(5);
-    ipv4.set_source(ipv4_address());
+    ipv4.set_source(source_ipv4);
     ipv4.set_destination(destination_ipv4);
     ipv4.set_protocol((u8)protocol);
     ipv4.set_length(sizeof(IPv4Packet) + payload_size);
@@ -132,7 +107,7 @@ KResult NetworkAdapter::send_ipv4(const MACAddress& destination_mac, const IPv4A
     return KSuccess;
 }
 
-KResult NetworkAdapter::send_ipv4_fragmented(const MACAddress& destination_mac, const IPv4Address& destination_ipv4, IPv4Protocol protocol, const UserOrKernelBuffer& payload, size_t payload_size, u8 ttl)
+KResult NetworkAdapter::send_ipv4_fragmented(const IPv4Address& source_ipv4, const MACAddress& destination_mac, const IPv4Address& destination_ipv4, IPv4Protocol protocol, const UserOrKernelBuffer& payload, size_t payload_size, u8 ttl)
 {
     // packets must be split on the 64-bit boundary
     auto packet_boundary_size = (mtu() - sizeof(IPv4Packet) - sizeof(EthernetFrameHeader)) & 0xfffffff8;
@@ -146,7 +121,7 @@ KResult NetworkAdapter::send_ipv4_fragmented(const MACAddress& destination_mac, 
     for (size_t packet_index = 0; packet_index < fragment_block_count; ++packet_index) {
         auto is_last_block = packet_index + 1 == fragment_block_count;
         auto packet_payload_size = is_last_block ? last_block_size : packet_boundary_size;
-        auto buffer = ByteBuffer::create_zeroed(ethernet_frame_size);
+        auto buffer = NetworkByteBuffer::create_zeroed(ethernet_frame_size);
         auto& eth = *(EthernetFrameHeader*)buffer.data();
         eth.set_source(mac_address());
         eth.set_destination(destination_mac);
@@ -154,7 +129,7 @@ KResult NetworkAdapter::send_ipv4_fragmented(const MACAddress& destination_mac, 
         auto& ipv4 = *(IPv4Packet*)eth.payload();
         ipv4.set_version(4);
         ipv4.set_internet_header_length(5);
-        ipv4.set_source(ipv4_address());
+        ipv4.set_source(source_ipv4);
         ipv4.set_destination(destination_ipv4);
         ipv4.set_protocol((u8)protocol);
         ipv4.set_length(sizeof(IPv4Packet) + packet_payload_size);
@@ -180,6 +155,11 @@ void NetworkAdapter::did_receive(ReadonlyBytes payload)
 
     Optional<KBuffer> buffer;
 
+    if (m_packet_queue_size == max_packet_buffers) {
+        // FIXME: Keep track of the number of dropped packets
+        return;
+    }
+
     if (m_unused_packet_buffers.is_empty()) {
         buffer = KBuffer::copy(payload.data(), payload.size());
     } else {
@@ -194,6 +174,7 @@ void NetworkAdapter::did_receive(ReadonlyBytes payload)
     }
 
     m_packet_queue.append({ buffer.value(), kgettimeofday() });
+    m_packet_queue_size++;
 
     if (on_receive)
         on_receive();
@@ -205,15 +186,14 @@ size_t NetworkAdapter::dequeue_packet(u8* buffer, size_t buffer_size, Time& pack
     if (m_packet_queue.is_empty())
         return 0;
     auto packet_with_timestamp = m_packet_queue.take_first();
+    m_packet_queue_size--;
     packet_timestamp = packet_with_timestamp.timestamp;
     auto packet = move(packet_with_timestamp.packet);
     size_t packet_size = packet.size();
     VERIFY(packet_size <= buffer_size);
     memcpy(buffer, packet.data(), packet_size);
-    if (m_unused_packet_buffers_count < 100) {
-        m_unused_packet_buffers.append(packet);
-        ++m_unused_packet_buffers_count;
-    }
+    m_unused_packet_buffers.append(packet);
+    ++m_unused_packet_buffers_count;
     return packet_size;
 }
 

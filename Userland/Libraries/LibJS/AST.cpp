@@ -1,28 +1,8 @@
 /*
  * Copyright (c) 2020, Andreas Kling <kling@serenityos.org>
- * Copyright (c) 2020-2021, Linus Groh <mail@linusgroh.de>
- * All rights reserved.
+ * Copyright (c) 2020-2021, Linus Groh <linusg@serenityos.org>
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- * 1. Redistributions of source code must retain the above copyright notice, this
- *    list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above copyright notice,
- *    this list of conditions and the following disclaimer in the documentation
- *    and/or other materials provided with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
- * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-2-Clause
  */
 
 #include <AK/Demangle.h>
@@ -240,7 +220,14 @@ Value CallExpression::execute(Interpreter& interpreter, GlobalObject& global_obj
         if (result.is_object())
             new_object = &result.as_object();
     } else if (is<SuperExpression>(*m_callee)) {
-        auto* super_constructor = interpreter.current_environment()->current_function()->prototype();
+        // FIXME: This is merely a band-aid to make super() inside catch {} work (which constructs
+        //        a new LexicalEnvironment without current function). Implement GetSuperConstructor()
+        //        and subsequently GetThisEnvironment() instead.
+        auto* function_environment = interpreter.current_environment();
+        if (!function_environment->current_function())
+            function_environment = static_cast<LexicalEnvironment*>(function_environment->parent());
+
+        auto* super_constructor = function_environment->current_function()->prototype();
         // FIXME: Functions should track their constructor kind.
         if (!super_constructor || !super_constructor->is_function()) {
             vm.throw_exception<TypeError>(global_object, ErrorType::NotAConstructor, "Super constructor");
@@ -250,7 +237,7 @@ Value CallExpression::execute(Interpreter& interpreter, GlobalObject& global_obj
         if (vm.exception())
             return {};
 
-        interpreter.current_environment()->bind_this_value(global_object, result);
+        function_environment->bind_this_value(global_object, result);
     } else {
         result = vm.call(function, this_value, move(arguments));
     }
@@ -1271,7 +1258,8 @@ Value Identifier::execute(Interpreter& interpreter, GlobalObject& global_object)
 
     auto value = interpreter.vm().get_variable(string(), global_object);
     if (value.is_empty()) {
-        interpreter.vm().throw_exception<ReferenceError>(global_object, ErrorType::UnknownIdentifier, string());
+        if (!interpreter.exception())
+            interpreter.vm().throw_exception<ReferenceError>(global_object, ErrorType::UnknownIdentifier, string());
         return {};
     }
     return value;
@@ -1714,7 +1702,7 @@ Value ObjectExpression::execute(Interpreter& interpreter, GlobalObject& global_o
 void MemberExpression::dump(int indent) const
 {
     print_indent(indent);
-    outln("%{}(computed={})", class_name(), is_computed());
+    outln("{}(computed={})", class_name(), is_computed());
     m_object->dump(indent + 1);
     m_property->dump(indent + 1);
 }
@@ -1810,13 +1798,13 @@ Value NullLiteral::execute(Interpreter& interpreter, GlobalObject&) const
 void RegExpLiteral::dump(int indent) const
 {
     print_indent(indent);
-    outln("{} (/{}/{})", class_name(), content(), flags());
+    outln("{} (/{}/{})", class_name(), pattern(), flags());
 }
 
 Value RegExpLiteral::execute(Interpreter& interpreter, GlobalObject& global_object) const
 {
     InterpreterNodeScope node_scope { interpreter, *this };
-    return RegExpObject::create(global_object, content(), flags());
+    return RegExpObject::create(global_object, pattern(), flags());
 }
 
 void ArrayExpression::dump(int indent) const

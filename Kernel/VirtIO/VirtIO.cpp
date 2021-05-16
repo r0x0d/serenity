@@ -1,29 +1,11 @@
 /*
  * Copyright (c) 2021, the SerenityOS developers.
- * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- * 1. Redistributions of source code must retain the above copyright notice, this
- *    list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above copyright notice,
- *    this list of conditions and the following disclaimer in the documentation
- *    and/or other materials provided with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
- * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-2-Clause
  */
 
+#include <Kernel/CommandLine.h>
+#include <Kernel/PCI/IDs.h>
 #include <Kernel/VirtIO/VirtIO.h>
 #include <Kernel/VirtIO/VirtIOConsole.h>
 #include <Kernel/VirtIO/VirtIORNG.h>
@@ -32,18 +14,20 @@ namespace Kernel {
 
 void VirtIO::detect()
 {
+    if (kernel_command_line().disable_virtio())
+        return;
     PCI::enumerate([&](const PCI::Address& address, PCI::ID id) {
         if (address.is_null() || id.is_null())
             return;
-        if (id.vendor_id != VIRTIO_PCI_VENDOR_ID)
+        if (id.vendor_id != (u16)PCIVendorID::VirtIO)
             return;
         switch (id.device_id) {
-        case VIRTIO_CONSOLE_PCI_DEVICE_ID: {
-            [[maybe_unused]] auto& unused = adopt(*new VirtIOConsole(address)).leak_ref();
+        case (u16)PCIDeviceID::VirtIOConsole: {
+            [[maybe_unused]] auto& unused = adopt_ref(*new VirtIOConsole(address)).leak_ref();
             break;
         }
-        case VIRTIO_ENTROPY_PCI_DEVICE_ID: {
-            [[maybe_unused]] auto& unused = adopt(*new VirtIORNG(address)).leak_ref();
+        case (u16)PCIDeviceID::VirtIOEntropy: {
+            [[maybe_unused]] auto& unused = adopt_ref(*new VirtIORNG(address)).leak_ref();
             break;
         }
         default:
@@ -63,9 +47,6 @@ VirtIODevice::VirtIODevice(PCI::Address address, String class_name)
     enable_bus_mastering(pci_address());
     PCI::enable_interrupt_line(pci_address());
     enable_irq();
-
-    reset_device();
-    set_status_bit(DEVICE_STATUS_ACKNOWLEDGE);
 
     auto capabilities = PCI::get_physical_id(address).capabilities();
     for (auto& capability : capabilities) {
@@ -105,6 +86,9 @@ VirtIODevice::VirtIODevice(PCI::Address address, String class_name)
         m_notify_cfg = get_config(ConfigurationType::Notify, 0);
         m_isr_cfg = get_config(ConfigurationType::ISR, 0);
     }
+
+    reset_device();
+    set_status_bit(DEVICE_STATUS_ACKNOWLEDGE);
 
     set_status_bit(DEVICE_STATUS_DRIVER);
 }
@@ -177,9 +161,9 @@ u8 VirtIODevice::read_status_bits()
     return config_read8(*m_common_cfg, COMMON_CFG_DEVICE_STATUS);
 }
 
-void VirtIODevice::clear_status_bit(u8 status_bit)
+void VirtIODevice::mask_status_bits(u8 status_mask)
 {
-    m_status &= status_bit;
+    m_status &= status_mask;
     if (!m_common_cfg)
         out<u8>(REG_DEVICE_STATUS, m_status);
     else
@@ -257,7 +241,7 @@ void VirtIODevice::reset_device()
 {
     dbgln_if(VIRTIO_DEBUG, "{}: Reset device", m_class_name);
     if (!m_common_cfg) {
-        clear_status_bit(0);
+        mask_status_bits(0);
         while (read_status_bits() != 0) {
             // TODO: delay a bit?
         }
@@ -345,17 +329,10 @@ void VirtIODevice::finish_init()
 {
     VERIFY(m_did_accept_features);                 // ensure features were negotiated
     VERIFY(m_did_setup_queues);                    // ensure queues were set-up
-    VERIFY(!(m_status & DEVICE_STATUS_DRIVER_OK)); // ensure we didnt already finish the initialization
+    VERIFY(!(m_status & DEVICE_STATUS_DRIVER_OK)); // ensure we didn't already finish the initialization
 
     set_status_bit(DEVICE_STATUS_DRIVER_OK);
     dbgln_if(VIRTIO_DEBUG, "{}: Finished initialization", m_class_name);
-}
-
-void VirtIODevice::supply_buffer_and_notify(u16 queue_index, const ScatterGatherList& scatter_list, BufferType buffer_type, void* token)
-{
-    VERIFY(queue_index < m_queue_count);
-    if (get_queue(queue_index).supply_buffer({}, scatter_list, buffer_type, token))
-        notify_queue(queue_index);
 }
 
 u8 VirtIODevice::isr_status()
@@ -369,12 +346,14 @@ void VirtIODevice::handle_irq(const RegisterState&)
 {
     u8 isr_type = isr_status();
     if (isr_type & DEVICE_CONFIG_INTERRUPT) {
+        dbgln_if(VIRTIO_DEBUG, "{}: VirtIO Device config interrupt!", m_class_name);
         if (!handle_device_config_change()) {
             set_status_bit(DEVICE_STATUS_FAILED);
             dbgln("{}: Failed to handle device config change!", m_class_name);
         }
     }
     if (isr_type & QUEUE_INTERRUPT) {
+        dbgln_if(VIRTIO_DEBUG, "{}: VirtIO Queue interrupt!", m_class_name);
         for (size_t i = 0; i < m_queues.size(); i++) {
             if (get_queue(i).new_data_available())
                 return handle_queue_update(i);
@@ -383,6 +362,16 @@ void VirtIODevice::handle_irq(const RegisterState&)
     }
     if (isr_type & ~(QUEUE_INTERRUPT | DEVICE_CONFIG_INTERRUPT))
         dbgln("{}: Handling interrupt with unknown type: {}", m_class_name, isr_type);
+}
+
+void VirtIODevice::supply_chain_and_notify(u16 queue_index, VirtIOQueueChain& chain)
+{
+    auto& queue = get_queue(queue_index);
+    VERIFY(&chain.queue() == &queue);
+    VERIFY(queue.lock().is_locked());
+    chain.submit_to_queue();
+    if (queue.should_notify())
+        notify_queue(queue_index);
 }
 
 }

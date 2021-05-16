@@ -1,37 +1,16 @@
 /*
  * Copyright (c) 2021, the SerenityOS developers.
- * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- * 1. Redistributions of source code must retain the above copyright notice, this
- *    list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above copyright notice,
- *    this list of conditions and the following disclaimer in the documentation
- *    and/or other materials provided with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
- * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-2-Clause
  */
 
 #pragma once
 
 #include <Kernel/Devices/CharacterDevice.h>
+#include <Kernel/VM/RingBuffer.h>
 #include <Kernel/VirtIO/VirtIO.h>
 
 namespace Kernel {
-
-#define VIRTIO_CONSOLE_PCI_DEVICE_ID 0x1003
 
 #define VIRTIO_CONSOLE_F_SIZE (1 << 0)
 #define VIRTIO_CONSOLE_F_MULTIPORT (1 << 1)
@@ -47,6 +26,7 @@ public:
     virtual ~VirtIOConsole() override;
 
 private:
+    constexpr static size_t RINGBUFFER_SIZE = 2 * PAGE_SIZE;
     virtual const char* class_name() const override { return m_class_name.characters(); }
 
     virtual bool can_read(const FileDescription&, size_t) const override;
@@ -60,8 +40,8 @@ private:
     virtual String device_name() const override { return String::formatted("hvc{}", minor()); }
     virtual void handle_queue_update(u16 queue_index) override;
 
-    OwnPtr<Region> m_receive_region;
-    OwnPtr<Region> m_transmit_region;
+    OwnPtr<RingBuffer> m_receive_buffer;
+    OwnPtr<RingBuffer> m_transmit_buffer;
 
     static unsigned next_device_id;
 };

@@ -1,27 +1,7 @@
 /*
  * Copyright (c) 2021, the SerenityOS developers.
- * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- * 1. Redistributions of source code must retain the above copyright notice, this
- *    list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above copyright notice,
- *    this list of conditions and the following disclaimer in the documentation
- *    and/or other materials provided with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
- * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-2-Clause
  */
 
 #include <Kernel/VirtIO/VirtIORNG.h>
@@ -43,7 +23,7 @@ VirtIORNG::VirtIORNG(PCI::Address address)
         m_entropy_buffer = MM.allocate_contiguous_kernel_region(PAGE_SIZE, "VirtIORNG", Region::Access::Read | Region::Access::Write);
         if (m_entropy_buffer) {
             memset(m_entropy_buffer->vaddr().as_ptr(), 0, m_entropy_buffer->size());
-            supply_buffer_and_notify(REQUESTQ, ScatterGatherList::create_from_physical(m_entropy_buffer->physical_page(0)->paddr(), m_entropy_buffer->size()), BufferType::DeviceWritable, m_entropy_buffer->vaddr().as_ptr());
+            request_entropy_from_host();
         }
     }
 }
@@ -60,14 +40,33 @@ bool VirtIORNG::handle_device_config_change()
 void VirtIORNG::handle_queue_update(u16 queue_index)
 {
     VERIFY(queue_index == REQUESTQ);
-    size_t available_entropy = 0;
-    if (!get_queue(REQUESTQ).get_buffer(&available_entropy))
-        return;
+    size_t available_entropy = 0, used;
+    auto& queue = get_queue(REQUESTQ);
+    {
+        ScopedSpinLock lock(queue.lock());
+        auto chain = queue.pop_used_buffer_chain(used);
+        if (chain.is_empty())
+            return;
+        VERIFY(chain.length() == 1);
+        chain.for_each([&available_entropy](PhysicalAddress, size_t length) {
+            available_entropy = length;
+        });
+        chain.release_buffer_slots_to_queue();
+    }
     dbgln_if(VIRTIO_DEBUG, "VirtIORNG: received {} bytes of entropy!", available_entropy);
     for (auto i = 0u; i < available_entropy; i++) {
         m_entropy_source.add_random_event(m_entropy_buffer->vaddr().as_ptr()[i]);
     }
-    // TODO: when should we ask for more entropy from the host?
+    // TODO: When should we get some more entropy?
+}
+
+void VirtIORNG::request_entropy_from_host()
+{
+    auto& queue = get_queue(REQUESTQ);
+    ScopedSpinLock lock(queue.lock());
+    VirtIOQueueChain chain(queue);
+    chain.add_buffer_to_chain(m_entropy_buffer->physical_page(0)->paddr(), PAGE_SIZE, BufferType::DeviceWritable);
+    supply_chain_and_notify(REQUESTQ, chain);
 }
 
 }

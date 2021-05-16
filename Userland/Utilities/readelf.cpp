@@ -1,27 +1,7 @@
 /*
  * Copyright (c) 2020, the SerenityOS developers.
- * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- * 1. Redistributions of source code must retain the above copyright notice, this
- *    list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above copyright notice,
- *    this list of conditions and the following disclaimer in the documentation
- *    and/or other materials provided with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
- * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-2-Clause
  */
 
 #include <AK/MappedFile.h>
@@ -472,19 +452,24 @@ int main(int argc, char** argv)
 
         int fd = open(path, O_RDONLY);
         if (fd < 0) {
-            outln(String::formatted("Unable to open file {}", path).characters());
+            outln("Unable to open file {}", path);
             return 1;
         }
 
-        auto loader = ELF::DynamicLoader::try_create(fd, path);
-        if (!loader || !loader->is_valid()) {
-            outln(String::formatted("{} is not a valid ELF dynamic shared object!", path));
+        auto result = ELF::DynamicLoader::try_create(fd, path);
+        if (result.is_error()) {
+            outln("{}", result.error().text);
+            return 1;
+        }
+        auto& loader = result.value();
+        if (!loader->is_valid()) {
+            outln("{} is not a valid ELF dynamic shared object!", path);
             return 1;
         }
 
         object = loader->map();
         if (!object) {
-            outln(String::formatted("Failed to map dynamic ELF object {}", path));
+            outln("Failed to map dynamic ELF object {}", path);
             return 1;
         }
     }
@@ -492,9 +477,8 @@ int main(int argc, char** argv)
     if (display_elf_header) {
         printf("ELF header:\n");
 
-        String magic = String::format("%s", header.e_ident);
         printf("  Magic:                             ");
-        for (char i : magic) {
+        for (char i : StringView { header.e_ident, sizeof(header.e_ident) }) {
             if (isprint(i)) {
                 printf("%c ", i);
             } else {
@@ -539,7 +523,6 @@ int main(int argc, char** argv)
                 printf("%08x ", section.size());
                 printf("%u", section.flags());
                 printf("\n");
-                return IterationDecision::Continue;
             });
         }
         printf("\n");
@@ -572,8 +555,6 @@ int main(int argc, char** argv)
 
                 if (program_header.type() == PT_INTERP)
                     printf("      [Interpreter: %s]\n", program_header.raw_data());
-
-                return IterationDecision::Continue;
             });
         }
 
@@ -602,7 +583,6 @@ int main(int argc, char** argv)
             Vector<String> libraries;
             object->for_each_needed_library([&libraries](StringView entry) {
                 libraries.append(String::formatted("{}", entry).characters());
-                return IterationDecision::Continue;
             });
 
             auto library_index = 0;
@@ -623,7 +603,6 @@ int main(int argc, char** argv)
                 } else {
                     printf("0x%08x\n", entry.val());
                 }
-                return IterationDecision::Continue;
             });
         }
 
@@ -646,7 +625,6 @@ int main(int argc, char** argv)
                     printf(" 0x%08x ", reloc.symbol().value());
                     printf(" %s", reloc.symbol().name().to_string().characters());
                     printf("\n");
-                    return IterationDecision::Continue;
                 });
             }
             printf("\n");
@@ -662,7 +640,6 @@ int main(int argc, char** argv)
                     printf(" 0x%08x ", reloc.symbol().value());
                     printf(" %s", reloc.symbol().name().to_string().characters());
                     printf("\n");
-                    return IterationDecision::Continue;
                 });
             }
         } else {
@@ -682,7 +659,7 @@ int main(int argc, char** argv)
         auto found_notes = false;
         elf_image.for_each_program_header([&found_notes](const ELF::Image::ProgramHeader& program_header) {
             if (program_header.type() != PT_NOTE)
-                return IterationDecision::Continue;
+                return;
 
             found_notes = true;
 
@@ -690,8 +667,6 @@ int main(int argc, char** argv)
 
             // FIXME: Parse CORE notes. Notes are in JSON format on SerenityOS, but vary between systems.
             printf("%s\n", program_header.raw_data());
-
-            return IterationDecision::Continue;
         });
 
         if (!found_notes)
@@ -730,7 +705,6 @@ int main(int argc, char** argv)
                     printf("%-8s ", object_symbol_binding_to_string(sym.bind()));
                     printf("%s", StringView(sym.name()).to_string().characters());
                     printf("\n");
-                    return IterationDecision::Continue;
                 });
             }
         }
@@ -754,7 +728,6 @@ int main(int argc, char** argv)
                 printf("%-8s ", object_symbol_binding_to_string(sym.bind()));
                 printf("%s", StringView(sym.name()).to_string().characters());
                 printf("\n");
-                return IterationDecision::Continue;
             });
         } else {
             printf("Symbol table '%s' contains zero entries.\n", ELF_SYMTAB);

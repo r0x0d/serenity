@@ -1,27 +1,7 @@
 /*
  * Copyright (c) 2020-2021, Andreas Kling <kling@serenityos.org>
- * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- * 1. Redistributions of source code must retain the above copyright notice, this
- *    list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above copyright notice,
- *    this list of conditions and the following disclaimer in the documentation
- *    and/or other materials provided with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
- * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-2-Clause
  */
 
 #include "GMLAutocompleteProvider.h"
@@ -78,14 +58,14 @@ void UnregisteredWidget::paint_event(GUI::PaintEvent& event)
 
 int main(int argc, char** argv)
 {
-    if (pledge("stdio thread recvfd sendfd accept cpath rpath wpath unix fattr", nullptr) < 0) {
+    if (pledge("stdio thread recvfd sendfd cpath rpath wpath unix", nullptr) < 0) {
         perror("pledge");
         return 1;
     }
 
     auto app = GUI::Application::construct(argc, argv);
 
-    if (pledge("stdio thread recvfd sendfd accept rpath cpath wpath unix", nullptr) < 0) {
+    if (pledge("stdio thread recvfd sendfd rpath cpath wpath unix", nullptr) < 0) {
         perror("pledge");
         return 1;
     }
@@ -98,7 +78,7 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    if (pledge("stdio thread recvfd sendfd accept rpath cpath wpath", nullptr) < 0) {
+    if (pledge("stdio thread recvfd sendfd rpath cpath wpath", nullptr) < 0) {
         perror("pledge");
         return 1;
     }
@@ -135,7 +115,7 @@ int main(int argc, char** argv)
         editor.set_cursor(4, 28); // after "...widgets!"
     } else {
         auto file = Core::File::construct(path);
-        if (!file->open(Core::IODevice::ReadOnly)) {
+        if (!file->open(Core::OpenMode::ReadOnly)) {
             GUI::MessageBox::show(window, String::formatted("Opening \"{}\" failed: {}", path, strerror(errno)), "Error", GUI::MessageBox::Type::Error);
             return 1;
         }
@@ -148,22 +128,22 @@ int main(int argc, char** argv)
 
     editor.on_change = [&] {
         preview.remove_all_children();
-        preview.load_from_gml(editor.text(), [](const String& class_name) -> RefPtr<GUI::Widget> {
+        preview.load_from_gml(editor.text(), [](const String& class_name) -> RefPtr<Core::Object> {
             return UnregisteredWidget::construct(class_name);
         });
     };
 
     auto menubar = GUI::Menubar::construct();
-    auto& app_menu = menubar->add_menu("&File");
+    auto& file_menu = menubar->add_menu("&File");
 
-    app_menu.add_action(GUI::CommonActions::make_open_action([&](auto&) {
+    file_menu.add_action(GUI::CommonActions::make_open_action([&](auto&) {
         Optional<String> open_path = GUI::FilePicker::get_open_filepath(window);
 
         if (!open_path.has_value())
             return;
 
         auto file = Core::File::construct(open_path.value());
-        if (!file->open(Core::IODevice::ReadOnly) && file->error() != ENOENT) {
+        if (!file->open(Core::OpenMode::ReadOnly) && file->error() != ENOENT) {
             GUI::MessageBox::show(window, String::formatted("Opening \"{}\" failed: {}", open_path.value(), strerror(errno)), "Error", GUI::MessageBox::Type::Error);
             return;
         }
@@ -177,7 +157,7 @@ int main(int argc, char** argv)
         editor.set_focus(true);
     }));
 
-    app_menu.add_action(GUI::CommonActions::make_save_as_action([&](auto&) {
+    file_menu.add_action(GUI::CommonActions::make_save_as_action([&](auto&) {
         Optional<String> save_path = GUI::FilePicker::get_save_filepath(window, "Untitled", "gml");
         if (!save_path.has_value())
             return;
@@ -188,9 +168,9 @@ int main(int argc, char** argv)
         }
     }));
 
-    app_menu.add_separator();
+    file_menu.add_separator();
 
-    app_menu.add_action(GUI::CommonActions::make_quit_action([&](auto&) {
+    file_menu.add_action(GUI::CommonActions::make_quit_action([&](auto&) {
         app->quit();
     }));
 

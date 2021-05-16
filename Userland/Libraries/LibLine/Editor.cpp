@@ -1,28 +1,8 @@
 /*
  * Copyright (c) 2018-2020, Andreas Kling <kling@serenityos.org>
  * Copyright (c) 2021, the SerenityOS developers.
- * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- * 1. Redistributions of source code must retain the above copyright notice, this
- *    list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above copyright notice,
- *    this list of conditions and the following disclaimer in the documentation
- *    and/or other materials provided with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
- * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-2-Clause
  */
 
 #include "Editor.h"
@@ -205,6 +185,24 @@ Editor::~Editor()
         restore();
 }
 
+void Editor::ensure_free_lines_from_origin(size_t count)
+{
+    if (count > m_num_lines) {
+        // It's hopeless...
+        TODO();
+    }
+
+    if (m_origin_row + count <= m_num_lines)
+        return;
+
+    auto diff = m_origin_row + count - m_num_lines - 1;
+    out(stderr, "\x1b[{}S", diff);
+    fflush(stderr);
+    m_origin_row -= diff;
+    m_refresh_needed = false;
+    m_chars_touched_in_the_middle = 0;
+}
+
 void Editor::get_terminal_size()
 {
     struct winsize ws;
@@ -234,12 +232,13 @@ void Editor::add_to_history(const String& line)
     struct timeval tv;
     gettimeofday(&tv, nullptr);
     m_history.append({ line, tv.tv_sec });
+    m_history_dirty = true;
 }
 
 bool Editor::load_history(const String& path)
 {
     auto history_file = Core::File::construct(path);
-    if (!history_file->open(Core::IODevice::ReadOnly))
+    if (!history_file->open(Core::OpenMode::ReadOnly))
         return false;
     auto data = history_file->read_all();
     auto hist = StringView { data.data(), data.size() };
@@ -298,7 +297,7 @@ bool Editor::save_history(const String& path)
 {
     Vector<HistoryEntry> final_history { { "", 0 } };
     {
-        auto file_or_error = Core::File::open(path, Core::IODevice::ReadWrite, 0600);
+        auto file_or_error = Core::File::open(path, Core::OpenMode::ReadWrite, 0600);
         if (file_or_error.is_error())
             return false;
         auto file = file_or_error.release_value();
@@ -313,7 +312,7 @@ bool Editor::save_history(const String& path)
             [](const HistoryEntry& left, const HistoryEntry& right) { return left.timestamp < right.timestamp; });
     }
 
-    auto file_or_error = Core::File::open(path, Core::IODevice::WriteOnly, 0600);
+    auto file_or_error = Core::File::open(path, Core::OpenMode::WriteOnly, 0600);
     if (file_or_error.is_error())
         return false;
     auto file = file_or_error.release_value();
@@ -321,6 +320,7 @@ bool Editor::save_history(const String& path)
     for (const auto& entry : final_history)
         file->write(String::formatted("{}::{}\n\n", entry.timestamp, entry.entry));
 
+    m_history_dirty = false;
     return true;
 }
 
@@ -576,6 +576,20 @@ void Editor::interrupted()
     });
 }
 
+void Editor::resized()
+{
+    m_was_resized = true;
+    m_previous_num_columns = m_num_columns;
+    get_terminal_size();
+
+    reposition_cursor(true);
+    m_suggestion_display->redisplay(m_suggestion_manager, m_num_lines, m_num_columns);
+    reposition_cursor();
+
+    if (m_is_searching)
+        m_search_editor->resized();
+}
+
 void Editor::really_quit_event_loop()
 {
     m_finish = false;
@@ -586,7 +600,9 @@ void Editor::really_quit_event_loop()
     m_buffer.clear();
     m_chars_touched_in_the_middle = buffer().size();
     m_is_editing = false;
-    restore();
+
+    if (m_initialized)
+        restore();
 
     m_returned_line = string;
 
@@ -1092,7 +1108,6 @@ void Editor::cleanup_suggestions()
 
 bool Editor::search(const StringView& phrase, bool allow_empty, bool from_beginning)
 {
-
     int last_matching_offset = -1;
     bool found = false;
 
@@ -1382,15 +1397,10 @@ void Editor::reposition_cursor(bool to_end)
     auto line = cursor_line() - 1;
     auto column = offset_in_line();
 
+    ensure_free_lines_from_origin(line);
+
     VERIFY(column + m_origin_column <= m_num_columns);
     VT::move_absolute(line + m_origin_row, column + m_origin_column);
-
-    if (line + m_origin_row > m_num_lines) {
-        for (size_t i = m_num_lines; i < line + m_origin_row; ++i)
-            fputc('\n', stderr);
-        m_origin_row -= line + m_origin_row - m_num_lines;
-        VT::move_relative(0, column + m_origin_column);
-    }
 
     m_cursor = saved_cursor;
 }
@@ -1451,9 +1461,9 @@ String Style::Background::to_vt_escape() const
         return "";
 
     if (m_is_rgb) {
-        return String::format("\033[48;2;%d;%d;%dm", m_rgb_color[0], m_rgb_color[1], m_rgb_color[2]);
+        return String::formatted("\e[48;2;{};{};{}m", m_rgb_color[0], m_rgb_color[1], m_rgb_color[2]);
     } else {
-        return String::format("\033[%dm", (u8)m_xterm_color + 40);
+        return String::formatted("\e[{}m", (u8)m_xterm_color + 40);
     }
 }
 
@@ -1463,9 +1473,9 @@ String Style::Foreground::to_vt_escape() const
         return "";
 
     if (m_is_rgb) {
-        return String::format("\033[38;2;%d;%d;%dm", m_rgb_color[0], m_rgb_color[1], m_rgb_color[2]);
+        return String::formatted("\e[38;2;{};{};{}m", m_rgb_color[0], m_rgb_color[1], m_rgb_color[2]);
     } else {
-        return String::format("\033[%dm", (u8)m_xterm_color + 30);
+        return String::formatted("\e[{}m", (u8)m_xterm_color + 30);
     }
 }
 
@@ -1474,7 +1484,7 @@ String Style::Hyperlink::to_vt_escape(bool starting) const
     if (is_empty())
         return "";
 
-    return String::format("\033]8;;%s\033\\", starting ? m_link.characters() : "");
+    return String::formatted("\e]8;;{}\e\\", starting ? m_link : String::empty());
 }
 
 void Style::unify_with(const Style& other, bool prefer_other)
@@ -1511,7 +1521,7 @@ String Style::to_string() const
         if (m_foreground.m_is_rgb) {
             builder.join(", ", m_foreground.m_rgb_color);
         } else {
-            builder.appendf("(XtermColor) %d", (int)m_foreground.m_xterm_color);
+            builder.appendff("(XtermColor) {}", (int)m_foreground.m_xterm_color);
         }
         builder.append("), ");
     }
@@ -1521,7 +1531,7 @@ String Style::to_string() const
         if (m_background.m_is_rgb) {
             builder.join(' ', m_background.m_rgb_color);
         } else {
-            builder.appendf("(XtermColor) %d", (int)m_background.m_xterm_color);
+            builder.appendff("(XtermColor) {}", (int)m_background.m_xterm_color);
         }
         builder.append("), ");
     }
@@ -1536,7 +1546,7 @@ String Style::to_string() const
         builder.append("Italic, ");
 
     if (!m_hyperlink.is_empty())
-        builder.appendf("Hyperlink(\"%s\"), ", m_hyperlink.m_link.characters());
+        builder.appendff("Hyperlink(\"{}\"), ", m_hyperlink.m_link);
 
     builder.append("}");
 

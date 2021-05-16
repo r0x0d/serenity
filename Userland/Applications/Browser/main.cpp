@@ -1,27 +1,7 @@
 /*
  * Copyright (c) 2018-2021, Andreas Kling <kling@serenityos.org>
- * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- * 1. Redistributions of source code must retain the above copyright notice, this
- *    list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above copyright notice,
- *    this list of conditions and the following disclaimer in the documentation
- *    and/or other materials provided with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
- * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-2-Clause
  */
 
 #include "BookmarksBarWidget.h"
@@ -44,6 +24,7 @@
 #include <LibGUI/TabWidget.h>
 #include <LibGUI/Window.h>
 #include <LibGfx/Bitmap.h>
+#include <LibWeb/HTML/WebSocket.h>
 #include <LibWeb/Loader/ContentFilter.h>
 #include <LibWeb/Loader/ResourceLoader.h>
 #include <stdio.h>
@@ -72,7 +53,7 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    if (pledge("stdio recvfd sendfd accept unix cpath rpath wpath fattr", nullptr) < 0) {
+    if (pledge("stdio recvfd sendfd unix cpath rpath wpath", nullptr) < 0) {
         perror("pledge");
         return 1;
     }
@@ -86,8 +67,11 @@ int main(int argc, char** argv)
 
     auto app = GUI::Application::construct(argc, argv);
 
-    // Connect to the ProtocolServer immediately so we can drop the "unix" pledge.
-    Web::ResourceLoader::the();
+    if (Browser::s_single_process) {
+        // Connect to the RequestServer and the WebSocket service immediately so we don't need to unveil their portals.
+        Web::ResourceLoader::the();
+        Web::HTML::WebSocketClientManager::the();
+    }
 
     // Connect to LaunchServer immediately and let it know that we won't ask for anything other than opening
     // the user's downloads directory.
@@ -95,11 +79,6 @@ int main(int argc, char** argv)
     if (!Desktop::Launcher::add_allowed_url(URL::create_with_file_protocol(Core::StandardPaths::downloads_directory()))
         || !Desktop::Launcher::seal_allowlist()) {
         warnln("Failed to set up allowed launch URLs");
-        return 1;
-    }
-
-    if (pledge("stdio recvfd sendfd accept unix cpath rpath wpath", nullptr) < 0) {
-        perror("pledge");
         return 1;
     }
 
@@ -134,8 +113,9 @@ int main(int argc, char** argv)
 
     auto m_config = Core::ConfigFile::get_for_app("Browser");
     Browser::g_home_url = m_config->read_entry("Preferences", "Home", "about:blank");
+    Browser::g_search_engine = m_config->read_entry("Preferences", "SearchEngine", {});
 
-    auto ad_filter_list_or_error = Core::File::open(String::formatted("{}/BrowserContentFilters.txt", Core::StandardPaths::config_directory()), Core::IODevice::ReadOnly);
+    auto ad_filter_list_or_error = Core::File::open(String::formatted("{}/BrowserContentFilters.txt", Core::StandardPaths::config_directory()), Core::OpenMode::ReadOnly);
     if (!ad_filter_list_or_error.is_error()) {
         auto& ad_filter_list = *ad_filter_list_or_error.value();
         while (!ad_filter_list.eof()) {
@@ -170,9 +150,15 @@ int main(int argc, char** argv)
     auto default_favicon = Gfx::Bitmap::load_from_file("/res/icons/16x16/filetype-html.png");
     VERIFY(default_favicon);
 
+    auto set_window_title_for_tab = [&window](auto& tab) {
+        auto& title = tab.title();
+        auto url = tab.url();
+        window->set_title(String::formatted("{} - Browser", title.is_empty() ? url.to_string() : title));
+    };
+
     tab_widget.on_change = [&](auto& active_widget) {
         auto& tab = static_cast<Browser::Tab&>(active_widget);
-        window->set_title(String::formatted("{} - Browser", tab.title()));
+        set_window_title_for_tab(tab);
         tab.did_become_active();
     };
 
@@ -199,7 +185,7 @@ int main(int argc, char** argv)
         new_tab.on_title_change = [&](auto title) {
             tab_widget.set_tab_title(new_tab, title);
             if (tab_widget.active_widget() == &new_tab)
-                window->set_title(String::formatted("{} - Browser", title));
+                set_window_title_for_tab(new_tab);
         };
 
         new_tab.on_favicon_change = [&](auto& bitmap) {

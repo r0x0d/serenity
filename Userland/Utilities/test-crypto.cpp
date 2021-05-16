@@ -1,27 +1,7 @@
 /*
  * Copyright (c) 2020, the SerenityOS developers.
- * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- * 1. Redistributions of source code must retain the above copyright notice, this
- *    list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above copyright notice,
- *    this list of conditions and the following disclaimer in the documentation
- *    and/or other materials provided with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
- * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-2-Clause
  */
 
 #include <AK/Random.h>
@@ -29,8 +9,10 @@
 #include <LibCore/ConfigFile.h>
 #include <LibCore/EventLoop.h>
 #include <LibCore/File.h>
+#include <LibCrypto/ASN1/ASN1.h>
 #include <LibCrypto/Authentication/GHash.h>
 #include <LibCrypto/Authentication/HMAC.h>
+#include <LibCrypto/BigInt/Algorithms/UnsignedBigIntegerAlgorithms.h>
 #include <LibCrypto/BigInt/SignedBigInteger.h>
 #include <LibCrypto/BigInt/UnsignedBigInteger.h>
 #include <LibCrypto/Checksum/Adler32.h>
@@ -147,14 +129,14 @@ static int run(Function<void(const char*, size_t)> fn)
         }
     } else {
         if (filename == nullptr) {
-            puts("must specify a file name");
+            puts("must specify a filename");
             return 1;
         }
         if (!Core::File::exists(filename)) {
             puts("File does not exist");
             return 1;
         }
-        auto file = Core::File::open(filename, Core::IODevice::OpenMode::ReadOnly);
+        auto file = Core::File::open(filename, Core::OpenMode::ReadOnly);
         if (file.is_error()) {
             printf("That's a weird file man...\n");
             return 1;
@@ -431,11 +413,16 @@ auto main(int argc, char** argv) -> int
             return 1;
         }
         auto config = Core::ConfigFile::open(ca_certs_file);
+        auto now = Core::DateTime::now();
+        auto last_year = Core::DateTime::create(now.year() - 1);
+        auto next_year = Core::DateTime::create(now.year() + 1);
         for (auto& entity : config->groups()) {
             Certificate cert;
-            cert.subject = entity;
-            cert.issuer_subject = config->read_entry(entity, "issuer_subject", entity);
-            cert.country = config->read_entry(entity, "country");
+            cert.subject.subject = entity;
+            cert.issuer.subject = config->read_entry(entity, "issuer_subject", entity);
+            cert.subject.country = config->read_entry(entity, "country");
+            cert.not_before = Crypto::ASN1::parse_generalized_time(config->read_entry(entity, "not_before", "")).value_or(last_year);
+            cert.not_after = Crypto::ASN1::parse_generalized_time(config->read_entry(entity, "not_after", "")).value_or(next_year);
             s_root_ca_certificates.append(move(cert));
         }
         if (run_tests)
@@ -474,11 +461,16 @@ auto main(int argc, char** argv) -> int
                 return 1;
             }
             auto config = Core::ConfigFile::open(ca_certs_file);
+            auto now = Core::DateTime::now();
+            auto last_year = Core::DateTime::create(now.year() - 1);
+            auto next_year = Core::DateTime::create(now.year() + 1);
             for (auto& entity : config->groups()) {
                 Certificate cert;
-                cert.subject = entity;
-                cert.issuer_subject = config->read_entry(entity, "issuer_subject", entity);
-                cert.country = config->read_entry(entity, "country");
+                cert.subject.subject = entity;
+                cert.issuer.subject = config->read_entry(entity, "issuer_subject", entity);
+                cert.subject.country = config->read_entry(entity, "country");
+                cert.not_before = Crypto::ASN1::parse_generalized_time(config->read_entry(entity, "not_before", "")).value_or(last_year);
+                cert.not_after = Crypto::ASN1::parse_generalized_time(config->read_entry(entity, "not_after", "")).value_or(next_year);
                 s_root_ca_certificates.append(move(cert));
             }
             tls_tests();
@@ -598,7 +590,6 @@ static void rsa_test_encrypt();
 static void rsa_test_der_parse();
 static void rsa_test_encrypt_decrypt();
 static void rsa_emsa_pss_test_create();
-static void bigint_test_number_theory(); // FIXME: we should really move these num theory stuff out
 
 static void tls_test_client_hello();
 
@@ -610,6 +601,11 @@ static void bigint_division();
 static void bigint_base10();
 static void bigint_import_export();
 static void bigint_bitwise();
+
+static void bigint_theory_modular_inverse();
+static void bigint_theory_modular_power();
+static void bigint_theory_primality();
+static void bigint_theory_random_number();
 
 static void bigint_test_signed_fibo500();
 static void bigint_signed_addition_edgecases();
@@ -1791,7 +1787,6 @@ static int rsa_tests()
 {
     rsa_test_encrypt();
     rsa_test_der_parse();
-    bigint_test_number_theory();
     rsa_test_encrypt_decrypt();
     rsa_emsa_pss_test_create();
     return g_some_test_failed ? 1 : 0;
@@ -1834,124 +1829,6 @@ static void rsa_test_encrypt()
         else {
             dbgln("out size {} values {}", buf.size(), StringView { (char*)buf.data(), buf.size() });
 
-            PASS;
-        }
-    }
-}
-
-static void bigint_test_number_theory()
-{
-    {
-        I_TEST((Number Theory | Modular Inverse));
-        if (Crypto::NumberTheory::ModularInverse(7, 87) == 25) {
-            PASS;
-        } else {
-            FAIL(Invalid result);
-        }
-    }
-    {
-        struct {
-            Crypto::UnsignedBigInteger base;
-            Crypto::UnsignedBigInteger exp;
-            Crypto::UnsignedBigInteger mod;
-            Crypto::UnsignedBigInteger expected;
-        } mod_pow_tests[] = {
-            { "2988348162058574136915891421498819466320163312926952423791023078876139"_bigint, "2351399303373464486466122544523690094744975233415544072992656881240319"_bigint, "10000"_bigint, "3059"_bigint },
-            { "24231"_bigint, "12448"_bigint, "14679"_bigint, "4428"_bigint },
-            { "1005404"_bigint, "8352654"_bigint, "8161408"_bigint, "2605696"_bigint },
-            { "3665005778"_bigint, "3244425589"_bigint, "565668506"_bigint, "524766494"_bigint },
-            { "10662083169959689657"_bigint, "11605678468317533000"_bigint, "1896834583057209739"_bigint, "1292743154593945858"_bigint },
-            { "99667739213529524852296932424683448520"_bigint, "123394910770101395416306279070921784207"_bigint, "238026722756504133786938677233768788719"_bigint, "197165477545023317459748215952393063201"_bigint },
-            { "49368547511968178788919424448914214709244872098814465088945281575062739912239"_bigint, "25201856190991298572337188495596990852134236115562183449699512394891190792064"_bigint, "45950460777961491021589776911422805972195170308651734432277141467904883064645"_bigint, "39917885806532796066922509794537889114718612292469285403012781055544152450051"_bigint },
-            { "48399385336454791246880286907257136254351739111892925951016159217090949616810"_bigint, "5758661760571644379364752528081901787573279669668889744323710906207949658569"_bigint, "32812120644405991429173950312949738783216437173380339653152625840449006970808"_bigint, "7948464125034399875323770213514649646309423451213282653637296324080400293584"_bigint },
-        };
-
-        for (auto test_case : mod_pow_tests) {
-            I_TEST((Number Theory | Modular Power));
-            auto actual = Crypto::NumberTheory::ModularPower(
-                test_case.base, test_case.exp, test_case.mod);
-
-            if (actual == test_case.expected) {
-                PASS;
-            } else {
-                FAIL(Wrong result);
-                printf("b: %s\ne: %s\nm: %s\nexpect: %s\nactual: %s\n",
-                    test_case.base.to_base10().characters(), test_case.exp.to_base10().characters(), test_case.mod.to_base10().characters(), test_case.expected.to_base10().characters(), actual.to_base10().characters());
-            }
-        }
-    }
-    {
-        struct {
-            Crypto::UnsignedBigInteger candidate;
-            bool expected_result;
-        } primality_tests[] = {
-            { "1180591620717411303424"_bigint, false },                  // 2**70
-            { "620448401733239439360000"_bigint, false },                // 25!
-            { "953962166440690129601298432"_bigint, false },             // 12**25
-            { "620448401733239439360000"_bigint, false },                // 25!
-            { "147926426347074375"_bigint, false },                      // 35! / 2**32
-            { "340282366920938429742726440690708343523"_bigint, false }, // 2 factors near 2^64
-            { "73"_bigint, true },
-            { "6967"_bigint, true },
-            { "787649"_bigint, true },
-            { "73513949"_bigint, true },
-            { "6691236901"_bigint, true },
-            { "741387182759"_bigint, true },
-            { "67466615915827"_bigint, true },
-            { "9554317039214687"_bigint, true },
-            { "533344522150170391"_bigint, true },
-            { "18446744073709551557"_bigint, true }, // just below 2**64
-        };
-
-        for (auto test_case : primality_tests) {
-            I_TEST((Number Theory | Primality));
-            bool actual_result = Crypto::NumberTheory::is_probably_prime(test_case.candidate);
-            if (test_case.expected_result == actual_result) {
-                PASS;
-            } else {
-                FAIL(Wrong primality guess);
-                printf("The number %s is %sa prime, but the test said it is %sa prime!\n",
-                    test_case.candidate.to_base10().characters(), test_case.expected_result ? "" : "not ", actual_result ? "" : "not ");
-            }
-        }
-    }
-    {
-        struct {
-            Crypto::UnsignedBigInteger min;
-            Crypto::UnsignedBigInteger max;
-        } primality_tests[] = {
-            { "1"_bigint, "1000000"_bigint },
-            { "10000000000"_bigint, "20000000000"_bigint },
-            { "1000"_bigint, "200000000000000000"_bigint },
-            { "200000000000000000"_bigint, "200000000000010000"_bigint },
-        };
-
-        for (auto test_case : primality_tests) {
-            I_TEST((Number Theory | Random numbers));
-            auto actual_result = Crypto::NumberTheory::random_number(test_case.min, test_case.max);
-            if (actual_result < test_case.min) {
-                FAIL(Too small);
-                printf("The generated number %s is smaller than the requested minimum %s. (max = %s)\n", actual_result.to_base10().characters(), test_case.min.to_base10().characters(), test_case.max.to_base10().characters());
-            } else if (!(actual_result < test_case.max)) {
-                FAIL(Too large);
-                printf("The generated number %s is larger-or-equal to the requested maximum %s. (min = %s)\n", actual_result.to_base10().characters(), test_case.max.to_base10().characters(), test_case.min.to_base10().characters());
-            } else {
-                PASS;
-            }
-        }
-    }
-    {
-        I_TEST((Number Theory | Random distribution));
-        auto actual_result = Crypto::NumberTheory::random_number(
-            "1"_bigint,
-            "100000000000000000000000000000"_bigint);         // 10**29
-        if (actual_result < "100000000000000000000"_bigint) { // 10**20
-            FAIL(Too small);
-            printf("The generated number %s is extremely small. This *can* happen by pure chance, but should happen only once in a billion times. So it's probably an error.\n", actual_result.to_base10().characters());
-        } else if ("99999999900000000000000000000"_bigint < actual_result) { // 10**29 - 10**20
-            FAIL(Too large);
-            printf("The generated number %s is extremely large. This *can* happen by pure chance, but should happen only once in a billion times. So it's probably an error.\n", actual_result.to_base10().characters());
-        } else {
             PASS;
         }
     }
@@ -2178,6 +2055,11 @@ static int bigint_tests()
     bigint_import_export();
     bigint_bitwise();
 
+    bigint_theory_modular_inverse();
+    bigint_theory_modular_power();
+    bigint_theory_primality();
+    bigint_theory_random_number();
+
     bigint_test_signed_fibo500();
     bigint_signed_addition_edgecases();
     bigint_signed_subtraction();
@@ -2248,6 +2130,94 @@ static void bigint_addition_edgecases()
         Crypto::UnsignedBigInteger num1({ UINT32_MAX - 3, UINT32_MAX });
         Crypto::UnsignedBigInteger num2({ UINT32_MAX - 2, 0 });
         if (num1.plus(num2).words() == Vector<u32> { 4294967289, 0, 1 }) {
+            PASS;
+        } else {
+            FAIL(Incorrect Result);
+        }
+    }
+    {
+        I_TEST((BigInteger | Basic add to accumulator));
+        Crypto::UnsignedBigInteger num1(10);
+        Crypto::UnsignedBigInteger num2(70);
+        Crypto::UnsignedBigIntegerAlgorithms::add_into_accumulator_without_allocation(num1, num2);
+        if (num1.words() == Vector<u32> { 80 }) {
+            PASS;
+        } else {
+            FAIL(Incorrect Result);
+        }
+    }
+    {
+        I_TEST((BigInteger | Add to empty accumulator));
+        Crypto::UnsignedBigInteger num1({});
+        Crypto::UnsignedBigInteger num2(10);
+        Crypto::UnsignedBigIntegerAlgorithms::add_into_accumulator_without_allocation(num1, num2);
+        if (num1.words() == Vector<u32> { 10 }) {
+            PASS;
+        } else {
+            FAIL(Incorrect Result);
+        }
+    }
+    {
+        I_TEST((BigInteger | Add to smaller accumulator));
+        Crypto::UnsignedBigInteger num1(10);
+        Crypto::UnsignedBigInteger num2({ 10, 10 });
+        Crypto::UnsignedBigIntegerAlgorithms::add_into_accumulator_without_allocation(num1, num2);
+        if (num1.words() == Vector<u32> { 20, 10 }) {
+            PASS;
+        } else {
+            FAIL(Incorrect Result);
+        }
+    }
+    {
+        I_TEST((BigInteger | Add to accumulator with carry));
+        Crypto::UnsignedBigInteger num1(UINT32_MAX - 1);
+        Crypto::UnsignedBigInteger num2(2);
+        Crypto::UnsignedBigIntegerAlgorithms::add_into_accumulator_without_allocation(num1, num2);
+        if (num1.words() == Vector<u32> { 0, 1 }) {
+            PASS;
+        } else {
+            FAIL(Incorrect Result);
+        }
+    }
+    {
+        I_TEST((BigInteger | Add to accumulator with multiple carries));
+        Crypto::UnsignedBigInteger num1({ UINT32_MAX - 2, UINT32_MAX - 1 });
+        Crypto::UnsignedBigInteger num2({ 5, 1 });
+        Crypto::UnsignedBigIntegerAlgorithms::add_into_accumulator_without_allocation(num1, num2);
+        if (num1.words() == Vector<u32> { 2, 0, 1 }) {
+            PASS;
+        } else {
+            FAIL(Incorrect Result);
+        }
+    }
+    {
+        I_TEST((BigInteger | Add to accumulator with multiple carry levels));
+        Crypto::UnsignedBigInteger num1({ UINT32_MAX - 2, UINT32_MAX });
+        Crypto::UnsignedBigInteger num2(5);
+        Crypto::UnsignedBigIntegerAlgorithms::add_into_accumulator_without_allocation(num1, num2);
+        if (num1.words() == Vector<u32> { 2, 0, 1 }) {
+            PASS;
+        } else {
+            FAIL(Incorrect Result);
+        }
+    }
+    {
+        I_TEST((BigInteger | Add to accumulator with leading zero));
+        Crypto::UnsignedBigInteger num1(1);
+        Crypto::UnsignedBigInteger num2({ 1, 0 });
+        Crypto::UnsignedBigIntegerAlgorithms::add_into_accumulator_without_allocation(num1, num2);
+        if (num1.words() == Vector<u32> { 2 }) {
+            PASS;
+        } else {
+            FAIL(Incorrect Result);
+        }
+    }
+    {
+        I_TEST((BigInteger | Add to accumulator with carry and leading zero));
+        Crypto::UnsignedBigInteger num1({ UINT32_MAX, 0, 0, 0 });
+        Crypto::UnsignedBigInteger num2({ 1, 0 });
+        Crypto::UnsignedBigIntegerAlgorithms::add_into_accumulator_without_allocation(num1, num2);
+        if (num1.words() == Vector<u32> { 0, 1, 0, 0 }) {
             PASS;
         } else {
             FAIL(Incorrect Result);
@@ -2418,6 +2388,198 @@ static void bigint_base10()
             PASS;
         } else {
             FAIL(Incorrect Result);
+        }
+    }
+}
+
+static void bigint_theory_modular_inverse()
+{
+    {
+        I_TEST((Number Theory | Modular Inverse));
+        if (Crypto::NumberTheory::ModularInverse(7, 87) == 25) {
+            PASS;
+        } else {
+            FAIL(Invalid result);
+        }
+    }
+}
+
+static void bigint_theory_modular_power()
+{
+    {
+        I_TEST((BigInteger | Simple Modular Power | Even));
+        Crypto::UnsignedBigInteger base { 7 };
+        Crypto::UnsignedBigInteger exponent { 2 };
+        Crypto::UnsignedBigInteger modulo { 10 };
+        auto result = Crypto::NumberTheory::ModularPower(base, exponent, modulo);
+        if (result.words() == Vector<u32> { 9 }) {
+            PASS;
+        } else {
+            FAIL(Incorrect Result);
+        }
+    }
+    {
+        I_TEST((BigInteger | Simple Modular Power | Odd));
+        Crypto::UnsignedBigInteger base { 10 };
+        Crypto::UnsignedBigInteger exponent { 2 };
+        Crypto::UnsignedBigInteger modulo { 9 };
+        auto result = Crypto::NumberTheory::ModularPower(base, exponent, modulo);
+        if (result.words() == Vector<u32> { 1 }) {
+            PASS;
+        } else {
+            FAIL(Incorrect Result);
+        }
+    }
+    {
+        I_TEST((BigInteger | Large Modular Power | Even Fibonacci));
+        Crypto::UnsignedBigInteger base = bigint_fibonacci(200);
+        Crypto::UnsignedBigInteger exponent = bigint_fibonacci(100);
+        Crypto::UnsignedBigInteger modulo = bigint_fibonacci(150);
+        // Result according to Wolfram Alpha : 7195284628716783672927396027925
+        auto result = Crypto::NumberTheory::ModularPower(base, exponent, modulo);
+        if (result.words() == Vector<u32> { 2042093077, 1351416233, 3510104665, 90 }) {
+            PASS;
+        } else {
+            FAIL(Incorrect Result);
+        }
+    }
+    {
+        I_TEST((BigInteger | Large Modular Power | Odd Fibonacci));
+        Crypto::UnsignedBigInteger base = bigint_fibonacci(200);
+        Crypto::UnsignedBigInteger exponent = bigint_fibonacci(100);
+        Crypto::UnsignedBigInteger modulo = bigint_fibonacci(149);
+        // Result according to Wolfram Alpha : 1136278609611966596838389694992
+        auto result = Crypto::NumberTheory::ModularPower(base, exponent, modulo);
+        if (result.words() == Vector<u32> { 2106049040, 2169509253, 1468244710, 14 }) {
+            PASS;
+        } else {
+            FAIL(Incorrect Result);
+        }
+    }
+    {
+        I_TEST((BigInteger | Large Modular Power | Odd Fibonacci with carry));
+        Crypto::UnsignedBigInteger base = bigint_fibonacci(200);
+        Crypto::UnsignedBigInteger exponent = bigint_fibonacci(100);
+        Crypto::UnsignedBigInteger modulo = bigint_fibonacci(185);
+        // Result according to Wolfram Alpha : 55094573983071006678665780782730672080
+        auto result = Crypto::NumberTheory::ModularPower(base, exponent, modulo);
+        if (result.words() == Vector<u32> { 1988720592, 2097784252, 347129583, 695391288 }) {
+            PASS;
+        } else {
+            FAIL(Incorrect Result);
+        }
+    }
+
+    {
+        struct {
+            Crypto::UnsignedBigInteger base;
+            Crypto::UnsignedBigInteger exp;
+            Crypto::UnsignedBigInteger mod;
+            Crypto::UnsignedBigInteger expected;
+        } mod_pow_tests[] = {
+            { "2988348162058574136915891421498819466320163312926952423791023078876139"_bigint, "2351399303373464486466122544523690094744975233415544072992656881240319"_bigint, "10000"_bigint, "3059"_bigint },
+            { "24231"_bigint, "12448"_bigint, "14679"_bigint, "4428"_bigint },
+            { "1005404"_bigint, "8352654"_bigint, "8161408"_bigint, "2605696"_bigint },
+            { "3665005778"_bigint, "3244425589"_bigint, "565668506"_bigint, "524766494"_bigint },
+            { "10662083169959689657"_bigint, "11605678468317533000"_bigint, "1896834583057209739"_bigint, "1292743154593945858"_bigint },
+            { "99667739213529524852296932424683448520"_bigint, "123394910770101395416306279070921784207"_bigint, "238026722756504133786938677233768788719"_bigint, "197165477545023317459748215952393063201"_bigint },
+            { "49368547511968178788919424448914214709244872098814465088945281575062739912239"_bigint, "25201856190991298572337188495596990852134236115562183449699512394891190792064"_bigint, "45950460777961491021589776911422805972195170308651734432277141467904883064645"_bigint, "39917885806532796066922509794537889114718612292469285403012781055544152450051"_bigint },
+            { "48399385336454791246880286907257136254351739111892925951016159217090949616810"_bigint, "5758661760571644379364752528081901787573279669668889744323710906207949658569"_bigint, "32812120644405991429173950312949738783216437173380339653152625840449006970808"_bigint, "7948464125034399875323770213514649646309423451213282653637296324080400293584"_bigint },
+        };
+
+        for (auto test_case : mod_pow_tests) {
+            I_TEST((BigInteger | Modular Power | Several other test cases));
+            auto actual = Crypto::NumberTheory::ModularPower(
+                test_case.base, test_case.exp, test_case.mod);
+
+            if (actual == test_case.expected) {
+                PASS;
+            } else {
+                FAIL(Wrong result);
+                printf("b: %s\ne: %s\nm: %s\nexpect: %s\nactual: %s\n",
+                    test_case.base.to_base10().characters(), test_case.exp.to_base10().characters(), test_case.mod.to_base10().characters(), test_case.expected.to_base10().characters(), actual.to_base10().characters());
+            }
+        }
+    }
+}
+
+static void bigint_theory_primality()
+{
+    struct {
+        Crypto::UnsignedBigInteger candidate;
+        bool expected_result;
+    } primality_tests[] = {
+        { "1180591620717411303424"_bigint, false },                  // 2**70
+        { "620448401733239439360000"_bigint, false },                // 25!
+        { "953962166440690129601298432"_bigint, false },             // 12**25
+        { "620448401733239439360000"_bigint, false },                // 25!
+        { "147926426347074375"_bigint, false },                      // 35! / 2**32
+        { "340282366920938429742726440690708343523"_bigint, false }, // 2 factors near 2^64
+        { "73"_bigint, true },
+        { "6967"_bigint, true },
+        { "787649"_bigint, true },
+        { "73513949"_bigint, true },
+        { "6691236901"_bigint, true },
+        { "741387182759"_bigint, true },
+        { "67466615915827"_bigint, true },
+        { "9554317039214687"_bigint, true },
+        { "533344522150170391"_bigint, true },
+        { "18446744073709551557"_bigint, true }, // just below 2**64
+    };
+
+    for (auto test_case : primality_tests) {
+        I_TEST((BigInteger | Primality));
+        bool actual_result = Crypto::NumberTheory::is_probably_prime(test_case.candidate);
+        if (test_case.expected_result == actual_result) {
+            PASS;
+        } else {
+            FAIL(Wrong primality guess);
+            printf("The number %s is %sa prime, but the test said it is %sa prime!\n",
+                test_case.candidate.to_base10().characters(), test_case.expected_result ? "" : "not ", actual_result ? "" : "not ");
+        }
+    }
+}
+
+static void bigint_theory_random_number()
+{
+    {
+        struct {
+            Crypto::UnsignedBigInteger min;
+            Crypto::UnsignedBigInteger max;
+        } random_number_tests[] = {
+            { "1"_bigint, "1000000"_bigint },
+            { "10000000000"_bigint, "20000000000"_bigint },
+            { "1000"_bigint, "200000000000000000"_bigint },
+            { "200000000000000000"_bigint, "200000000000010000"_bigint },
+        };
+
+        for (auto test_case : random_number_tests) {
+            I_TEST((BigInteger | Random numbers));
+            auto actual_result = Crypto::NumberTheory::random_number(test_case.min, test_case.max);
+            if (actual_result < test_case.min) {
+                FAIL(Too small);
+                printf("The generated number %s is smaller than the requested minimum %s. (max = %s)\n", actual_result.to_base10().characters(), test_case.min.to_base10().characters(), test_case.max.to_base10().characters());
+            } else if (!(actual_result < test_case.max)) {
+                FAIL(Too large);
+                printf("The generated number %s is larger-or-equal to the requested maximum %s. (min = %s)\n", actual_result.to_base10().characters(), test_case.max.to_base10().characters(), test_case.min.to_base10().characters());
+            } else {
+                PASS;
+            }
+        }
+    }
+    {
+        I_TEST((BigInteger | Random distribution));
+        auto actual_result = Crypto::NumberTheory::random_number(
+            "1"_bigint,
+            "100000000000000000000000000000"_bigint);         // 10**29
+        if (actual_result < "100000000000000000000"_bigint) { // 10**20
+            FAIL(Too small);
+            printf("The generated number %s is extremely small. This *can* happen by pure chance, but should happen only once in a billion times. So it's probably an error.\n", actual_result.to_base10().characters());
+        } else if ("99999999900000000000000000000"_bigint < actual_result) { // 10**29 - 10**20
+            FAIL(Too large);
+            printf("The generated number %s is extremely large. This *can* happen by pure chance, but should happen only once in a billion times. So it's probably an error.\n", actual_result.to_base10().characters());
+        } else {
+            PASS;
         }
     }
 }

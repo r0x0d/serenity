@@ -1,27 +1,7 @@
 /*
  * Copyright (c) 2018-2021, Andreas Kling <kling@serenityos.org>
- * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- * 1. Redistributions of source code must retain the above copyright notice, this
- *    list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above copyright notice,
- *    this list of conditions and the following disclaimer in the documentation
- *    and/or other materials provided with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
- * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-2-Clause
  */
 
 #include <AK/AnyOf.h>
@@ -192,17 +172,6 @@ bool StringView::equals_ignoring_case(const StringView& other) const
     return StringUtils::equals_ignoring_case(*this, other);
 }
 
-StringView StringView::substring_view(size_t start, size_t length) const
-{
-    VERIFY(start + length <= m_length);
-    return { m_characters + start, length };
-}
-StringView StringView::substring_view(size_t start) const
-{
-    VERIFY(start <= m_length);
-    return { m_characters + start, length() - start };
-}
-
 StringView StringView::substring_view_starting_from_substring(const StringView& substring) const
 {
     const char* remaining_characters = substring.characters_without_null_termination();
@@ -244,13 +213,6 @@ template Optional<u32> StringView::to_uint() const;
 template Optional<u64> StringView::to_uint() const;
 template Optional<long> StringView::to_uint() const;
 template Optional<long long> StringView::to_uint() const;
-
-unsigned StringView::hash() const
-{
-    if (is_empty())
-        return 0;
-    return string_hash(characters_without_null_termination(), length());
-}
 
 bool StringView::operator==(const String& string) const
 {

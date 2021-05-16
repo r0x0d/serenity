@@ -1,27 +1,7 @@
 /*
  * Copyright (c) 2018-2020, Andreas Kling <kling@serenityos.org>
- * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- * 1. Redistributions of source code must retain the above copyright notice, this
- *    list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above copyright notice,
- *    this list of conditions and the following disclaimer in the documentation
- *    and/or other materials provided with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
- * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-2-Clause
  */
 
 #include <Kernel/CommandLine.h>
@@ -165,6 +145,16 @@ UNMAP_AFTER_INIT bool CommandLine::disable_physical_storage() const
     return contains("disable_physical_storage");
 }
 
+UNMAP_AFTER_INIT bool CommandLine::disable_uhci_controller() const
+{
+    return contains("disable_uhci_controller");
+}
+
+UNMAP_AFTER_INIT bool CommandLine::disable_virtio() const
+{
+    return contains("disable_virtio");
+}
+
 UNMAP_AFTER_INIT AHCIResetMode CommandLine::ahci_reset_mode() const
 {
     const auto ahci_reset_mode = lookup("ahci_reset_mode").value_or("controller");
@@ -181,8 +171,8 @@ UNMAP_AFTER_INIT AHCIResetMode CommandLine::ahci_reset_mode() const
 UNMAP_AFTER_INIT BootMode CommandLine::boot_mode() const
 {
     const auto boot_mode = lookup("boot_mode").value_or("graphical");
-    if (boot_mode == "text") {
-        return BootMode::Text;
+    if (boot_mode == "no-fbdev") {
+        return BootMode::NoFramebufferDevices;
     } else if (boot_mode == "self-test") {
         return BootMode::SelfTest;
     } else if (boot_mode == "graphical") {
@@ -191,10 +181,10 @@ UNMAP_AFTER_INIT BootMode CommandLine::boot_mode() const
     PANIC("Unknown BootMode: {}", boot_mode);
 }
 
-UNMAP_AFTER_INIT bool CommandLine::is_text_mode() const
+UNMAP_AFTER_INIT bool CommandLine::is_no_framebuffer_devices_mode() const
 {
     const auto mode = boot_mode();
-    return mode == BootMode::Text || mode == BootMode::SelfTest;
+    return mode == BootMode::NoFramebufferDevices || mode == BootMode::SelfTest;
 }
 
 String CommandLine::userspace_init() const
@@ -211,4 +201,13 @@ Vector<String> CommandLine::userspace_init_args() const
     return init_args;
 }
 
+UNMAP_AFTER_INIT size_t CommandLine::switch_to_tty() const
+{
+    const auto default_tty = lookup("switch_to_tty").value_or("1");
+    auto switch_tty_number = default_tty.to_uint();
+    if (switch_tty_number.has_value() && switch_tty_number.value() >= 1) {
+        return switch_tty_number.value() - 1;
+    }
+    PANIC("Invalid default tty value: {}", default_tty);
+}
 }

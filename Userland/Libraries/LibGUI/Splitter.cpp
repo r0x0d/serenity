@@ -1,27 +1,7 @@
 /*
  * Copyright (c) 2018-2020, Andreas Kling <kling@serenityos.org>
- * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- * 1. Redistributions of source code must retain the above copyright notice, this
- *    list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above copyright notice,
- *    this list of conditions and the following disclaimer in the documentation
- *    and/or other materials provided with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
- * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-2-Clause
  */
 
 #include <LibGUI/BoxLayout.h>
@@ -38,6 +18,9 @@ namespace GUI {
 Splitter::Splitter(Orientation orientation)
     : m_orientation(orientation)
 {
+    REGISTER_INT_PROPERTY("first_resizee_minimum_size", first_resizee_minimum_size, set_first_resizee_minimum_size);
+    REGISTER_INT_PROPERTY("second_resizee_minimum_size", second_resizee_minimum_size, set_second_resizee_minimum_size);
+
     set_background_role(ColorRole::Button);
     set_layout<BoxLayout>(orientation);
     set_fill_with_background_color(true);
@@ -169,20 +152,19 @@ void Splitter::mousemove_event(MouseEvent& event)
         m_resizing = false;
         return;
     }
-    int minimum_size = 0;
     auto new_first_resizee_size = m_first_resizee_start_size;
     auto new_second_resizee_size = m_second_resizee_start_size;
 
     new_first_resizee_size.set_primary_size_for_orientation(m_orientation, new_first_resizee_size.primary_size_for_orientation(m_orientation) + delta.primary_offset_for_orientation(m_orientation));
     new_second_resizee_size.set_primary_size_for_orientation(m_orientation, new_second_resizee_size.primary_size_for_orientation(m_orientation) - delta.primary_offset_for_orientation(m_orientation));
 
-    if (new_first_resizee_size.primary_size_for_orientation(m_orientation) < minimum_size) {
-        int correction = minimum_size - new_first_resizee_size.primary_size_for_orientation(m_orientation);
+    if (new_first_resizee_size.primary_size_for_orientation(m_orientation) < m_first_resizee_minimum_size) {
+        int correction = m_first_resizee_minimum_size - new_first_resizee_size.primary_size_for_orientation(m_orientation);
         new_first_resizee_size.set_primary_size_for_orientation(m_orientation, new_first_resizee_size.primary_size_for_orientation(m_orientation) + correction);
         new_second_resizee_size.set_primary_size_for_orientation(m_orientation, new_second_resizee_size.primary_size_for_orientation(m_orientation) - correction);
     }
-    if (new_second_resizee_size.primary_size_for_orientation(m_orientation) < minimum_size) {
-        int correction = minimum_size - new_second_resizee_size.primary_size_for_orientation(m_orientation);
+    if (new_second_resizee_size.primary_size_for_orientation(m_orientation) < m_second_resizee_minimum_size) {
+        int correction = m_second_resizee_minimum_size - new_second_resizee_size.primary_size_for_orientation(m_orientation);
         new_second_resizee_size.set_primary_size_for_orientation(m_orientation, new_second_resizee_size.primary_size_for_orientation(m_orientation) + correction);
         new_first_resizee_size.set_primary_size_for_orientation(m_orientation, new_first_resizee_size.primary_size_for_orientation(m_orientation) - correction);
     }

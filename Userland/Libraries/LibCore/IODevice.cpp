@@ -1,33 +1,11 @@
 /*
  * Copyright (c) 2018-2020, Andreas Kling <kling@serenityos.org>
- * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- * 1. Redistributions of source code must retain the above copyright notice, this
- *    list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above copyright notice,
- *    this list of conditions and the following disclaimer in the documentation
- *    and/or other materials provided with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
- * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-2-Clause
  */
 
 #include <AK/ByteBuffer.h>
-#include <AK/PrintfImplementation.h>
 #include <LibCore/IODevice.h>
-#include <LibCore/SyscallUtils.h>
 #include <errno.h>
 #include <stdio.h>
 #include <string.h>
@@ -55,8 +33,6 @@ const char* IODevice::error_string() const
 int IODevice::read(u8* buffer, int length)
 {
     auto read_buffer = read(length);
-    if (read_buffer.is_null())
-        return 0;
     memcpy(buffer, read_buffer.data(), length);
     return read_buffer.size();
 }
@@ -106,17 +82,21 @@ ByteBuffer IODevice::read(size_t max_size)
 bool IODevice::can_read_from_fd() const
 {
     // FIXME: Can we somehow remove this once Core::Socket is implemented using non-blocking sockets?
-    fd_set rfds;
+    fd_set rfds {};
     FD_ZERO(&rfds);
     FD_SET(m_fd, &rfds);
     struct timeval timeout {
         0, 0
     };
-    int rc = Core::safe_syscall(select, m_fd + 1, &rfds, nullptr, nullptr, &timeout);
-    if (rc < 0) {
-        // NOTE: We don't set m_error here.
-        perror("IODevice::can_read: select");
-        return false;
+
+    for (;;) {
+        if (select(m_fd + 1, &rfds, nullptr, nullptr, &timeout) < 0) {
+            if (errno == EINTR)
+                continue;
+            perror("IODevice::can_read_from_fd: select");
+            return false;
+        }
+        break;
     }
     return FD_ISSET(m_fd, &rfds);
 }
@@ -169,8 +149,6 @@ ByteBuffer IODevice::read_all()
         }
         data.append((const u8*)read_buffer, nread);
     }
-    if (data.is_empty())
-        return {};
     return ByteBuffer::copy(data.data(), data.size());
 }
 
@@ -227,7 +205,7 @@ bool IODevice::populate_read_buffer() const
 
 bool IODevice::close()
 {
-    if (fd() < 0 || mode() == NotOpen)
+    if (fd() < 0 || m_mode == OpenMode::NotOpen)
         return false;
     int rc = ::close(fd());
     if (rc < 0) {
@@ -235,7 +213,7 @@ bool IODevice::close()
         return false;
     }
     set_fd(-1);
-    set_mode(IODevice::NotOpen);
+    set_mode(OpenMode::NotOpen);
     return true;
 }
 
@@ -288,19 +266,6 @@ bool IODevice::write(const u8* data, int size)
     return rc == size;
 }
 
-int IODevice::printf(const char* format, ...)
-{
-    va_list ap;
-    va_start(ap, format);
-    // FIXME: We're not propagating write() failures to client here!
-    int ret = printf_internal([this](char*&, char ch) {
-        write((const u8*)&ch, 1);
-    },
-        nullptr, format, ap);
-    va_end(ap);
-    return ret;
-}
-
 void IODevice::set_fd(int fd)
 {
     if (m_fd == fd)
@@ -332,5 +297,4 @@ LineIterator& LineIterator::operator++()
     m_buffer = m_device->read_line();
     return *this;
 }
-
 }

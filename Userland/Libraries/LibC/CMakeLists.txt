@@ -13,18 +13,23 @@ set(LIBC_SOURCES
     ioctl.cpp
     libcinit.cpp
     libgen.cpp
+    link.cpp
     locale.cpp
     malloc.cpp
-    mman.cpp
     mntent.cpp
+    net.cpp
     netdb.cpp
     poll.cpp
+    pthread_forward.cpp
     pthread_integration.cpp
+    pthread_tls.cpp
+    pty.cpp
     pwd.cpp
     qsort.cpp
     scanf.cpp
     sched.cpp
     serenity.cpp
+    shadow.cpp
     signal.cpp
     spawn.cpp
     stat.cpp
@@ -34,6 +39,7 @@ set(LIBC_SOURCES
     strings.cpp
     stubs.cpp
     syslog.cpp
+    sys/mman.cpp
     sys/prctl.cpp
     sys/ptrace.cpp
     sys/select.cpp

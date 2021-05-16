@@ -1,27 +1,7 @@
 /*
- * Copyright (c) 2020, Ali Mohammad Pur <ali.mpfard@gmail.com>
- * All rights reserved.
+ * Copyright (c) 2020, Ali Mohammad Pur <mpfard@serenityos.org>
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- * 1. Redistributions of source code must retain the above copyright notice, this
- *    list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above copyright notice,
- *    this list of conditions and the following disclaimer in the documentation
- *    and/or other materials provided with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
- * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-2-Clause
  */
 
 #include <AK/Debug.h>
@@ -54,7 +34,7 @@ void TLSv12::write_packet(ByteBuffer& packet)
 void TLSv12::update_packet(ByteBuffer& packet)
 {
     u32 header_size = 5;
-    *(u16*)packet.offset_pointer(3) = AK::convert_between_host_and_network_endian((u16)(packet.size() - header_size));
+    ByteReader::store(packet.offset_pointer(3), AK::convert_between_host_and_network_endian((u16)(packet.size() - header_size)));
 
     if (packet[0] != (u8)MessageType::ChangeCipher) {
         if (packet[0] == (u8)MessageType::Handshake && packet.size() > header_size) {
@@ -179,7 +159,7 @@ void TLSv12::update_packet(ByteBuffer& packet)
                 // store the correct ciphertext length into the packet
                 u16 ct_length = (u16)ct.size() - header_size;
 
-                *(u16*)ct.offset_pointer(header_size - 2) = AK::convert_between_host_and_network_endian(ct_length);
+                ByteReader::store(ct.offset_pointer(header_size - 2), AK::convert_between_host_and_network_endian(ct_length));
 
                 // replace the packet with the ciphertext
                 packet = ct;
@@ -242,13 +222,14 @@ ssize_t TLSv12::handle_message(ReadonlyBytes buffer)
     // FIXME: Read the version and verify it
 
     if constexpr (TLS_DEBUG) {
-        auto version = (Version) * (const u16*)buffer.offset_pointer(buffer_position);
+        auto version = ByteReader::load16(buffer.offset_pointer(buffer_position));
         dbgln("type={}, version={}", (u8)type, (u16)version);
     }
 
     buffer_position += 2;
 
-    auto length = AK::convert_between_host_and_network_endian(*(const u16*)buffer.offset_pointer(buffer_position));
+    auto length = AK::convert_between_host_and_network_endian(ByteReader::load16(buffer.offset_pointer(buffer_position)));
+
     dbgln_if(TLS_DEBUG, "record length: {} at offset: {}", length, buffer_position);
     buffer_position += 2;
 
@@ -402,6 +383,7 @@ ssize_t TLSv12::handle_message(ReadonlyBytes buffer)
         if (m_context.connection_status != ConnectionStatus::KeyExchange) {
             dbgln("unexpected change cipher message");
             auto packet = build_alert(true, (u8)AlertDescription::UnexpectedMessage);
+            write_packet(packet);
             payload_res = (i8)Error::UnexpectedMessage;
         } else {
             dbgln_if(TLS_DEBUG, "change cipher spec message");

@@ -1,27 +1,7 @@
 /*
- * Copyright (c) 2020, Ali Mohammad Pur <ali.mpfard@gmail.com>
- * All rights reserved.
+ * Copyright (c) 2020, Ali Mohammad Pur <mpfard@serenityos.org>
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- * 1. Redistributions of source code must retain the above copyright notice, this
- *    list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above copyright notice,
- *    this list of conditions and the following disclaimer in the documentation
- *    and/or other materials provided with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
- * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-2-Clause
  */
 
 #include <AK/Random.h>
@@ -87,6 +67,9 @@ ByteBuffer TLSv12::build_hello()
     if (!m_context.extensions.SNI.is_null() && m_context.options.use_sni)
         sni_length = m_context.extensions.SNI.length();
 
+    // signature_algorithms: 2b extension ID, 2b extension length, 2b vector length, 2xN signatures and hashes
+    extension_length += 2 + 2 + 2 + 2 * m_context.options.supported_signature_algorithms.size();
+
     if (sni_length)
         extension_length += sni_length + 9;
 
@@ -104,6 +87,18 @@ ByteBuffer TLSv12::build_hello()
         // SNI host length + value
         builder.append((u16)sni_length);
         builder.append((const u8*)m_context.extensions.SNI.characters(), sni_length);
+    }
+
+    // signature_algorithms extension
+    builder.append((u16)HandshakeExtension::SignatureAlgorithms);
+    // Extension length
+    builder.append((u16)(2 + 2 * m_context.options.supported_signature_algorithms.size()));
+    // Vector count
+    builder.append((u16)(m_context.options.supported_signature_algorithms.size() * 2));
+    // Entries
+    for (auto& entry : m_context.options.supported_signature_algorithms) {
+        builder.append((u8)entry.hash);
+        builder.append((u8)entry.signature);
     }
 
     if (alpn_length) {
@@ -146,7 +141,7 @@ ByteBuffer TLSv12::build_finished()
     PacketBuilder builder { MessageType::Handshake, m_context.options.version, 12 + 64 };
     builder.append((u8)HandshakeType::Finished);
 
-    u32 out_size = 12;
+    constexpr u32 out_size = 12;
 
     builder.append_u24(out_size);
 

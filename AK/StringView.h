@@ -1,27 +1,7 @@
 /*
  * Copyright (c) 2018-2021, Andreas Kling <kling@serenityos.org>
- * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- * 1. Redistributions of source code must retain the above copyright notice, this
- *    list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above copyright notice,
- *    this list of conditions and the following disclaimer in the documentation
- *    and/or other materials provided with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
- * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-2-Clause
  */
 
 #pragma once
@@ -31,6 +11,7 @@
 #include <AK/Forward.h>
 #include <AK/Span.h>
 #include <AK/StdLibExtras.h>
+#include <AK/StringHash.h>
 #include <AK/StringUtils.h>
 #include <AK/Vector.h>
 
@@ -66,22 +47,27 @@ public:
     StringView(const String&);
     StringView(const FlyString&);
 
-    [[nodiscard]] bool is_null() const { return !m_characters; }
-    [[nodiscard]] bool is_empty() const { return m_length == 0; }
+    [[nodiscard]] constexpr bool is_null() const { return !m_characters; }
+    [[nodiscard]] constexpr bool is_empty() const { return m_length == 0; }
 
-    [[nodiscard]] const char* characters_without_null_termination() const { return m_characters; }
-    [[nodiscard]] size_t length() const { return m_length; }
+    [[nodiscard]] constexpr char const* characters_without_null_termination() const { return m_characters; }
+    [[nodiscard]] constexpr size_t length() const { return m_length; }
 
     [[nodiscard]] ReadonlyBytes bytes() const { return { m_characters, m_length }; }
 
-    const char& operator[](size_t index) const { return m_characters[index]; }
+    constexpr const char& operator[](size_t index) const { return m_characters[index]; }
 
     using ConstIterator = SimpleIterator<const StringView, const char>;
 
     [[nodiscard]] constexpr ConstIterator begin() const { return ConstIterator::begin(*this); }
     [[nodiscard]] constexpr ConstIterator end() const { return ConstIterator::end(*this); }
 
-    [[nodiscard]] unsigned hash() const;
+    [[nodiscard]] constexpr unsigned hash() const
+    {
+        if (is_empty())
+            return 0;
+        return string_hash(characters_without_null_termination(), length());
+    }
 
     [[nodiscard]] bool starts_with(const StringView&, CaseSensitivity = CaseSensitivity::CaseSensitive) const;
     [[nodiscard]] bool ends_with(const StringView&, CaseSensitivity = CaseSensitivity::CaseSensitive) const;
@@ -104,8 +90,17 @@ public:
     Optional<size_t> find(const StringView&) const;
     Optional<size_t> find(char c) const;
 
-    [[nodiscard]] StringView substring_view(size_t start, size_t length) const;
-    [[nodiscard]] StringView substring_view(size_t start) const;
+    [[nodiscard]] constexpr StringView substring_view(size_t start, size_t length) const
+    {
+        VERIFY(start + length <= m_length);
+        return { m_characters + start, length };
+    }
+
+    [[nodiscard]] constexpr StringView substring_view(size_t start) const
+    {
+        return substring_view(start, length() - start);
+    }
+
     [[nodiscard]] Vector<StringView> split_view(char, bool keep_empty = false) const;
     [[nodiscard]] Vector<StringView> split_view(const StringView&, bool keep_empty = false) const;
 
@@ -186,7 +181,7 @@ public:
 
     bool operator==(const String&) const;
 
-    bool operator==(const StringView& other) const
+    constexpr bool operator==(const StringView& other) const
     {
         if (is_null())
             return other.is_null();
@@ -197,7 +192,7 @@ public:
         return !__builtin_memcmp(m_characters, other.m_characters, m_length);
     }
 
-    bool operator!=(const StringView& other) const
+    constexpr bool operator!=(const StringView& other) const
     {
         return !(*this == other);
     }

@@ -1,31 +1,12 @@
 /*
  * Copyright (c) 2020, Stephan Unverwerth <s.unverwerth@gmx.de>
- * Copyright (c) 2020, Linus Groh <mail@linusgroh.de>
- * All rights reserved.
+ * Copyright (c) 2020-2021, Linus Groh <linusg@serenityos.org>
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- * 1. Redistributions of source code must retain the above copyright notice, this
- *    list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above copyright notice,
- *    this list of conditions and the following disclaimer in the documentation
- *    and/or other materials provided with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
- * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-2-Clause
  */
 
 #include "Parser.h"
+#include <AK/HashTable.h>
 #include <AK/ScopeGuard.h>
 #include <AK/StdLibExtras.h>
 #include <AK/TemporaryChange.h>
@@ -248,7 +229,7 @@ NonnullRefPtr<Program> Parser::parse_program()
 {
     auto rule_start = push_start();
     ScopePusher scope(*this, ScopePusher::Var | ScopePusher::Let | ScopePusher::Function);
-    auto program = adopt(*new Program({ m_filename, rule_start.position(), position() }));
+    auto program = adopt_ref(*new Program({ m_filename, rule_start.position(), position() }));
 
     bool first = true;
     while (!done()) {
@@ -366,7 +347,6 @@ RefPtr<FunctionExpression> Parser::try_parse_arrow_function_expression(bool expe
     auto rule_start = push_start();
 
     ArmedScopeGuard state_rollback_guard = [&] {
-        m_parser_state.m_var_scopes.take_last();
         load_state();
     };
 
@@ -704,9 +684,24 @@ NonnullRefPtr<Expression> Parser::parse_primary_expression()
 NonnullRefPtr<RegExpLiteral> Parser::parse_regexp_literal()
 {
     auto rule_start = push_start();
-    auto content = consume().value();
-    auto flags = match(TokenType::RegexFlags) ? consume().value() : "";
-    return create_ast_node<RegExpLiteral>({ m_parser_state.m_current_token.filename(), rule_start.position(), position() }, content.substring_view(1, content.length() - 2), flags);
+    auto pattern = consume().value();
+    // Remove leading and trailing slash.
+    pattern = pattern.substring_view(1, pattern.length() - 2);
+    auto flags = String::empty();
+    if (match(TokenType::RegexFlags)) {
+        auto flags_start = position();
+        flags = consume().value();
+        HashTable<char> seen_flags;
+        for (size_t i = 0; i < flags.length(); ++i) {
+            auto flag = flags.substring_view(i, 1);
+            if (!flag.is_one_of("g", "i", "m", "s", "u", "y"))
+                syntax_error(String::formatted("Invalid RegExp flag '{}'", flag), Position { flags_start.line, flags_start.column + i });
+            if (seen_flags.contains(*flag.characters_without_null_termination()))
+                syntax_error(String::formatted("Repeated RegExp flag '{}'", flag), Position { flags_start.line, flags_start.column + i });
+            seen_flags.set(*flag.characters_without_null_termination());
+        }
+    }
+    return create_ast_node<RegExpLiteral>({ m_parser_state.m_current_token.filename(), rule_start.position(), position() }, pattern, flags);
 }
 
 NonnullRefPtr<Expression> Parser::parse_unary_prefixed_expression()

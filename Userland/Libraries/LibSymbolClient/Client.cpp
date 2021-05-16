@@ -1,27 +1,7 @@
 /*
  * Copyright (c) 2021, Andreas Kling <kling@serenityos.org>
- * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- * 1. Redistributions of source code must retain the above copyright notice, this
- *    list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above copyright notice,
- *    this list of conditions and the following disclaimer in the documentation
- *    and/or other materials provided with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
- * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-2-Clause
  */
 
 #include <AK/JsonArray.h>
@@ -40,25 +20,25 @@ Client::Client()
 
 void Client::handshake()
 {
-    send_sync<Messages::SymbolServer::Greet>();
+    greet();
 }
 
-void Client::handle(const Messages::SymbolClient::Dummy&)
+void Client::dummy()
 {
 }
 
 Optional<Symbol> Client::symbolicate(const String& path, FlatPtr address)
 {
-    auto response = send_sync<Messages::SymbolServer::Symbolicate>(path, address);
-    if (!response->success())
+    auto response = IPCProxy::symbolicate(path, address);
+    if (!response.success())
         return {};
 
     return Symbol {
         .address = address,
-        .name = response->name(),
-        .offset = response->offset(),
-        .filename = response->filename(),
-        .line_number = response->line()
+        .name = response.name(),
+        .offset = response.offset(),
+        .filename = response.filename(),
+        .line_number = response.line()
     };
 }
 
@@ -83,7 +63,7 @@ Vector<Symbol> symbolicate_thread(pid_t pid, pid_t tid)
     {
 
         auto stack_path = String::formatted("/proc/{}/stacks/{}", pid, tid);
-        auto file_or_error = Core::File::open(stack_path, Core::IODevice::ReadOnly);
+        auto file_or_error = Core::File::open(stack_path, Core::OpenMode::ReadOnly);
         if (file_or_error.is_error()) {
             warnln("Could not open {}: {}", stack_path, file_or_error.error());
             return {};
@@ -103,7 +83,7 @@ Vector<Symbol> symbolicate_thread(pid_t pid, pid_t tid)
 
     {
         auto vm_path = String::formatted("/proc/{}/vm", pid);
-        auto file_or_error = Core::File::open(vm_path, Core::IODevice::ReadOnly);
+        auto file_or_error = Core::File::open(vm_path, Core::OpenMode::ReadOnly);
         if (file_or_error.is_error()) {
             warnln("Could not open {}: {}", vm_path, file_or_error.error());
             return {};
