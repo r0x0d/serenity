@@ -364,7 +364,7 @@ public:
     KResultOr<int> sys$socket(int domain, int type, int protocol);
     KResultOr<int> sys$bind(int sockfd, Userspace<const sockaddr*> addr, socklen_t);
     KResultOr<int> sys$listen(int sockfd, int backlog);
-    KResultOr<int> sys$accept(int sockfd, Userspace<sockaddr*>, Userspace<socklen_t*>);
+    KResultOr<int> sys$accept4(Userspace<const Syscall::SC_accept4_params*>);
     KResultOr<int> sys$connect(int sockfd, Userspace<const sockaddr*>, socklen_t);
     KResultOr<int> sys$shutdown(int sockfd, int how);
     KResultOr<ssize_t> sys$sendmsg(int sockfd, Userspace<const struct msghdr*>, int flags);
@@ -392,7 +392,7 @@ public:
     KResultOr<int> sys$setkeymap(Userspace<const Syscall::SC_setkeymap_params*>);
     KResultOr<int> sys$module_load(Userspace<const char*> path, size_t path_length);
     KResultOr<int> sys$module_unload(Userspace<const char*> name, size_t name_length);
-    KResultOr<int> sys$profiling_enable(pid_t);
+    KResultOr<int> sys$profiling_enable(pid_t, u64);
     KResultOr<int> sys$profiling_disable(pid_t);
     KResultOr<int> sys$profiling_free_buffer(pid_t);
     KResultOr<int> sys$futex(Userspace<const Syscall::SC_futex_params*>);
@@ -410,6 +410,8 @@ public:
     KResultOr<int> sys$prctl(int option, FlatPtr arg1, FlatPtr arg2);
     KResultOr<int> sys$set_coredump_metadata(Userspace<const Syscall::SC_set_coredump_metadata_params*>);
     KResultOr<int> sys$anon_create(size_t, int options);
+    KResultOr<int> sys$statvfs(Userspace<const Syscall::SC_statvfs_params*> user_params);
+    KResultOr<int> sys$fstatvfs(int fd, statvfs* buf);
 
     template<bool sockname, typename Params>
     int get_sock_or_peer_name(const Params&);
@@ -529,6 +531,8 @@ private:
     KResult do_exec(NonnullRefPtr<FileDescription> main_program_description, Vector<String> arguments, Vector<String> environment, RefPtr<FileDescription> interpreter_description, Thread*& new_main_thread, u32& prev_flags, const Elf32_Ehdr& main_program_header);
     KResultOr<ssize_t> do_write(FileDescription&, const UserOrKernelBuffer&, size_t);
 
+    KResultOr<int> do_statvfs(String path, statvfs* buf);
+
     KResultOr<RefPtr<FileDescription>> find_elf_interpreter_for_executable(const String& path, const Elf32_Ehdr& elf_header, int nread, size_t file_size);
 
     int alloc_fd(int first_candidate_fd = 0);
@@ -572,7 +576,7 @@ private:
 
     OwnPtr<ThreadTracer> m_tracer;
 
-    static const int m_max_open_file_descriptors { FD_SETSIZE };
+    static constexpr int m_max_open_file_descriptors { FD_SETSIZE };
 
     class FileDescriptionAndFlags {
     public:

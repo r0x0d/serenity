@@ -18,6 +18,7 @@
 #include <LibGUI/MessageBox.h>
 #include <LibGUI/Statusbar.h>
 #include <LibGUI/Window.h>
+#include <LibGfx/Painter.h>
 #include <stdio.h>
 #include <time.h>
 #include <unistd.h>
@@ -39,10 +40,17 @@ int main(int argc, char** argv)
     auto config = Core::ConfigFile::get_for_app("2048");
 
     size_t board_size = config->read_num_entry("", "board_size", 4);
-    u32 target_tile = config->read_num_entry("", "target_tile", 0);
+    u32 target_tile = config->read_num_entry("", "target_tile", 2048);
+    bool evil_ai = config->read_bool_entry("", "evil_ai", false);
+
+    if ((target_tile & (target_tile - 1)) != 0) {
+        // If the target tile is not a power of 2, reset to its default value.
+        target_tile = 2048;
+    }
 
     config->write_num_entry("", "board_size", board_size);
     config->write_num_entry("", "target_tile", target_tile);
+    config->write_bool_entry("", "evil_ai", evil_ai);
 
     config->sync();
 
@@ -74,11 +82,22 @@ int main(int argc, char** argv)
     main_widget.set_layout<GUI::VerticalBoxLayout>();
     main_widget.set_fill_with_background_color(true);
 
-    Game game { board_size, target_tile };
+    Game game { board_size, target_tile, evil_ai };
 
     auto& board_view = main_widget.add<BoardView>(&game.board());
     board_view.set_focus(true);
     auto& statusbar = main_widget.add<GUI::Statusbar>();
+
+    app->on_action_enter = [&](GUI::Action& action) {
+        auto text = action.status_tip();
+        if (text.is_empty())
+            text = Gfx::parse_ampersand_string(action.text());
+        statusbar.set_override_text(move(text));
+    };
+
+    app->on_action_leave = [&](GUI::Action&) {
+        statusbar.set_override_text({});
+    };
 
     auto update = [&]() {
         board_view.set_board(&game.board());
@@ -92,17 +111,19 @@ int main(int argc, char** argv)
     Vector<Game> redo_stack;
 
     auto change_settings = [&] {
-        auto size_dialog = GameSizeDialog::construct(window);
+        auto size_dialog = GameSizeDialog::construct(window, board_size, target_tile, evil_ai);
         if (size_dialog->exec() || size_dialog->result() != GUI::Dialog::ExecOK)
             return;
 
         board_size = size_dialog->board_size();
         target_tile = size_dialog->target_tile();
+        evil_ai = size_dialog->evil_ai();
 
         if (!size_dialog->temporary()) {
 
             config->write_num_entry("", "board_size", board_size);
             config->write_num_entry("", "target_tile", target_tile);
+            config->write_bool_entry("", "evil_ai", evil_ai);
 
             if (!config->sync()) {
                 GUI::MessageBox::show(window, "Configuration could not be synced", "Error", GUI::MessageBox::Type::Error);
@@ -119,7 +140,7 @@ int main(int argc, char** argv)
         undo_stack.clear();
         redo_stack.clear();
 
-        game = Game(board_size, target_tile);
+        game = Game(board_size, target_tile, evil_ai);
 
         // This ensures that the sizes are correct.
         board_view.set_board(nullptr);

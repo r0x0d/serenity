@@ -49,7 +49,7 @@ public:
     }
 
     template<typename T>
-    requires(sizeof(T) <= sizeof(u64)) explicit Value(ValueType type, T raw_value)
+    requires(sizeof(T) == sizeof(u64)) explicit Value(ValueType type, T raw_value)
         : m_value(0)
         , m_type(type)
     {
@@ -89,6 +89,33 @@ public:
     {
     }
 
+    Value& operator=(Value&& value)
+    {
+        m_value = move(value.m_value);
+        m_type = move(value.m_type);
+        return *this;
+    }
+
+    template<typename T>
+    Optional<T> to()
+    {
+        Optional<T> result;
+        m_value.visit(
+            [&](auto value) {
+                if constexpr (IsSame<T, decltype(value)>)
+                    result = value;
+            },
+            [&](const FunctionAddress& address) {
+                if constexpr (IsSame<T, FunctionAddress>)
+                    result = address;
+            },
+            [&](const ExternAddress& address) {
+                if constexpr (IsSame<T, ExternAddress>)
+                    result = address;
+            });
+        return result;
+    }
+
     auto& type() const { return m_type; }
     auto& value() const { return m_value; }
 
@@ -114,6 +141,7 @@ public:
     }
 
     auto& values() const { return m_values; }
+    auto& values() { return m_values; }
     auto is_trap() const { return m_is_trap; }
 
 private:
@@ -269,7 +297,20 @@ public:
     auto& data() const { return m_data; }
     auto& data() { return m_data; }
 
-    void grow(size_t new_size) { m_data.grow(new_size); }
+    bool grow(size_t size_to_grow)
+    {
+        if (size_to_grow == 0)
+            return true;
+        auto new_size = m_data.size() + size_to_grow;
+        if (m_type.limits().max().value_or(new_size) < new_size)
+            return false;
+        auto previous_size = m_size;
+        m_data.grow(new_size);
+        m_size = new_size;
+        // The spec requires that we zero out everything on grow
+        __builtin_memset(m_data.offset_pointer(previous_size), 0, size_to_grow);
+        return true;
+    }
 
 private:
     const MemoryType& m_type;
@@ -287,6 +328,11 @@ public:
 
     auto is_mutable() const { return m_mutable; }
     auto& value() const { return m_value; }
+    void set_value(Value value)
+    {
+        VERIFY(is_mutable());
+        m_value = move(value);
+    }
 
 private:
     bool m_mutable { false };
@@ -317,14 +363,17 @@ private:
 
 class Label {
 public:
-    explicit Label(InstructionPointer continuation)
-        : m_continuation(continuation)
+    explicit Label(size_t arity, InstructionPointer continuation)
+        : m_arity(arity)
+        , m_continuation(continuation)
     {
     }
 
     auto continuation() const { return m_continuation; }
+    auto arity() const { return m_arity; }
 
 private:
+    size_t m_arity { 0 };
     InstructionPointer m_continuation;
 };
 
@@ -342,6 +391,7 @@ public:
 
     auto& module() const { return m_module; }
     auto& locals() const { return m_locals; }
+    auto& locals() { return m_locals; }
     auto& expression() const { return m_expression; }
     auto arity() const { return m_arity; }
 
@@ -360,7 +410,7 @@ public:
     [[nodiscard]] bool is_empty() const { return m_data.is_empty(); }
     void push(EntryType entry) { m_data.append(move(entry)); }
     auto pop() { return m_data.take_last(); }
-    auto& last() { return m_data.last(); }
+    auto& peek() const { return m_data.last(); }
 
     auto size() const { return m_data.size(); }
     auto& entries() const { return m_data; }

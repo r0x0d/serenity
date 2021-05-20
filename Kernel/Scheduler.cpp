@@ -10,6 +10,7 @@
 #include <AK/Time.h>
 #include <Kernel/Debug.h>
 #include <Kernel/Panic.h>
+#include <Kernel/PerformanceManager.h>
 #include <Kernel/Process.h>
 #include <Kernel/RTC.h>
 #include <Kernel/Scheduler.h>
@@ -365,6 +366,8 @@ bool Scheduler::context_switch(Thread* thread)
     }
     thread->set_state(Thread::Running);
 
+    PerformanceManager::add_context_switch_perf_event(*from_thread, *thread);
+
     proc.switch_context(from_thread, thread);
 
     // NOTE: from_thread at this point reflects the thread we were
@@ -437,6 +440,11 @@ void Scheduler::prepare_for_idle_loop()
     auto& scheduler_data = Processor::current().get_scheduler_data();
     VERIFY(!scheduler_data.m_in_scheduler);
     scheduler_data.m_in_scheduler = true;
+}
+
+bool Scheduler::colonel_initialized()
+{
+    return !!s_colonel_process;
 }
 
 Process* Scheduler::colonel()

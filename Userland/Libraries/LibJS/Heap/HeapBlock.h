@@ -9,7 +9,7 @@
 #include <AK/IntrusiveList.h>
 #include <AK/Types.h>
 #include <LibJS/Forward.h>
-#include <LibJS/Runtime/Cell.h>
+#include <LibJS/Heap/Cell.h>
 
 namespace JS {
 
@@ -25,14 +25,17 @@ public:
 
     size_t cell_size() const { return m_cell_size; }
     size_t cell_count() const { return (block_size - sizeof(HeapBlock)) / m_cell_size; }
-    bool is_full() const { return !m_freelist; }
+    bool is_full() const { return !has_lazy_freelist() && !m_freelist; }
 
     ALWAYS_INLINE Cell* allocate()
     {
-        if (!m_freelist)
-            return nullptr;
-        VERIFY(is_valid_cell_pointer(m_freelist));
-        return exchange(m_freelist, m_freelist->next);
+        if (m_freelist) {
+            VERIFY(is_valid_cell_pointer(m_freelist));
+            return exchange(m_freelist, m_freelist->next);
+        }
+        if (has_lazy_freelist())
+            return cell(m_next_lazy_freelist_index++);
+        return nullptr;
     }
 
     void deallocate(Cell*);
@@ -40,7 +43,8 @@ public:
     template<typename Callback>
     void for_each_cell(Callback callback)
     {
-        for (size_t i = 0; i < cell_count(); ++i)
+        auto end = has_lazy_freelist() ? m_next_lazy_freelist_index : cell_count();
+        for (size_t i = 0; i < end; ++i)
             callback(cell(i));
     }
 
@@ -56,7 +60,8 @@ public:
         if (pointer < reinterpret_cast<FlatPtr>(m_storage))
             return nullptr;
         size_t cell_index = (pointer - reinterpret_cast<FlatPtr>(m_storage)) / m_cell_size;
-        if (cell_index >= cell_count())
+        auto end = has_lazy_freelist() ? m_next_lazy_freelist_index : cell_count();
+        if (cell_index >= end)
             return nullptr;
         return cell(cell_index);
     }
@@ -70,6 +75,8 @@ public:
 
 private:
     HeapBlock(Heap&, size_t cell_size);
+
+    bool has_lazy_freelist() const { return m_next_lazy_freelist_index < cell_count(); }
 
     struct FreelistEntry final : public Cell {
         FreelistEntry* next { nullptr };
@@ -89,6 +96,7 @@ private:
 
     Heap& m_heap;
     size_t m_cell_size { 0 };
+    size_t m_next_lazy_freelist_index { 0 };
     FreelistEntry* m_freelist { nullptr };
     alignas(Cell) u8 m_storage[];
 };

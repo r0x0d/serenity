@@ -99,7 +99,9 @@ static ParseResult<ParseUntilAnyOfResult<T>> parse_until_any_of(InputStream& str
         if (new_stream.has_any_error())
             return with_eof_check(stream, ParseError::ExpectedValueOrTerminator);
 
-        if ((... || (byte == terminators))) {
+        constexpr auto equals = [](auto&& a, auto&& b) { return a == b; };
+
+        if ((... || equals(byte, terminators))) {
             result.terminator = byte;
             return result;
         }
@@ -303,7 +305,7 @@ ParseResult<Vector<Instruction>> Instruction::parse(InputStream& stream, Instruc
                 result.value().values.append(Instruction { Instructions::structured_end });
 
                 // Transform op(..., instr*) -> op(...) instr* op(end(ip))
-                result.value().values.prepend(Instruction { opcode, StructuredInstructionArgs { BlockType { block_type.release_value() }, ip, {} } });
+                result.value().values.prepend(Instruction { opcode, StructuredInstructionArgs { BlockType { block_type.release_value() }, ++ip, {} } });
                 return result.release_value().values;
             }
 
@@ -800,7 +802,7 @@ ParseResult<FunctionSection> FunctionSection::parse(InputStream& stream)
         return indices.error();
 
     Vector<TypeIndex> typed_indices;
-    typed_indices.resize(indices.value().size());
+    typed_indices.ensure_capacity(indices.value().size());
     for (auto entry : indices.value())
         typed_indices.append(entry);
 

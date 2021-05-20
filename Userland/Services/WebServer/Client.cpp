@@ -40,15 +40,18 @@ void Client::die()
 void Client::start()
 {
     m_socket->on_ready_to_read = [this] {
-        auto raw_request = m_socket->read_all();
-        if (raw_request.is_empty()) {
-            die();
-            return;
+        StringBuilder builder;
+        for (;;) {
+            auto line = m_socket->read_line();
+            if (line.is_empty())
+                break;
+            builder.append(line);
+            builder.append("\r\n");
         }
 
-        dbgln("Got raw request: '{}'", String::copy(raw_request));
-
-        handle_request(raw_request.bytes());
+        auto request = builder.to_byte_buffer();
+        dbgln("Got raw request: '{}'", String::copy(request));
+        handle_request(request);
         die();
     };
 }
@@ -70,7 +73,7 @@ void Client::handle_request(ReadonlyBytes raw_request)
         return;
     }
 
-    auto requested_path = LexicalPath::canonicalized_path(request.resource());
+    auto requested_path = LexicalPath::join("/", request.resource()).string();
     dbgln("Canonical requested path: '{}'", requested_path);
 
     StringBuilder path_builder;
@@ -120,6 +123,7 @@ void Client::send_response(InputStream& response, const HTTP::HttpRequest& reque
     builder.append("Server: WebServer (SerenityOS)\r\n");
     builder.append("X-Frame-Options: SAMEORIGIN\r\n");
     builder.append("X-Content-Type-Options: nosniff\r\n");
+    builder.append("Pragma: no-cache\r\n");
     builder.append("Content-Type: ");
     builder.append(content_type);
     builder.append("\r\n");

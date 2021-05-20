@@ -22,6 +22,7 @@ struct timespec;
 struct sockaddr;
 struct siginfo;
 struct stat;
+struct statvfs;
 typedef u32 socklen_t;
 }
 
@@ -99,7 +100,7 @@ namespace Kernel {
     S(chmod)                      \
     S(socket)                     \
     S(bind)                       \
-    S(accept)                     \
+    S(accept4)                    \
     S(listen)                     \
     S(connect)                    \
     S(link)                       \
@@ -177,7 +178,9 @@ namespace Kernel {
     S(anon_create)                \
     S(msyscall)                   \
     S(readv)                      \
-    S(emuctl)
+    S(emuctl)                     \
+    S(statvfs)                    \
+    S(fstatvfs)
 
 namespace Syscall {
 
@@ -267,6 +270,13 @@ struct SC_clock_nanosleep_params {
     int flags;
     const struct timespec* requested_sleep;
     struct timespec* remaining_sleep;
+};
+
+struct SC_accept4_params {
+    int sockfd;
+    sockaddr* addr;
+    socklen_t* addrlen;
+    int flags;
 };
 
 struct SC_getsockopt_params {
@@ -449,6 +459,11 @@ struct SC_inode_watcher_add_watch_params {
     int fd;
     StringArgument user_path;
     u32 event_mask;
+};
+
+struct SC_statvfs_params {
+    StringArgument path;
+    struct statvfs* buf;
 };
 
 void initialize();

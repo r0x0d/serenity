@@ -33,6 +33,7 @@ set(KERNEL_SOURCES
     Devices/FullDevice.cpp
     Devices/MemoryDevice.cpp
     Devices/NullDevice.cpp
+    Devices/PCISerialDevice.cpp
     Devices/PCSpeaker.cpp
     Devices/RandomDevice.cpp
     Devices/SB16.cpp
@@ -195,6 +196,7 @@ set(KERNEL_SOURCES
     Syscalls/sigaction.cpp
     Syscalls/socket.cpp
     Syscalls/stat.cpp
+    Syscalls/statvfs.cpp
     Syscalls/sync.cpp
     Syscalls/sysconf.cpp
     Syscalls/thread.cpp
@@ -382,7 +384,6 @@ endif()
 target_link_libraries(Kernel kernel_heap gcc stdc++)
 add_dependencies(Kernel boot kernel_heap)
 install(TARGETS Kernel RUNTIME DESTINATION boot)
-serenity_add_ak_precompiled_headers_to_target(Kernel)
 
 add_custom_command(
     TARGET Kernel

@@ -6,6 +6,7 @@
 
 #include "Game.h"
 #include <Games/Solitaire/SolitaireGML.h>
+#include <LibCore/ConfigFile.h>
 #include <LibCore/Timer.h>
 #include <LibGUI/Action.h>
 #include <LibGUI/ActionGroup.h>
@@ -13,6 +14,7 @@
 #include <LibGUI/Icon.h>
 #include <LibGUI/Menu.h>
 #include <LibGUI/Menubar.h>
+#include <LibGUI/MessageBox.h>
 #include <LibGUI/Statusbar.h>
 #include <LibGUI/Window.h>
 #include <stdio.h>
@@ -22,13 +24,19 @@ int main(int argc, char** argv)
 {
     auto app = GUI::Application::construct(argc, argv);
     auto app_icon = GUI::Icon::default_icon("app-solitaire");
+    auto config = Core::ConfigFile::get_for_app("Solitaire");
 
-    if (pledge("stdio recvfd sendfd rpath", nullptr) < 0) {
+    if (pledge("stdio recvfd sendfd rpath wpath cpath", nullptr) < 0) {
         perror("pledge");
         return 1;
     }
 
     if (unveil("/res", "r") < 0) {
+        perror("unveil");
+        return 1;
+    }
+
+    if (unveil(config->filename().characters(), "crw") < 0) {
         perror("unveil");
         return 1;
     }
@@ -41,6 +49,26 @@ int main(int argc, char** argv)
     auto window = GUI::Window::construct();
     window->set_title("Solitaire");
 
+    auto mode = static_cast<Solitaire::Mode>(config->read_num_entry("Settings", "Mode", static_cast<int>(Solitaire::Mode::SingleCardDraw)));
+    auto high_score = static_cast<u32>(config->read_num_entry("Game", "HighScore", 0));
+
+    auto update_mode = [&](Solitaire::Mode new_mode) {
+        mode = new_mode;
+        config->write_num_entry("Settings", "Mode", static_cast<int>(mode));
+        if (!config->sync())
+            GUI::MessageBox::show(window, "Configuration could not be saved", "Error", GUI::MessageBox::Type::Error);
+    };
+
+    auto update_high_score = [&](u32 new_high_score) {
+        high_score = new_high_score;
+        config->write_num_entry("Game", "HighScore", static_cast<int>(high_score));
+        if (!config->sync())
+            GUI::MessageBox::show(window, "Configuration could not be saved", "Error", GUI::MessageBox::Type::Error);
+    };
+
+    if (mode >= Solitaire::Mode::__Count)
+        update_mode(Solitaire::Mode::SingleCardDraw);
+
     auto& widget = window->set_main_widget<GUI::Widget>();
     widget.load_from_gml(solitaire_gml);
 
@@ -49,7 +77,8 @@ int main(int argc, char** argv)
 
     auto& statusbar = *widget.find_descendant_of_type_named<GUI::Statusbar>("statusbar");
     statusbar.set_text(0, "Score: 0");
-    statusbar.set_text(1, "Time: 00:00:00");
+    statusbar.set_text(1, String::formatted("High Score: {}", high_score));
+    statusbar.set_text(2, "Time: 00:00:00");
 
     app->on_action_enter = [&](GUI::Action& action) {
         auto text = action.status_tip();
@@ -64,6 +93,11 @@ int main(int argc, char** argv)
 
     game.on_score_update = [&](uint32_t score) {
         statusbar.set_text(0, String::formatted("Score: {}", score));
+
+        if (score > high_score) {
+            update_high_score(score);
+            statusbar.set_text(1, String::formatted("High Score: {}", high_score));
+        }
     };
 
     uint64_t seconds_elapsed = 0;
@@ -75,7 +109,7 @@ int main(int argc, char** argv)
         uint64_t minutes = (seconds_elapsed / 60) % 60;
         uint64_t seconds = seconds_elapsed % 60;
 
-        statusbar.set_text(1, String::formatted("Time: {:02}:{:02}:{:02}", hours, minutes, seconds));
+        statusbar.set_text(2, String::formatted("Time: {:02}:{:02}:{:02}", hours, minutes, seconds));
     });
 
     game.on_game_start = [&]() {
@@ -91,15 +125,18 @@ int main(int argc, char** argv)
     draw_settng_actions.set_exclusive(true);
 
     auto single_card_draw_action = GUI::Action::create_checkable("&Single Card Draw", [&](auto&) {
-        game.setup(Solitaire::Mode::SingleCardDraw);
+        update_mode(Solitaire::Mode::SingleCardDraw);
+        game.setup(mode);
     });
-    single_card_draw_action->set_checked(true);
+    single_card_draw_action->set_checked(mode == Solitaire::Mode::SingleCardDraw);
     single_card_draw_action->set_status_tip("Draw one card at a time");
     draw_settng_actions.add_action(single_card_draw_action);
 
     auto three_card_draw_action = GUI::Action::create_checkable("&Three Card Draw", [&](auto&) {
-        game.setup(Solitaire::Mode::ThreeCardDraw);
+        update_mode(Solitaire::Mode::ThreeCardDraw);
+        game.setup(mode);
     });
+    three_card_draw_action->set_checked(mode == Solitaire::Mode::ThreeCardDraw);
     three_card_draw_action->set_status_tip("Draw three cards at a time");
     draw_settng_actions.add_action(three_card_draw_action);
 
@@ -107,7 +144,7 @@ int main(int argc, char** argv)
     auto& game_menu = menubar->add_menu("&Game");
 
     game_menu.add_action(GUI::Action::create("&New Game", { Mod_None, Key_F2 }, [&](auto&) {
-        game.setup(game.mode());
+        game.setup(mode);
     }));
     game_menu.add_separator();
     game_menu.add_action(single_card_draw_action);
@@ -123,7 +160,7 @@ int main(int argc, char** argv)
     window->set_menubar(move(menubar));
     window->set_icon(app_icon.bitmap_for_size(16));
     window->show();
-    game.setup(game.mode());
+    game.setup(mode);
 
     return app->exec();
 }

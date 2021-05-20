@@ -12,6 +12,8 @@ namespace PDF {
 Document::Document(const ReadonlyBytes& bytes)
     : m_parser(Parser({}, bytes))
 {
+    m_parser.set_document(this);
+
     VERIFY(m_parser.perform_validation());
     auto [xref_table, trailer] = m_parser.parse_last_xref_table_and_trailer();
 
@@ -61,6 +63,8 @@ Page Document::get_page(u32 index)
     auto raw_page_object = resolve_to<DictObject>(get_or_load_value(page_object_index));
 
     auto resources = raw_page_object->get_dict(this, "Resources");
+    auto contents = raw_page_object->get_object(this, "Contents");
+
     auto media_box_array = raw_page_object->get_array(this, "MediaBox");
     auto media_box = Rectangle {
         media_box_array->at(0).to_float(),
@@ -68,9 +72,29 @@ Page Document::get_page(u32 index)
         media_box_array->at(2).to_float(),
         media_box_array->at(3).to_float(),
     };
-    auto contents = raw_page_object->get_object(this, "Contents");
 
-    Page page { resources, media_box, contents };
+    auto crop_box = media_box;
+    if (raw_page_object->contains("CropBox")) {
+        auto crop_box_array = raw_page_object->get_array(this, "CropBox");
+        crop_box = Rectangle {
+            crop_box_array->at(0).to_float(),
+            crop_box_array->at(1).to_float(),
+            crop_box_array->at(2).to_float(),
+            crop_box_array->at(3).to_float(),
+        };
+    }
+
+    float user_unit = 1.0f;
+    if (raw_page_object->contains("UserUnit"))
+        user_unit = raw_page_object->get_value("UserUnit").to_float();
+
+    int rotate = 0;
+    if (raw_page_object->contains("Rotate")) {
+        rotate = raw_page_object->get_value("Rotate").as_int();
+        VERIFY(rotate % 90 == 0);
+    }
+
+    Page page { move(resources), move(contents), media_box, crop_box, user_unit, rotate };
     m_pages.set(index, page);
     return page;
 }
@@ -97,23 +121,6 @@ Value Document::resolve(const Value& value)
     return obj;
 }
 
-template<IsValueType T>
-UnwrappedValueType<T> Document::resolve_to(const Value& value)
-{
-    auto resolved = resolve(value);
-
-    if constexpr (IsSame<T, bool>)
-        return resolved.as_bool();
-    if constexpr (IsSame<T, int>)
-        return resolved.as_int();
-    if constexpr (IsSame<T, float>)
-        return resolved.as_float();
-    if constexpr (IsObject<T>)
-        return object_cast<T>(resolved.as_object());
-
-    VERIFY_NOT_REACHED();
-}
-
 void Document::build_page_tree()
 {
     auto page_tree = m_catalog->get_dict(this, "Pages");
@@ -130,7 +137,7 @@ void Document::add_page_tree_node_to_page_tree(NonnullRefPtr<DictObject> page_tr
         // these pages to the overall page tree
 
         for (auto& value : *kids_array) {
-            auto reference = resolve_to<IndirectValueRef>(value);
+            auto reference = object_cast<IndirectValueRef>(value.as_object());
             auto byte_offset = m_xref_table.byte_offset_for_object(reference->index());
             auto maybe_page_tree_node = m_parser.conditionally_parse_page_tree_node_at_offset(byte_offset);
             if (maybe_page_tree_node) {
@@ -145,7 +152,7 @@ void Document::add_page_tree_node_to_page_tree(NonnullRefPtr<DictObject> page_tr
 
     // We know all of the kids are leaf nodes
     for (auto& value : *kids_array) {
-        auto reference = resolve_to<IndirectValueRef>(value);
+        auto reference = object_cast<IndirectValueRef>(value.as_object());
         m_page_object_indices.append(reference->index());
     }
 }

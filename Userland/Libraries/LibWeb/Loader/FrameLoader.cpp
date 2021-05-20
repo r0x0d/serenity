@@ -113,8 +113,8 @@ bool FrameLoader::parse_document(DOM::Document& document, const ByteBuffer& data
 {
     auto& mime_type = document.content_type();
     if (mime_type == "text/html" || mime_type == "image/svg+xml") {
-        HTML::HTMLDocumentParser parser(document, data, document.encoding());
-        parser.run(document.url());
+        auto parser = HTML::HTMLDocumentParser::create_with_uncertain_encoding(document, data);
+        parser->run(document.url());
         return true;
     }
     if (mime_type.starts_with("image/"))
@@ -248,7 +248,11 @@ void FrameLoader::resource_did_load()
     }
     m_redirects_count = 0;
 
-    dbgln("I believe this content has MIME type '{}', encoding '{}'", resource()->mime_type(), resource()->encoding());
+    if (resource()->has_encoding()) {
+        dbgln("This content has MIME type '{}', encoding '{}'", resource()->mime_type(), resource()->encoding().value());
+    } else {
+        dbgln("This content has MIME type '{}', encoding unknown", resource()->mime_type());
+    }
 
     auto document = DOM::Document::create();
     document->set_url(url);

@@ -20,9 +20,8 @@
 
 namespace Kernel {
 
-static const size_t max_link_count = 65535;
-static const size_t max_block_size = 4096;
-static const ssize_t max_inline_symlink_length = 60;
+static constexpr size_t max_block_size = 4096;
+static constexpr ssize_t max_inline_symlink_length = 60;
 
 struct Ext2FSDirectoryEntry {
     String name;
@@ -114,6 +113,7 @@ bool Ext2FS::initialize()
     }
 
     set_block_size(EXT2_BLOCK_SIZE(&super_block));
+    set_fragment_size(EXT2_FRAG_SIZE(&super_block));
 
     VERIFY(block_size() <= (int)max_block_size);
 
@@ -1667,6 +1667,7 @@ KResult Ext2FSInode::increment_link_count()
     Locker locker(m_lock);
     if (fs().is_readonly())
         return EROFS;
+    constexpr size_t max_link_count = 65535;
     if (m_raw_inode.i_links_count == max_link_count)
         return EMLINK;
     ++m_raw_inode.i_links_count;

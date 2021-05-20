@@ -24,8 +24,11 @@ struct Rectangle {
 
 struct Page {
     NonnullRefPtr<DictObject> resources;
-    Rectangle media_box;
     NonnullRefPtr<Object> contents;
+    Rectangle media_box;
+    Rectangle crop_box;
+    float user_unit;
+    int rotate;
 };
 
 class Document final : public RefCounted<Document> {
@@ -63,7 +66,21 @@ public:
     // Like resolve, but unwraps the Value into the given type. Accepts
     // any object type, and the three primitive Value types.
     template<IsValueType T>
-    UnwrappedValueType<T> resolve_to(const Value& value);
+    UnwrappedValueType<T> resolve_to(const Value& value)
+    {
+        auto resolved = resolve(value);
+
+        if constexpr (IsSame<T, bool>)
+            return resolved.as_bool();
+        if constexpr (IsSame<T, int>)
+            return resolved.as_int();
+        if constexpr (IsSame<T, float>)
+            return resolved.as_float();
+        if constexpr (IsObject<T>)
+            return object_cast<T>(resolved.as_object());
+
+        VERIFY_NOT_REACHED();
+    }
 
 private:
     // FIXME: Currently, to improve performance, we don't load any pages at Document
@@ -105,8 +122,14 @@ template<>
 struct Formatter<PDF::Page> : Formatter<StringView> {
     void format(FormatBuilder& builder, const PDF::Page& page)
     {
-        constexpr auto fmt_string = "Page {{\n  resources={}\n  contents={}\n  media_box={}\n}}";
-        auto str = String::formatted(fmt_string, page.resources->to_string(1), page.contents->to_string(1), page.media_box);
+        constexpr auto fmt_string = "Page {{\n  resources={}\n  contents={}\n  media_box={}\n  crop_box={}\n  user_unit={}\n  rotate={}\n}}";
+        auto str = String::formatted(fmt_string,
+            page.resources->to_string(1),
+            page.contents->to_string(1),
+            page.media_box,
+            page.crop_box,
+            page.user_unit,
+            page.rotate);
         Formatter<StringView>::format(builder, str);
     }
 };

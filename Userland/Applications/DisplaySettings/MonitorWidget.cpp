@@ -1,20 +1,26 @@
 /*
  * Copyright (c) 2020, Hüseyin Aslıtürk <asliturk@hotmail.com>
+ * Copyright (c) 2021, Andreas Kling <kling@serenityos.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
 #include "MonitorWidget.h"
+#include <LibGUI/Desktop.h>
 #include <LibGUI/Painter.h>
 #include <LibGfx/Bitmap.h>
 #include <LibGfx/Font.h>
+
+REGISTER_WIDGET(DisplaySettings, MonitorWidget)
 
 namespace DisplaySettings {
 
 MonitorWidget::MonitorWidget()
 {
+    m_desktop_resolution = GUI::Desktop::the().rect().size();
     m_monitor_bitmap = Gfx::Bitmap::load_from_file("/res/graphics/monitor.png");
-    m_monitor_rect = { 8, 9, 320, 180 };
+    m_monitor_rect = { 12, 13, 280, 158 };
+    set_fixed_size(304, 201);
 }
 
 bool MonitorWidget::set_wallpaper(String path)
@@ -22,8 +28,9 @@ bool MonitorWidget::set_wallpaper(String path)
     auto bitmap_ptr = Gfx::Bitmap::load_from_file(path);
     if (!bitmap_ptr && !path.is_empty())
         return false;
-    m_desktop_wallpaper_path = path;
+    m_desktop_wallpaper_path = move(path);
     m_desktop_wallpaper_bitmap = bitmap_ptr;
+    update();
     return true;
 }
 
@@ -34,7 +41,10 @@ String MonitorWidget::wallpaper()
 
 void MonitorWidget::set_wallpaper_mode(String mode)
 {
-    m_desktop_wallpaper_mode = mode;
+    if (m_desktop_wallpaper_mode == mode)
+        return;
+    m_desktop_wallpaper_mode = move(mode);
+    update();
 }
 
 String MonitorWidget::wallpaper_mode()
@@ -54,7 +64,10 @@ Gfx::IntSize MonitorWidget::desktop_resolution()
 
 void MonitorWidget::set_background_color(Gfx::Color color)
 {
+    if (m_desktop_color == color)
+        return;
     m_desktop_color = color;
+    update();
 }
 
 Gfx::Color MonitorWidget::background_color()
@@ -90,6 +103,7 @@ void MonitorWidget::paint_event(GUI::PaintEvent& event)
     painter.blit({ 0, 0 }, *m_monitor_bitmap, m_monitor_bitmap->rect());
     painter.draw_scaled_bitmap(m_monitor_rect, *screen_bitmap, screen_bitmap->rect());
 
+#if 0
     if (!m_desktop_resolution.is_null()) {
         auto displayed_resolution_string = Gfx::IntSize { m_desktop_resolution.width(), m_desktop_resolution.height() }.to_string();
 
@@ -109,6 +123,7 @@ void MonitorWidget::paint_event(GUI::PaintEvent& event)
         text_rect.center_within(m_monitor_rect);
         painter.draw_scaled_bitmap(text_rect, *text_bitmap, text_bitmap->rect());
     }
+#endif
 }
 
 }

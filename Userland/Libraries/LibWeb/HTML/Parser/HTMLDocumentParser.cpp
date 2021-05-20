@@ -22,6 +22,7 @@
 #include <LibWeb/HTML/HTMLTableElement.h>
 #include <LibWeb/HTML/HTMLTemplateElement.h>
 #include <LibWeb/HTML/Parser/HTMLDocumentParser.h>
+#include <LibWeb/HTML/Parser/HTMLEncodingDetection.h>
 #include <LibWeb/HTML/Parser/HTMLToken.h>
 #include <LibWeb/Namespace.h>
 #include <LibWeb/SVG/TagNames.h>
@@ -104,7 +105,9 @@ HTMLDocumentParser::HTMLDocumentParser(DOM::Document& document, const StringView
     , m_document(document)
 {
     m_document->set_should_invalidate_styles_on_attribute_changes(false);
-    m_document->set_encoding(TextCodec::get_standardized_encoding(encoding));
+    auto standardized_encoding = TextCodec::get_standardized_encoding(encoding);
+    VERIFY(standardized_encoding.has_value());
+    m_document->set_encoding(standardized_encoding.value());
 }
 
 HTMLDocumentParser::~HTMLDocumentParser()
@@ -3037,4 +3040,14 @@ NonnullRefPtrVector<DOM::Node> HTMLDocumentParser::parse_html_fragment(DOM::Elem
     }
     return children;
 }
+
+NonnullOwnPtr<HTMLDocumentParser> HTMLDocumentParser::create_with_uncertain_encoding(DOM::Document& document, const ByteBuffer& input)
+{
+    if (document.has_encoding())
+        return make<HTMLDocumentParser>(document, input, document.encoding().value());
+    auto encoding = run_encoding_sniffing_algorithm(input);
+    dbgln("The encoding sniffing algorithm returned encoding '{}'", encoding);
+    return make<HTMLDocumentParser>(document, input, encoding);
+}
+
 }

@@ -85,6 +85,36 @@ public:
         }
     }
 
+    inline static void add_context_switch_perf_event(Thread& current_thread, Thread& next_thread)
+    {
+        if (auto* event_buffer = current_thread.process().current_perf_events_buffer()) {
+            [[maybe_unused]] auto res = event_buffer->append(PERF_EVENT_CONTEXT_SWITCH, next_thread.pid().value(), next_thread.tid().value(), nullptr);
+        }
+    }
+
+    inline static void add_kmalloc_perf_event(Process& current_process, size_t size, FlatPtr ptr)
+    {
+        if (auto* event_buffer = current_process.current_perf_events_buffer()) {
+            [[maybe_unused]] auto res = event_buffer->append(PERF_EVENT_KMALLOC, size, ptr, nullptr);
+        }
+    }
+
+    inline static void add_kfree_perf_event(Process& current_process, size_t size, FlatPtr ptr)
+    {
+        if (auto* event_buffer = current_process.current_perf_events_buffer()) {
+            [[maybe_unused]] auto res = event_buffer->append(PERF_EVENT_KFREE, size, ptr, nullptr);
+        }
+    }
+
+    inline static void add_page_fault_event(Thread& thread, const RegisterState& regs)
+    {
+        if (auto* event_buffer = thread.process().current_perf_events_buffer()) {
+            [[maybe_unused]] auto rc = event_buffer->append_with_eip_and_ebp(
+                thread.pid(), thread.tid(),
+                regs.eip, regs.ebp, PERF_EVENT_PAGE_FAULT, 0, 0, 0, nullptr);
+        }
+    }
+
     inline static void timer_tick(RegisterState const& regs)
     {
         static Time last_wakeup;

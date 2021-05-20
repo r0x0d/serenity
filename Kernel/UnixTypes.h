@@ -47,16 +47,20 @@ enum {
 };
 
 enum {
-    PERF_EVENT_SAMPLE,
-    PERF_EVENT_MALLOC,
-    PERF_EVENT_FREE,
-    PERF_EVENT_MMAP,
-    PERF_EVENT_MUNMAP,
-    PERF_EVENT_PROCESS_CREATE,
-    PERF_EVENT_PROCESS_EXEC,
-    PERF_EVENT_PROCESS_EXIT,
-    PERF_EVENT_THREAD_CREATE,
-    PERF_EVENT_THREAD_EXIT
+    PERF_EVENT_SAMPLE = 1,
+    PERF_EVENT_MALLOC = 2,
+    PERF_EVENT_FREE = 4,
+    PERF_EVENT_MMAP = 8,
+    PERF_EVENT_MUNMAP = 16,
+    PERF_EVENT_PROCESS_CREATE = 32,
+    PERF_EVENT_PROCESS_EXEC = 64,
+    PERF_EVENT_PROCESS_EXIT = 128,
+    PERF_EVENT_THREAD_CREATE = 256,
+    PERF_EVENT_THREAD_EXIT = 512,
+    PERF_EVENT_CONTEXT_SWITCH = 1024,
+    PERF_EVENT_KMALLOC = 2048,
+    PERF_EVENT_KFREE = 4096,
+    PERF_EVENT_PAGE_FAULT = 8192,
 };
 
 #define WNOHANG 1
@@ -717,4 +721,26 @@ enum {
 #define DT_SOCK DT_SOCK
     DT_WHT = 14
 #define DT_WHT DT_WHT
+};
+
+typedef uint64_t fsblkcnt_t;
+typedef uint64_t fsfilcnt_t;
+
+#define ST_RDONLY 0x1
+#define ST_NOSUID 0x2
+
+struct statvfs {
+    unsigned long f_bsize;
+    unsigned long f_frsize;
+    fsblkcnt_t f_blocks;
+    fsblkcnt_t f_bfree;
+    fsblkcnt_t f_bavail;
+
+    fsfilcnt_t f_files;
+    fsfilcnt_t f_ffree;
+    fsfilcnt_t f_favail;
+
+    unsigned long f_fsid;
+    unsigned long f_flag;
+    unsigned long f_namemax;
 };

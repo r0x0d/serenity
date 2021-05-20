@@ -10,7 +10,8 @@
 
 namespace JS {
 
-const u32 SPARSE_ARRAY_HOLE_THRESHOLD = 200;
+constexpr const size_t SPARSE_ARRAY_HOLE_THRESHOLD = 200;
+constexpr const size_t LENGTH_SETTER_GENERIC_STORAGE_THRESHOLD = 4 * MiB;
 
 SimpleIndexedPropertyStorage::SimpleIndexedPropertyStorage(Vector<Value>&& initial_values)
     : m_array_size(initial_values.size())
@@ -159,8 +160,9 @@ ValueAndAttributes GenericIndexedPropertyStorage::take_last()
     m_array_size--;
 
     auto result = m_sparse_elements.get(m_array_size);
+    if (!result.has_value())
+        return {};
     m_sparse_elements.remove(m_array_size);
-    VERIFY(result.has_value());
     return result.value();
 }
 
@@ -313,7 +315,6 @@ void IndexedProperties::append_all(Object* this_object, const IndexedProperties&
 
 void IndexedProperties::set_array_like_size(size_t new_size)
 {
-    constexpr size_t length_setter_generic_storage_threshold = 4 * MiB;
     auto current_array_like_size = array_like_size();
 
     // We can't use simple storage for lengths that don't fit in an i32.
@@ -321,7 +322,7 @@ void IndexedProperties::set_array_like_size(size_t new_size)
     // This prevents something like "a = []; a.length = 0x80000000;" from allocating 2G entries.
     if (m_storage->is_simple_storage()
         && (new_size > NumericLimits<i32>::max()
-            || (current_array_like_size < length_setter_generic_storage_threshold && new_size > length_setter_generic_storage_threshold))) {
+            || (current_array_like_size < LENGTH_SETTER_GENERIC_STORAGE_THRESHOLD && new_size > LENGTH_SETTER_GENERIC_STORAGE_THRESHOLD))) {
         switch_to_generic_storage();
     }
 
