@@ -67,7 +67,7 @@ public:
 
     ~NameObject() override = default;
 
-    [[nodiscard]] ALWAYS_INLINE FlyString name() const { return m_name; }
+    [[nodiscard]] ALWAYS_INLINE const FlyString& name() const { return m_name; }
 
     ALWAYS_INLINE bool is_name() const override { return true; }
     ALWAYS_INLINE const char* type_name() const override { return "name"; }
@@ -86,6 +86,7 @@ public:
 
     ~ArrayObject() override = default;
 
+    [[nodiscard]] ALWAYS_INLINE size_t size() const { return m_elements.size(); }
     [[nodiscard]] ALWAYS_INLINE Vector<Value> elements() const { return m_elements; }
 
     ALWAYS_INLINE auto begin() const { return m_elements.begin(); }
@@ -147,18 +148,17 @@ private:
     HashMap<FlyString, Value> m_map;
 };
 
-class StreamObject final : public Object {
+class StreamObject : public Object {
 public:
-    StreamObject(const NonnullRefPtr<DictObject>& dict, const ReadonlyBytes& bytes)
+    explicit StreamObject(const NonnullRefPtr<DictObject>& dict)
         : m_dict(dict)
-        , m_bytes(bytes)
     {
     }
 
-    ~StreamObject() override = default;
+    virtual ~StreamObject() override = default;
 
     [[nodiscard]] ALWAYS_INLINE NonnullRefPtr<DictObject> dict() const { return m_dict; }
-    [[nodiscard]] ALWAYS_INLINE const ReadonlyBytes& bytes() const { return m_bytes; }
+    [[nodiscard]] virtual ReadonlyBytes bytes() const = 0;
 
     ALWAYS_INLINE bool is_stream() const override { return true; }
     ALWAYS_INLINE const char* type_name() const override { return "stream"; }
@@ -166,7 +166,38 @@ public:
 
 private:
     NonnullRefPtr<DictObject> m_dict;
+};
+
+class PlainTextStreamObject final : public StreamObject {
+public:
+    PlainTextStreamObject(const NonnullRefPtr<DictObject>& dict, const ReadonlyBytes& bytes)
+        : StreamObject(dict)
+        , m_bytes(bytes)
+    {
+    }
+
+    virtual ~PlainTextStreamObject() override = default;
+
+    [[nodiscard]] ALWAYS_INLINE virtual ReadonlyBytes bytes() const override { return m_bytes; }
+
+private:
     ReadonlyBytes m_bytes;
+};
+
+class EncodedStreamObject final : public StreamObject {
+public:
+    EncodedStreamObject(const NonnullRefPtr<DictObject>& dict, ByteBuffer&& buffer)
+        : StreamObject(dict)
+        , m_buffer(buffer)
+    {
+    }
+
+    virtual ~EncodedStreamObject() override = default;
+
+    [[nodiscard]] ALWAYS_INLINE virtual ReadonlyBytes bytes() const override { return m_buffer.bytes(); }
+
+private:
+    ByteBuffer m_buffer;
 };
 
 class IndirectValue final : public Object {
@@ -190,26 +221,6 @@ public:
 private:
     u32 m_index;
     Value m_value;
-};
-
-class IndirectValueRef final : public Object {
-public:
-    IndirectValueRef(u32 index, u32 generation_index)
-        : m_index(index)
-    {
-        set_generation_index(generation_index);
-    }
-
-    ~IndirectValueRef() override = default;
-
-    [[nodiscard]] ALWAYS_INLINE u32 index() const { return m_index; }
-
-    ALWAYS_INLINE bool is_indirect_value_ref() const override { return true; }
-    ALWAYS_INLINE const char* type_name() const override { return "indirect_object_ref"; }
-    String to_string(int indent) const override;
-
-private:
-    u32 m_index;
 };
 
 template<IsObject To, IsObject From>

@@ -6,9 +6,13 @@
 
 #pragma once
 
-#include "CardStack.h"
+#include <AK/Array.h>
+#include <LibCards/CardStack.h>
 #include <LibGUI/Frame.h>
 #include <LibGUI/Painter.h>
+
+using Cards::Card;
+using Cards::CardStack;
 
 namespace Solitaire {
 
@@ -16,6 +20,11 @@ enum class Mode : u8 {
     SingleCardDraw,
     ThreeCardDraw,
     __Count
+};
+
+enum class GameOverReason {
+    Victory,
+    NewGame,
 };
 
 class Game final : public GUI::Frame {
@@ -31,7 +40,7 @@ public:
 
     Function<void(uint32_t)> on_score_update;
     Function<void()> on_game_start;
-    Function<void()> on_game_end;
+    Function<void(GameOverReason, uint32_t)> on_game_end;
 
 private:
     Game();
@@ -89,6 +98,11 @@ private:
         bool m_dirty { false };
     };
 
+    struct WasteRecycleRules {
+        uint8_t passes_allowed_before_punishment { 0 };
+        int8_t punishment { 0 };
+    };
+
     enum StackLocation {
         Stock,
         Waste,
@@ -107,6 +121,23 @@ private:
         __Count
     };
     static constexpr Array piles = { Pile1, Pile2, Pile3, Pile4, Pile5, Pile6, Pile7 };
+
+    ALWAYS_INLINE const WasteRecycleRules& recycle_rules()
+    {
+        static constexpr Array<WasteRecycleRules, 2> rules { {
+            { 0, -100 },
+            { 2, -20 },
+        } };
+
+        switch (m_mode) {
+        case Mode::SingleCardDraw:
+            return rules[0];
+        case Mode::ThreeCardDraw:
+            return rules[1];
+        default:
+            VERIFY_NOT_REACHED();
+        }
+    }
 
     void mark_intersecting_stacks_dirty(Card& intersecting_card);
     void update_score(int to_add);
@@ -142,12 +173,13 @@ private:
 
     Animation m_animation;
     bool m_game_over_animation { false };
-
+    bool m_waiting_for_new_game { true };
     bool m_new_game_animation { false };
     uint8_t m_new_game_animation_pile { 0 };
     uint8_t m_new_game_animation_delay { 0 };
 
     uint32_t m_score { 0 };
+    uint8_t m_passes_left_before_punishment { 0 };
 };
 
 }

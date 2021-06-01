@@ -95,6 +95,9 @@ KResultOr<int> Process::sys$mount(Userspace<const Syscall::SC_mount_params*> use
         return ENODEV;
     }
 
+    if (!fs)
+        return ENOMEM;
+
     if (!fs->initialize()) {
         dbgln("mount: failed to initialize {} filesystem, fd={}", fs_type, source_fd);
         return ENODEV;
@@ -119,7 +122,7 @@ KResultOr<int> Process::sys$umount(Userspace<const char*> user_mountpoint, size_
     if (mountpoint.is_error())
         return mountpoint.error();
 
-    auto custody_or_error = VFS::the().resolve_path(mountpoint.value(), current_directory());
+    auto custody_or_error = VFS::the().resolve_path(mountpoint.value()->view(), current_directory());
     if (custody_or_error.is_error())
         return custody_or_error.error();
 

@@ -156,13 +156,14 @@ KResultOr<FlatPtr> Process::sys$mmap(Userspace<const Syscall::SC_mmap_params*> u
     if (!is_user_range(VirtualAddress(addr), page_round_up(size)))
         return EFAULT;
 
-    String name;
+    OwnPtr<KString> name;
     if (params.name.characters) {
         if (params.name.length > PATH_MAX)
             return ENAMETOOLONG;
-        name = copy_string_from_user(params.name);
-        if (name.is_null())
-            return EFAULT;
+        auto name_or_error = try_copy_kstring_from_user(params.name);
+        if (name_or_error.is_error())
+            return name_or_error.error();
+        name = name_or_error.release_value();
     }
 
     if (size == 0)
@@ -213,7 +214,7 @@ KResultOr<FlatPtr> Process::sys$mmap(Userspace<const Syscall::SC_mmap_params*> u
 
     if (map_anonymous) {
         auto strategy = map_noreserve ? AllocationStrategy::None : AllocationStrategy::Reserve;
-        auto region_or_error = space().allocate_region(range.value(), !name.is_null() ? name : "mmap", prot, strategy);
+        auto region_or_error = space().allocate_region(range.value(), {}, prot, strategy);
         if (region_or_error.is_error())
             return region_or_error.error().error();
         region = region_or_error.value();
@@ -253,8 +254,7 @@ KResultOr<FlatPtr> Process::sys$mmap(Userspace<const Syscall::SC_mmap_params*> u
         region->set_shared(true);
     if (map_stack)
         region->set_stack(true);
-    if (!name.is_null())
-        region->set_name(name);
+    region->set_name(move(name));
 
     PerformanceManager::add_mmap_perf_event(*this, *region);
 
@@ -480,9 +480,10 @@ KResultOr<int> Process::sys$set_mmap_name(Userspace<const Syscall::SC_set_mmap_n
     if (params.name.length > PATH_MAX)
         return ENAMETOOLONG;
 
-    auto name = copy_string_from_user(params.name);
-    if (name.is_null())
-        return EFAULT;
+    auto name_or_error = try_copy_kstring_from_user(params.name);
+    if (name_or_error.is_error())
+        return name_or_error.error();
+    auto name = name_or_error.release_value();
 
     auto range_or_error = expand_range_to_page_boundaries((FlatPtr)params.addr, params.size);
     if (range_or_error.is_error())
@@ -506,100 +507,9 @@ KResultOr<int> Process::sys$munmap(Userspace<void*> addr, size_t size)
 {
     REQUIRE_PROMISE(stdio);
 
-    if (!size)
-        return EINVAL;
-
-    auto range_or_error = expand_range_to_page_boundaries(addr, size);
-    if (range_or_error.is_error())
-        return range_or_error.error();
-
-    auto range_to_unmap = range_or_error.value();
-
-    if (!is_user_range(range_to_unmap))
-        return EFAULT;
-
-    if (auto* whole_region = space().find_region_from_range(range_to_unmap)) {
-        if (!whole_region->is_mmap())
-            return EPERM;
-
-        PerformanceManager::add_unmap_perf_event(*this, whole_region->range());
-
-        bool success = space().deallocate_region(*whole_region);
-        VERIFY(success);
-        return 0;
-    }
-
-    if (auto* old_region = space().find_region_containing(range_to_unmap)) {
-        if (!old_region->is_mmap())
-            return EPERM;
-
-        // Remove the old region from our regions tree, since were going to add another region
-        // with the exact same start address, but dont deallocate it yet
-        auto region = space().take_region(*old_region);
-        VERIFY(region);
-
-        // We manually unmap the old region here, specifying that we *don't* want the VM deallocated.
-        region->unmap(Region::ShouldDeallocateVirtualMemoryRange::No);
-
-        auto new_regions = space().split_region_around_range(*region, range_to_unmap);
-
-        // Instead we give back the unwanted VM manually.
-        space().page_directory().range_allocator().deallocate(range_to_unmap);
-
-        // And finally we map the new region(s) using our page directory (they were just allocated and don't have one).
-        for (auto* new_region : new_regions) {
-            new_region->map(space().page_directory());
-        }
-
-        if (auto* event_buffer = current_perf_events_buffer()) {
-            [[maybe_unused]] auto res = event_buffer->append(PERF_EVENT_MUNMAP, range_to_unmap.base().get(), range_to_unmap.size(), nullptr);
-        }
-
-        return 0;
-    }
-
-    // Try again while checkin multiple regions at a time
-    // slow: without caching
-    const auto& regions = space().find_regions_intersecting(range_to_unmap);
-
-    // Check if any of the regions is not mmapped, to not accidentally
-    // error-out with just half a region map left
-    for (auto* region : regions) {
-        if (!region->is_mmap())
-            return EPERM;
-    }
-
-    Vector<Region*, 2> new_regions;
-
-    for (auto* old_region : regions) {
-        // if it's a full match we can delete the complete old region
-        if (old_region->range().intersect(range_to_unmap).size() == old_region->size()) {
-            bool res = space().deallocate_region(*old_region);
-            VERIFY(res);
-            continue;
-        }
-
-        // Remove the old region from our regions tree, since were going to add another region
-        // with the exact same start address, but dont deallocate it yet
-        auto region = space().take_region(*old_region);
-        VERIFY(region);
-
-        // We manually unmap the old region here, specifying that we *don't* want the VM deallocated.
-        region->unmap(Region::ShouldDeallocateVirtualMemoryRange::No);
-
-        // Otherwise just split the regions and collect them for future mapping
-        if (new_regions.try_append(space().split_region_around_range(*region, range_to_unmap)))
-            return ENOMEM;
-    }
-    // Instead we give back the unwanted VM manually at the end.
-    space().page_directory().range_allocator().deallocate(range_to_unmap);
-    // And finally we map the new region(s) using our page directory (they were just allocated and don't have one).
-    for (auto* new_region : new_regions) {
-        new_region->map(space().page_directory());
-    }
-
-    PerformanceManager::add_unmap_perf_event(*this, range_to_unmap);
-
+    auto result = space().unmap_mmap_range(VirtualAddress { addr }, size);
+    if (result.is_error())
+        return result;
     return 0;
 }
 
@@ -631,14 +541,16 @@ KResultOr<FlatPtr> Process::sys$mremap(Userspace<const Syscall::SC_mremap_params
         auto old_offset = old_region->offset_in_vmobject();
         NonnullRefPtr inode = static_cast<SharedInodeVMObject&>(old_region->vmobject()).inode();
 
+        auto new_vmobject = PrivateInodeVMObject::create_with_inode(inode);
+        if (!new_vmobject)
+            return ENOMEM;
+
         // Unmap without deallocating the VM range since we're going to reuse it.
         old_region->unmap(Region::ShouldDeallocateVirtualMemoryRange::No);
         bool success = space().deallocate_region(*old_region);
         VERIFY(success);
 
-        auto new_vmobject = PrivateInodeVMObject::create_with_inode(inode);
-
-        auto new_region_or_error = space().allocate_region_with_vmobject(range, new_vmobject, old_offset, old_name, old_prot, false);
+        auto new_region_or_error = space().allocate_region_with_vmobject(range, new_vmobject.release_nonnull(), old_offset, old_name, old_prot, false);
         if (new_region_or_error.is_error())
             return new_region_or_error.error().error();
         auto& new_region = *new_region_or_error.value();

@@ -1217,6 +1217,29 @@ String TextEditor::selected_text() const
     return document().text_in_range(m_selection);
 }
 
+size_t TextEditor::number_of_selected_words() const
+{
+    if (!has_selection())
+        return 0;
+
+    size_t word_count = 0;
+    bool in_word = false;
+    auto selected_text = this->selected_text();
+    for (char c : selected_text) {
+        if (in_word && isspace(c)) {
+            in_word = false;
+            word_count++;
+            continue;
+        }
+        if (!in_word && !isspace(c))
+            in_word = true;
+    }
+    if (in_word)
+        word_count++;
+
+    return word_count;
+}
+
 void TextEditor::delete_selection()
 {
     auto selection = normalized_selection();
@@ -1268,7 +1291,7 @@ void TextEditor::cut()
     if (!is_editable())
         return;
     auto selected_text = this->selected_text();
-    printf("Cut: \"%s\"\n", selected_text.characters());
+    dbgln("Cut: \"{}\"", selected_text);
     Clipboard::the().set_plain_text(selected_text);
     delete_selection();
 }
@@ -1276,7 +1299,7 @@ void TextEditor::cut()
 void TextEditor::copy()
 {
     auto selected_text = this->selected_text();
-    printf("Copy: \"%s\"\n", selected_text.characters());
+    dbgln("Copy: \"{}\"\n", selected_text);
     Clipboard::the().set_plain_text(selected_text);
 }
 
@@ -1286,7 +1309,11 @@ void TextEditor::paste()
         return;
 
     auto paste_text = Clipboard::the().data();
-    printf("Paste: \"%s\"\n", String::copy(paste_text).characters());
+
+    if (paste_text.is_empty())
+        return;
+
+    dbgln("Paste: \"{}\"", String::copy(paste_text));
 
     TemporaryChange change(m_automatic_indentation_enabled, false);
     insert_at_cursor_or_replace_selection(paste_text);

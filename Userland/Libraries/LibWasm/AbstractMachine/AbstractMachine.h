@@ -6,16 +6,28 @@
 
 #pragma once
 
+#include <AK/Function.h>
+#include <AK/HashMap.h>
+#include <AK/HashTable.h>
 #include <AK/OwnPtr.h>
 #include <AK/Result.h>
 #include <LibWasm/Types.h>
 
 namespace Wasm {
 
+class Configuration;
+struct Interpreter;
+
 struct InstantiationError {
     String error { "Unknown error" };
 };
-using InstantiationResult = Result<void, InstantiationError>;
+struct LinkError {
+    enum OtherErrors {
+        InvalidImportedModule,
+    };
+    Vector<String> missing_imports;
+    Vector<OtherErrors> other_errors;
+};
 
 TYPEDEF_DISTINCT_NUMERIC_GENERAL(u64, true, true, false, false, false, true, FunctionAddress);
 TYPEDEF_DISTINCT_NUMERIC_GENERAL(u64, true, true, false, false, false, true, ExternAddress);
@@ -27,6 +39,12 @@ TYPEDEF_DISTINCT_NUMERIC_GENERAL(u64, true, true, false, false, false, true, Mem
 //        fancy than just a dumb interpreter.
 class Value {
 public:
+    Value()
+        : m_value(0)
+        , m_type(ValueType::I32)
+    {
+    }
+
     using AnyValueType = Variant<i32, i64, float, double, FunctionAddress, ExternAddress>;
     explicit Value(AnyValueType value)
         : m_value(move(value))
@@ -96,6 +114,13 @@ public:
         return *this;
     }
 
+    Value& operator=(const Value& value)
+    {
+        m_value = value.m_value;
+        m_type = value.m_type;
+        return *this;
+    }
+
     template<typename T>
     Optional<T> to()
     {
@@ -103,6 +128,8 @@ public:
         m_value.visit(
             [&](auto value) {
                 if constexpr (IsSame<T, decltype(value)>)
+                    result = value;
+                else if constexpr (!IsFloatingPoint<T> && IsSame<decltype(value), MakeSigned<T>>)
                     result = value;
             },
             [&](const FunctionAddress& address) {
@@ -220,25 +247,25 @@ public:
     auto& code() const { return m_code; }
 
 private:
-    const FunctionType& m_type;
+    FunctionType m_type;
     const ModuleInstance& m_module;
     const Module::Function& m_code;
 };
 
 class HostFunction {
 public:
-    explicit HostFunction(FlatPtr ptr, const FunctionType& type)
-        : m_ptr(ptr)
+    explicit HostFunction(AK::Function<Result(Configuration&, Vector<Value>&)> function, const FunctionType& type)
+        : m_function(move(function))
         , m_type(type)
     {
     }
 
-    auto ptr() const { return m_ptr; }
+    auto& function() { return m_function; }
     auto& type() const { return m_type; }
 
 private:
-    FlatPtr m_ptr { 0 };
-    const FunctionType& m_type;
+    AK::Function<Result(Configuration&, Vector<Value>&)> m_function;
+    FunctionType m_type;
 };
 
 using FunctionInstance = Variant<WasmFunction, HostFunction>;
@@ -289,7 +316,7 @@ public:
     explicit MemoryInstance(const MemoryType& type)
         : m_type(type)
     {
-        grow(m_type.limits().min());
+        grow(m_type.limits().min() * Constants::page_size);
     }
 
     auto& type() const { return m_type; }
@@ -305,7 +332,7 @@ public:
         if (m_type.limits().max().value_or(new_size) < new_size)
             return false;
         auto previous_size = m_size;
-        m_data.grow(new_size);
+        m_data.resize(new_size);
         m_size = new_size;
         // The spec requires that we zero out everything on grow
         __builtin_memset(m_data.offset_pointer(previous_size), 0, size_to_grow);
@@ -344,7 +371,7 @@ public:
     Store() = default;
 
     Optional<FunctionAddress> allocate(ModuleInstance& module, const Module::Function& function);
-    Optional<FunctionAddress> allocate(const HostFunction&);
+    Optional<FunctionAddress> allocate(HostFunction&&);
     Optional<TableAddress> allocate(const TableType&);
     Optional<MemoryAddress> allocate(const MemoryType&);
     Optional<GlobalAddress> allocate(const GlobalType&, Value);
@@ -374,12 +401,10 @@ public:
 
 private:
     size_t m_arity { 0 };
-    InstructionPointer m_continuation;
+    InstructionPointer m_continuation { 0 };
 };
 
 class Frame {
-    AK_MAKE_NONCOPYABLE(Frame);
-
 public:
     explicit Frame(const ModuleInstance& module, Vector<Value> locals, const Expression& expression, size_t arity)
         : m_module(module)
@@ -404,20 +429,24 @@ private:
 
 class Stack {
 public:
-    using EntryType = Variant<NonnullOwnPtr<Value>, NonnullOwnPtr<Label>, NonnullOwnPtr<Frame>>;
+    using EntryType = Variant<Value, Label, Frame>;
     Stack() = default;
 
-    [[nodiscard]] bool is_empty() const { return m_data.is_empty(); }
-    void push(EntryType entry) { m_data.append(move(entry)); }
-    auto pop() { return m_data.take_last(); }
-    auto& peek() const { return m_data.last(); }
+    [[nodiscard]] ALWAYS_INLINE bool is_empty() const { return m_data.is_empty(); }
+    FLATTEN void push(EntryType entry) { m_data.append(move(entry)); }
+    FLATTEN auto pop() { return m_data.take_last(); }
+    FLATTEN auto& peek() const { return m_data.last(); }
+    FLATTEN auto& peek() { return m_data.last(); }
 
-    auto size() const { return m_data.size(); }
-    auto& entries() const { return m_data; }
+    ALWAYS_INLINE auto size() const { return m_data.size(); }
+    ALWAYS_INLINE auto& entries() const { return m_data; }
+    ALWAYS_INLINE auto& entries() { return m_data; }
 
 private:
-    Vector<EntryType> m_data;
+    Vector<EntryType, 1024> m_data;
 };
+
+using InstantiationResult = AK::Result<NonnullOwnPtr<ModuleInstance>, InstantiationError>;
 
 class AbstractMachine {
 public:
@@ -426,16 +455,58 @@ public:
     // Load and instantiate a module, and link it into this interpreter.
     InstantiationResult instantiate(const Module&, Vector<ExternValue>);
     Result invoke(FunctionAddress, Vector<Value>);
+    Result invoke(Interpreter&, FunctionAddress, Vector<Value>);
 
-    auto& module_instance() const { return m_module_instance; }
-    auto& module_instance() { return m_module_instance; }
     auto& store() const { return m_store; }
     auto& store() { return m_store; }
 
 private:
-    InstantiationResult allocate_all(const Module&, Vector<ExternValue>&, Vector<Value>& global_values);
-    ModuleInstance m_module_instance;
+    Optional<InstantiationError> allocate_all(const Module&, ModuleInstance&, Vector<ExternValue>&, Vector<Value>& global_values);
     Store m_store;
 };
 
+class Linker {
+public:
+    struct Name {
+        String module;
+        String name;
+        ImportSection::Import::ImportDesc type;
+    };
+
+    explicit Linker(const Module& module)
+        : m_module(module)
+    {
+    }
+
+    // Link a module, the import 'module name' is ignored with this.
+    void link(const ModuleInstance&);
+
+    // Link a bunch of qualified values, also matches 'module name'.
+    void link(const HashMap<Name, ExternValue>&);
+
+    auto& unresolved_imports()
+    {
+        populate();
+        return m_unresolved_imports;
+    }
+
+    AK::Result<Vector<ExternValue>, LinkError> finish();
+
+private:
+    void populate();
+
+    const Module& m_module;
+    HashMap<Name, ExternValue> m_resolved_imports;
+    HashTable<Name> m_unresolved_imports;
+    Vector<Name> m_ordered_imports;
+    Optional<LinkError> m_error;
+};
+
 }
+
+template<>
+struct AK::Traits<Wasm::Linker::Name> : public AK::GenericTraits<Wasm::Linker::Name> {
+    static constexpr bool is_trivial() { return false; }
+    static unsigned hash(const Wasm::Linker::Name& entry) { return pair_int_hash(entry.module.hash(), entry.name.hash()); }
+    static bool equals(const Wasm::Linker::Name& a, const Wasm::Linker::Name& b) { return a.name == b.name && a.module == b.module; }
+};

@@ -955,10 +955,10 @@ class Module {
 public:
     class Function {
     public:
-        explicit Function(TypeIndex type, Vector<ValueType> local_types, const Expression& body)
+        explicit Function(TypeIndex type, Vector<ValueType> local_types, Expression body)
             : m_type(type)
             , m_local_types(move(local_types))
-            , m_body(body)
+            , m_body(move(body))
         {
         }
 
@@ -969,7 +969,7 @@ public:
     private:
         TypeIndex m_type;
         Vector<ValueType> m_local_types;
-        const Expression& m_body;
+        Expression m_body;
     };
 
     using AnySection = Variant<
@@ -998,6 +998,16 @@ public:
 
     auto& sections() const { return m_sections; }
     auto& functions() const { return m_functions; }
+    auto& type(TypeIndex index) const
+    {
+        const FunctionType* type = nullptr;
+        for_each_section_of_type<TypeSection>([&](const TypeSection& section) {
+            type = &section.types().at(index.value());
+        });
+
+        VERIFY(type != nullptr);
+        return *type;
+    }
 
     template<typename T, typename Callback>
     void for_each_section_of_type(Callback&& callback) const

@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
+#include "Interpreter.h"
 #include <LibWasm/AbstractMachine/AbstractMachine.h>
 #include <LibWasm/AbstractMachine/Configuration.h>
 #include <LibWasm/Types.h>
@@ -21,10 +22,10 @@ Optional<FunctionAddress> Store::allocate(ModuleInstance& module, const Module::
     return address;
 }
 
-Optional<FunctionAddress> Store::allocate(const HostFunction& function)
+Optional<FunctionAddress> Store::allocate(HostFunction&& function)
 {
     FunctionAddress address { m_functions.size() };
-    m_functions.empend(HostFunction { function });
+    m_functions.empend(HostFunction { move(function) });
     return address;
 }
 
@@ -85,10 +86,12 @@ GlobalInstance* Store::get(GlobalAddress address)
 
 InstantiationResult AbstractMachine::instantiate(const Module& module, Vector<ExternValue> externs)
 {
+    auto main_module_instance_pointer = make<ModuleInstance>();
+    auto& main_module_instance = *main_module_instance_pointer;
     Optional<InstantiationResult> instantiation_result;
 
     module.for_each_section_of_type<TypeSection>([&](const TypeSection& section) {
-        m_module_instance.types() = section.types();
+        main_module_instance.types() = section.types();
     });
 
     // FIXME: Validate stuff
@@ -103,16 +106,18 @@ InstantiationResult AbstractMachine::instantiate(const Module& module, Vector<Ex
             auxiliary_instance.globals().append(*ptr);
     }
 
+    BytecodeInterpreter interpreter;
+
     module.for_each_section_of_type<GlobalSection>([&](auto& global_section) {
         for (auto& entry : global_section.entries()) {
-            auto frame = make<Frame>(
+            Configuration config { m_store };
+            config.set_frame(Frame {
                 auxiliary_instance,
                 Vector<Value> {},
                 entry.expression(),
-                1);
-            Configuration config { m_store };
-            config.set_frame(move(frame));
-            auto result = config.execute();
+                1,
+            });
+            auto result = config.execute(interpreter);
             // What if this traps?
             if (result.is_trap())
                 instantiation_result = InstantiationError { "Global value construction trapped" };
@@ -121,8 +126,8 @@ InstantiationResult AbstractMachine::instantiate(const Module& module, Vector<Ex
         }
     });
 
-    if (auto result = allocate_all(module, externs, global_values); result.is_error()) {
-        return result.error();
+    if (auto result = allocate_all(module, main_module_instance, externs, global_values); result.has_value()) {
+        return result.release_value();
     }
 
     module.for_each_section_of_type<ElementSection>([&](const ElementSection&) {
@@ -135,14 +140,14 @@ InstantiationResult AbstractMachine::instantiate(const Module& module, Vector<Ex
         for (auto& segment : data_section.data()) {
             segment.value().visit(
                 [&](const DataSection::Data::Active& data) {
-                    auto frame = make<Frame>(
-                        m_module_instance,
+                    Configuration config { m_store };
+                    config.set_frame(Frame {
+                        main_module_instance,
                         Vector<Value> {},
                         data.offset,
-                        1);
-                    Configuration config { m_store };
-                    config.set_frame(move(frame));
-                    auto result = config.execute();
+                        1,
+                    });
+                    auto result = config.execute(interpreter);
                     size_t offset = 0;
                     result.values().first().value().visit(
                         [&](const auto& value) { offset = value; },
@@ -150,17 +155,18 @@ InstantiationResult AbstractMachine::instantiate(const Module& module, Vector<Ex
                         [&](const ExternAddress&) { instantiation_result = InstantiationError { "Data segment offset returned an address" }; });
                     if (instantiation_result.has_value() && instantiation_result->is_error())
                         return;
-                    if (m_module_instance.memories().size() <= data.index.value()) {
-                        instantiation_result = InstantiationError { String::formatted("Data segment referenced out-of-bounds memory ({}) of max {} entries", data.index.value(), m_module_instance.memories().size()) };
+                    if (main_module_instance.memories().size() <= data.index.value()) {
+                        instantiation_result = InstantiationError { String::formatted("Data segment referenced out-of-bounds memory ({}) of max {} entries", data.index.value(), main_module_instance.memories().size()) };
                         return;
                     }
-                    auto address = m_module_instance.memories()[data.index.value()];
+                    auto address = main_module_instance.memories()[data.index.value()];
                     if (auto instance = m_store.get(address)) {
                         if (instance->type().limits().max().value_or(data.init.size() + offset + 1) <= data.init.size() + offset) {
                             instantiation_result = InstantiationError { String::formatted("Data segment attempted to write to out-of-bounds memory ({}) of max {} bytes", data.init.size() + offset, instance->type().limits().max().value()) };
                             return;
                         }
-                        instance->grow(data.init.size() + offset - instance->size());
+                        if (instance->size() < data.init.size() + offset)
+                            instance->grow(data.init.size() + offset - instance->size());
                         instance->data().overwrite(offset, data.init.data(), data.init.size());
                     }
                 },
@@ -171,7 +177,7 @@ InstantiationResult AbstractMachine::instantiate(const Module& module, Vector<Ex
     });
 
     module.for_each_section_of_type<StartSection>([&](const StartSection& section) {
-        auto& functions = m_module_instance.functions();
+        auto& functions = main_module_instance.functions();
         auto index = section.function().index();
         if (functions.size() <= index.value()) {
             instantiation_result = InstantiationError { String::formatted("Start section function referenced invalid index {} of max {} entries", index.value(), functions.size()) };
@@ -180,34 +186,37 @@ InstantiationResult AbstractMachine::instantiate(const Module& module, Vector<Ex
         invoke(functions[index.value()], {});
     });
 
-    return instantiation_result.value_or({});
+    if (instantiation_result.has_value())
+        return instantiation_result.release_value();
+
+    return InstantiationResult { move(main_module_instance_pointer) };
 }
 
-InstantiationResult AbstractMachine::allocate_all(const Module& module, Vector<ExternValue>& externs, Vector<Value>& global_values)
+Optional<InstantiationError> AbstractMachine::allocate_all(const Module& module, ModuleInstance& module_instance, Vector<ExternValue>& externs, Vector<Value>& global_values)
 {
-    Optional<InstantiationResult> result;
+    Optional<InstantiationError> result;
 
     for (auto& entry : externs) {
         entry.visit(
-            [&](const FunctionAddress& address) { m_module_instance.functions().append(address); },
-            [&](const TableAddress& address) { m_module_instance.tables().append(address); },
-            [&](const MemoryAddress& address) { m_module_instance.memories().append(address); },
-            [&](const GlobalAddress& address) { m_module_instance.globals().append(address); });
+            [&](const FunctionAddress& address) { module_instance.functions().append(address); },
+            [&](const TableAddress& address) { module_instance.tables().append(address); },
+            [&](const MemoryAddress& address) { module_instance.memories().append(address); },
+            [&](const GlobalAddress& address) { module_instance.globals().append(address); });
     }
 
     // FIXME: What if this fails?
 
     for (auto& func : module.functions()) {
-        auto address = m_store.allocate(m_module_instance, func);
+        auto address = m_store.allocate(module_instance, func);
         VERIFY(address.has_value());
-        m_module_instance.functions().append(*address);
+        module_instance.functions().append(*address);
     }
 
     module.for_each_section_of_type<TableSection>([&](const TableSection& section) {
         for (auto& table : section.tables()) {
             auto table_address = m_store.allocate(table.type());
             VERIFY(table_address.has_value());
-            m_module_instance.tables().append(*table_address);
+            module_instance.tables().append(*table_address);
         }
     });
 
@@ -215,7 +224,7 @@ InstantiationResult AbstractMachine::allocate_all(const Module& module, Vector<E
         for (auto& memory : section.memories()) {
             auto memory_address = m_store.allocate(memory.type());
             VERIFY(memory_address.has_value());
-            m_module_instance.memories().append(*memory_address);
+            module_instance.memories().append(*memory_address);
         }
     });
 
@@ -224,7 +233,7 @@ InstantiationResult AbstractMachine::allocate_all(const Module& module, Vector<E
         for (auto& entry : section.entries()) {
             auto address = m_store.allocate(entry.type(), global_values[index]);
             VERIFY(address.has_value());
-            m_module_instance.globals().append(*address);
+            module_instance.globals().append(*address);
             index++;
         }
     });
@@ -234,28 +243,28 @@ InstantiationResult AbstractMachine::allocate_all(const Module& module, Vector<E
             Variant<FunctionAddress, TableAddress, MemoryAddress, GlobalAddress, Empty> address { Empty {} };
             entry.description().visit(
                 [&](const FunctionIndex& index) {
-                    if (m_module_instance.functions().size() > index.value())
-                        address = FunctionAddress { m_module_instance.functions()[index.value()] };
+                    if (module_instance.functions().size() > index.value())
+                        address = FunctionAddress { module_instance.functions()[index.value()] };
                     else
-                        dbgln("Failed to export '{}', the exported address ({}) was out of bounds (min: 0, max: {})", entry.name(), index.value(), m_module_instance.functions().size());
+                        dbgln("Failed to export '{}', the exported address ({}) was out of bounds (min: 0, max: {})", entry.name(), index.value(), module_instance.functions().size());
                 },
                 [&](const TableIndex& index) {
-                    if (m_module_instance.tables().size() > index.value())
-                        address = TableAddress { m_module_instance.tables()[index.value()] };
+                    if (module_instance.tables().size() > index.value())
+                        address = TableAddress { module_instance.tables()[index.value()] };
                     else
-                        dbgln("Failed to export '{}', the exported address ({}) was out of bounds (min: 0, max: {})", entry.name(), index.value(), m_module_instance.tables().size());
+                        dbgln("Failed to export '{}', the exported address ({}) was out of bounds (min: 0, max: {})", entry.name(), index.value(), module_instance.tables().size());
                 },
                 [&](const MemoryIndex& index) {
-                    if (m_module_instance.memories().size() > index.value())
-                        address = MemoryAddress { m_module_instance.memories()[index.value()] };
+                    if (module_instance.memories().size() > index.value())
+                        address = MemoryAddress { module_instance.memories()[index.value()] };
                     else
-                        dbgln("Failed to export '{}', the exported address ({}) was out of bounds (min: 0, max: {})", entry.name(), index.value(), m_module_instance.memories().size());
+                        dbgln("Failed to export '{}', the exported address ({}) was out of bounds (min: 0, max: {})", entry.name(), index.value(), module_instance.memories().size());
                 },
                 [&](const GlobalIndex& index) {
-                    if (m_module_instance.globals().size() > index.value())
-                        address = GlobalAddress { m_module_instance.globals()[index.value()] };
+                    if (module_instance.globals().size() > index.value())
+                        address = GlobalAddress { module_instance.globals()[index.value()] };
                     else
-                        dbgln("Failed to export '{}', the exported address ({}) was out of bounds (min: 0, max: {})", entry.name(), index.value(), m_module_instance.globals().size());
+                        dbgln("Failed to export '{}', the exported address ({}) was out of bounds (min: 0, max: {})", entry.name(), index.value(), module_instance.globals().size());
                 });
 
             if (address.has<Empty>()) {
@@ -263,19 +272,108 @@ InstantiationResult AbstractMachine::allocate_all(const Module& module, Vector<E
                 continue;
             }
 
-            m_module_instance.exports().append(ExportInstance {
+            module_instance.exports().append(ExportInstance {
                 entry.name(),
                 move(address).downcast<FunctionAddress, TableAddress, MemoryAddress, GlobalAddress>(),
             });
         }
     });
 
-    return result.value_or({});
+    return result;
 }
 
 Result AbstractMachine::invoke(FunctionAddress address, Vector<Value> arguments)
 {
-    return Configuration { m_store }.call(address, move(arguments));
+    BytecodeInterpreter interpreter;
+    return invoke(interpreter, address, move(arguments));
+}
+
+Result AbstractMachine::invoke(Interpreter& interpreter, FunctionAddress address, Vector<Value> arguments)
+{
+    Configuration configuration { m_store };
+    return configuration.call(interpreter, address, move(arguments));
+}
+
+void Linker::link(const ModuleInstance& instance)
+{
+    populate();
+    if (m_unresolved_imports.is_empty())
+        return;
+
+    HashTable<Name> resolved_imports;
+    for (auto& import_ : m_unresolved_imports) {
+        auto it = instance.exports().find_if([&](auto& export_) { return export_.name() == import_.name; });
+        if (!it.is_end()) {
+            resolved_imports.set(import_);
+            m_resolved_imports.set(import_, it->value());
+        }
+    }
+
+    for (auto& entry : resolved_imports)
+        m_unresolved_imports.remove(entry);
+}
+
+void Linker::link(const HashMap<Linker::Name, ExternValue>& exports)
+{
+    populate();
+    if (m_unresolved_imports.is_empty())
+        return;
+
+    HashTable<Name> resolved_imports;
+    for (auto& import_ : m_unresolved_imports) {
+        auto export_ = exports.get(import_);
+        if (export_.has_value()) {
+            resolved_imports.set(import_);
+            m_resolved_imports.set(import_, export_.value());
+        }
+    }
+
+    for (auto& entry : resolved_imports)
+        m_unresolved_imports.remove(entry);
+}
+
+AK::Result<Vector<ExternValue>, LinkError> Linker::finish()
+{
+    populate();
+    if (!m_unresolved_imports.is_empty()) {
+        if (!m_error.has_value())
+            m_error = LinkError {};
+        for (auto& entry : m_unresolved_imports)
+            m_error->missing_imports.append(entry.name);
+        return *m_error;
+    }
+
+    if (m_error.has_value())
+        return *m_error;
+
+    // Result must be in the same order as the module imports
+    Vector<ExternValue> exports;
+    exports.ensure_capacity(m_ordered_imports.size());
+    for (auto& import_ : m_ordered_imports)
+        exports.unchecked_append(*m_resolved_imports.get(import_));
+    return exports;
+}
+
+void Linker::populate()
+{
+    if (!m_ordered_imports.is_empty())
+        return;
+
+    // There better be at most one import section!
+    bool already_seen_an_import_section = false;
+    m_module.for_each_section_of_type<ImportSection>([&](const ImportSection& section) {
+        if (already_seen_an_import_section) {
+            if (!m_error.has_value())
+                m_error = LinkError {};
+            m_error->other_errors.append(LinkError::InvalidImportedModule);
+            return;
+        }
+        already_seen_an_import_section = true;
+        for (auto& import_ : section.imports()) {
+            m_ordered_imports.append({ import_.module(), import_.name(), import_.description() });
+            m_unresolved_imports.set(m_ordered_imports.last());
+        }
+    });
 }
 
 }

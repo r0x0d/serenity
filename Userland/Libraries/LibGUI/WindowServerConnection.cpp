@@ -21,6 +21,7 @@
 #include <LibGUI/Window.h>
 #include <LibGUI/WindowServerConnection.h>
 #include <LibGfx/Bitmap.h>
+#include <LibGfx/FontDatabase.h>
 #include <LibGfx/Palette.h>
 #include <LibGfx/SystemTheme.h>
 
@@ -40,11 +41,21 @@ static void set_system_theme_from_anonymous_buffer(Core::AnonymousBuffer buffer)
     Application::the()->set_system_palette(buffer);
 }
 
-void WindowServerConnection::handshake()
+WindowServerConnection::WindowServerConnection()
+    : IPC::ServerConnection<WindowClientEndpoint, WindowServerEndpoint>(*this, "/tmp/portal/window")
 {
-    auto response = greet();
-    set_system_theme_from_anonymous_buffer(response.theme_buffer());
-    Desktop::the().did_receive_screen_rect({}, response.screen_rect());
+    // NOTE: WindowServer automatically sends a "fast_greet" message to us when we connect.
+    //       All we have to do is wait for it to arrive. This avoids a round-trip during application startup.
+    auto message = wait_for_specific_message<Messages::WindowClient::FastGreet>();
+    set_system_theme_from_anonymous_buffer(message->theme_buffer());
+    Desktop::the().did_receive_screen_rect({}, message->screen_rect());
+    Gfx::FontDatabase::set_default_font_query(message->default_font_query());
+    Gfx::FontDatabase::set_fixed_width_font_query(message->fixed_width_font_query());
+}
+
+void WindowServerConnection::fast_greet(Gfx::IntRect const&, Core::AnonymousBuffer const&, String const&, String const&)
+{
+    // NOTE: This message is handled in the constructor.
 }
 
 void WindowServerConnection::update_system_theme(Core::AnonymousBuffer const& theme_buffer)
@@ -54,6 +65,13 @@ void WindowServerConnection::update_system_theme(Core::AnonymousBuffer const& th
     Window::for_each_window({}, [](auto& window) {
         Core::EventLoop::current().post_event(window, make<ThemeChangeEvent>());
     });
+}
+
+void WindowServerConnection::update_system_fonts(const String& default_font_query, const String& fixed_width_font_query)
+{
+    Gfx::FontDatabase::set_default_font_query(default_font_query);
+    Gfx::FontDatabase::set_fixed_width_font_query(fixed_width_font_query);
+    Window::update_all_windows({});
 }
 
 void WindowServerConnection::paint(i32 window_id, Gfx::IntSize const& window_size, Vector<Gfx::IntRect> const& rects)

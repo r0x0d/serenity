@@ -12,6 +12,7 @@
 #include "ConsoleWidget.h"
 #include "DownloadWidget.h"
 #include <AK/StringBuilder.h>
+#include <AK/URL.h>
 #include <Applications/Browser/TabGML.h>
 #include <LibGUI/Action.h>
 #include <LibGUI/Application.h>
@@ -25,12 +26,13 @@
 #include <LibGUI/ToolbarContainer.h>
 #include <LibGUI/Window.h>
 #include <LibJS/Interpreter.h>
+#include <LibWeb/HTML/SyntaxHighlighter/SyntaxHighlighter.h>
 #include <LibWeb/InProcessWebView.h>
 #include <LibWeb/Layout/BlockBox.h>
 #include <LibWeb/Layout/InitialContainingBlockBox.h>
 #include <LibWeb/Loader/ResourceLoader.h>
 #include <LibWeb/OutOfProcessWebView.h>
-#include <LibWeb/Page/Frame.h>
+#include <LibWeb/Page/BrowsingContext.h>
 
 namespace Browser {
 
@@ -38,7 +40,7 @@ URL url_from_user_input(const String& input)
 {
     if (input.starts_with("?") && !g_search_engine.is_null()) {
         auto url = g_search_engine;
-        url.replace("{}", urlencode(input.substring(1)));
+        url.replace("{}", URL::percent_encode(input.substring_view(1)));
         return URL(url);
     }
 
@@ -60,7 +62,6 @@ void Tab::start_download(const URL& url)
     window->set_resizable(false);
     window->set_main_widget<DownloadWidget>(url);
     window->show();
-    [[maybe_unused]] auto& unused = window.leak_ref();
 }
 
 void Tab::view_source(const URL& url, const String& source)
@@ -69,12 +70,12 @@ void Tab::view_source(const URL& url, const String& source)
     auto& editor = window->set_main_widget<GUI::TextEditor>();
     editor.set_text(source);
     editor.set_mode(GUI::TextEditor::ReadOnly);
+    editor.set_syntax_highlighter(make<Web::HTML::SyntaxHighlighter>());
     editor.set_ruler_visible(true);
     window->resize(640, 480);
     window->set_title(url.to_string());
     window->set_icon(Gfx::Bitmap::load_from_file("/res/icons/16x16/filetype-text.png"));
     window->show();
-    [[maybe_unused]] auto& unused = window.leak_ref();
 }
 
 Tab::Tab(BrowserWindow& window, Type type)
@@ -92,8 +93,36 @@ Tab::Tab(BrowserWindow& window, Type type)
     else
         m_web_content_view = webview_container.add<Web::OutOfProcessWebView>();
 
-    toolbar.add_action(window.go_back_action());
-    toolbar.add_action(window.go_forward_action());
+    auto& go_back_button = toolbar.add_action(window.go_back_action());
+    go_back_button.on_context_menu_request = [this](auto& context_menu_event) {
+        if (!m_history.can_go_back())
+            return;
+        int i = 0;
+        m_go_back_context_menu = GUI::Menu::construct();
+        for (auto& url : m_history.get_back_title_history()) {
+            i++;
+            m_go_back_context_menu->add_action(GUI::Action::create(url.to_string(),
+                Gfx::Bitmap::load_from_file("/res/icons/16x16/filetype-html.png"),
+                [this, i](auto&) { go_back(i); }));
+        }
+        m_go_back_context_menu->popup(context_menu_event.screen_position());
+    };
+
+    auto& go_forward_button = toolbar.add_action(window.go_forward_action());
+    go_forward_button.on_context_menu_request = [this](auto& context_menu_event) {
+        if (!m_history.can_go_forward())
+            return;
+        int i = 0;
+        m_go_forward_context_menu = GUI::Menu::construct();
+        for (auto& url : m_history.get_forward_title_history()) {
+            i++;
+            m_go_forward_context_menu->add_action(GUI::Action::create(url.to_string(),
+                Gfx::Bitmap::load_from_file("/res/icons/16x16/filetype-html.png"),
+                [this, i](auto&) { go_forward(i); }));
+        }
+        m_go_forward_context_menu->popup(context_menu_event.screen_position());
+    };
+
     toolbar.add_action(window.go_home_action());
     toolbar.add_action(window.reload_action());
 
@@ -133,7 +162,7 @@ Tab::Tab(BrowserWindow& window, Type type)
 
         // don't add to history if back or forward is pressed
         if (!m_is_history_navigation)
-            m_history.push(url);
+            m_history.push(url, title());
         m_is_history_navigation = false;
 
         update_actions();
@@ -203,8 +232,10 @@ Tab::Tab(BrowserWindow& window, Type type)
 
     hooks().on_title_change = [this](auto& title) {
         if (title.is_null()) {
+            m_history.update_title(url().to_string());
             m_title = url().to_string();
         } else {
+            m_history.update_title(title);
             m_title = title;
         }
         if (on_title_change)
@@ -315,18 +346,18 @@ void Tab::reload()
     load(url());
 }
 
-void Tab::go_back()
+void Tab::go_back(int steps)
 {
-    m_history.go_back();
+    m_history.go_back(steps);
     update_actions();
-    load(m_history.current(), LoadType::HistoryNavigation);
+    load(m_history.current().url, LoadType::HistoryNavigation);
 }
 
-void Tab::go_forward()
+void Tab::go_forward(int steps)
 {
-    m_history.go_forward();
+    m_history.go_forward(steps);
     update_actions();
-    load(m_history.current(), LoadType::HistoryNavigation);
+    load(m_history.current().url, LoadType::HistoryNavigation);
 }
 
 void Tab::update_actions()

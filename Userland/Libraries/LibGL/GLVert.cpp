@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2021, Jesse Buhagiar <jooster669@gmail.com>
- * Copyright (c) 2021, Stephan Unverwerth <s.unverwerth@gmx.de>
+ * Copyright (c) 2021, Stephan Unverwerth <s.unverwerth@serenityos.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -138,6 +138,11 @@ void glVertex4s(GLshort x, GLshort y, GLshort z, GLshort w)
 void glVertex4sv(const GLshort* v)
 {
     g_gl_context->gl_vertex(v[0], v[1], v[2], v[3]);
+}
+
+void glTexCoord2f(GLfloat s, GLfloat t)
+{
+    g_gl_context->gl_tex_coord(s, t, 0.0f, 0.0f);
 }
 
 void glRotatef(GLfloat angle, GLfloat x, GLfloat y, GLfloat z)

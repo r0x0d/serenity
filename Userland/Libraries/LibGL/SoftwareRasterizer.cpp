@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021, Stephan Unverwerth <s.unverwerth@gmx.de>
+ * Copyright (c) 2021, Stephan Unverwerth <s.unverwerth@serenityos.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -421,6 +421,27 @@ void SoftwareRasterizer::submit_triangle(const GLTriangle& triangle)
     });
 }
 
+void SoftwareRasterizer::submit_triangle(const GLTriangle& triangle, const Array<TextureUnit, 32>& texture_units)
+{
+    rasterize_triangle(m_options, *m_render_target, *m_depth_buffer, triangle, [&texture_units](const FloatVector2& uv, const FloatVector4& color) -> FloatVector4 {
+        // TODO: We'd do some kind of multitexturing/blending here
+        // Construct a vector for the texel we want to sample
+        FloatVector4 texel = color;
+
+        for (const auto& texture_unit : texture_units) {
+
+            // No texture is bound to this texture unit
+            if (!texture_unit.is_bound())
+                continue;
+
+            // FIXME: Don't assume Texture2D, _and_ work out how we blend/do multitexturing properly.....
+            texel = texel * static_ptr_cast<Texture2D>(texture_unit.bound_texture())->sample_texel(uv);
+        }
+
+        return texel;
+    });
+}
+
 void SoftwareRasterizer::resize(const Gfx::IntSize& min_size)
 {
     wait_for_all_threads();
@@ -468,6 +489,24 @@ void SoftwareRasterizer::set_options(const RasterizerOptions& options)
     m_options = options;
 
     // FIXME: Recreate or reinitialize render threads here when multithreading is being implemented
+}
+
+Gfx::RGBA32 SoftwareRasterizer::get_backbuffer_pixel(int x, int y)
+{
+    // FIXME: Reading individual pixels is very slow, rewrite this to transfer whole blocks
+    if (x < 0 || y < 0 || x >= m_render_target->width() || y >= m_render_target->height())
+        return 0;
+
+    return m_render_target->scanline(y)[x];
+}
+
+float SoftwareRasterizer::get_depthbuffer_value(int x, int y)
+{
+    // FIXME: Reading individual pixels is very slow, rewrite this to transfer whole blocks
+    if (x < 0 || y < 0 || x >= m_render_target->width() || y >= m_render_target->height())
+        return 1.0f;
+
+    return m_depth_buffer->scanline(y)[x];
 }
 
 }

@@ -55,6 +55,7 @@ I'm also on [Patreon](https://www.patreon.com/serenityos) and [GitHub Sponsors](
 * C++ templates and containers (AK)
 * Event loop and utilities (LibCore)
 * 2D graphics library (LibGfx)
+* OpenGL 1.x compatible library (LibGL)
 * GUI toolkit (LibGUI)
 * Cross-process communication library (LibIPC)
 * HTML/CSS engine (LibWeb)
@@ -67,7 +68,7 @@ I'm also on [Patreon](https://www.patreon.com/serenityos) and [GitHub Sponsors](
 * Mathematical functions (LibM)
 * ELF file handling (LibELF)
 * POSIX threading (LibPthread)
-* Higher-level threading (LibThread)
+* Higher-level threading (LibThreading)
 * Transport Layer Security (LibTLS)
 * HTTP and HTTPS (LibHTTP)
 
@@ -133,6 +134,8 @@ Discord: [SerenityOS Discord](https://discord.com/invite/29gCcKsXkF)
 * **Idan Horowitz** - [IdanHo](https://github.com/IdanHo)
 * **Gunnar Beutner** - [gunnarbeutner](https://github.com/gunnarbeutner)
 * **Tim Flynn** - [trflynn89](https://github.com/trflynn89)
+* **Jean-Baptiste Boric** - [boricj](https://github.com/boricj)
+* **Stephan Unverwerth** - [sunverwerth](https://github.com/sunverwerth)
 
 (And many more!) The people listed above have landed more than 100 commits in the project. :^)
 

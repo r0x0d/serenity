@@ -1,4 +1,7 @@
 set(SOURCES
+    Tex/NameAllocator.cpp
+    Tex/Texture2D.cpp
+    Tex/TextureUnit.cpp
     Clipper.cpp
     GLBlend.cpp
     GLColor.cpp
@@ -6,6 +9,7 @@ set(SOURCES
     GLLights.cpp
     GLLists.cpp
     GLMat.cpp
+    GLTexture.cpp
     GLUtils.cpp
     GLVert.cpp
     SoftwareGLContext.cpp

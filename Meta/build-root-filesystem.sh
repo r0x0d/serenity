@@ -57,11 +57,13 @@ chown 0:$wheel_gid mnt/bin/traceroute
 chown 0:$phys_gid mnt/bin/keymap
 chown 0:$phys_gid mnt/bin/shutdown
 chown 0:$phys_gid mnt/bin/reboot
+chown 0:$wheel_gid mnt/bin/pls
 chown 0:0 mnt/boot/Kernel
 chown 0:0 mnt/res/kernel.map
 chmod 0400 mnt/res/kernel.map
 chmod 0400 mnt/boot/Kernel
 chmod 4750 mnt/bin/su
+chmod 4750 mnt/bin/pls
 chmod 4755 mnt/bin/passwd
 chmod 4755 mnt/bin/ping
 chmod 4755 mnt/bin/traceroute
@@ -104,13 +106,15 @@ mkdir -p mnt/home/anon
 mkdir -p mnt/home/anon/Desktop
 mkdir -p mnt/home/anon/Downloads
 mkdir -p mnt/home/nona
-rm -fr mnt/home/anon/js-tests mnt/home/anon/web-tests mnt/home/anon/cpp-tests
+rm -fr mnt/home/anon/js-tests mnt/home/anon/web-tests mnt/home/anon/cpp-tests mnt/home/anon/wasm-tests
 mkdir -p mnt/home/anon/cpp-tests/
 cp "$SERENITY_SOURCE_DIR"/README.md mnt/home/anon/
 cp -r "$SERENITY_SOURCE_DIR"/Userland/Libraries/LibJS/Tests mnt/home/anon/js-tests
 cp -r "$SERENITY_SOURCE_DIR"/Userland/Libraries/LibWeb/Tests mnt/home/anon/web-tests
 cp -r "$SERENITY_SOURCE_DIR"/Userland/DevTools/HackStudio/LanguageServers/Cpp/Tests mnt/home/anon/cpp-tests/comprehension
 cp -r "$SERENITY_SOURCE_DIR"/Userland/Libraries/LibCpp/Tests mnt/home/anon/cpp-tests/parser
+cp -r "$SERENITY_SOURCE_DIR"/Userland/Libraries/LibWasm/Tests mnt/home/anon/wasm-tests
+cp -r "$SERENITY_SOURCE_DIR"/Userland/Libraries/LibJS/Tests/test-common.js mnt/home/anon/wasm-tests
 chmod 700 mnt/root
 chmod 700 mnt/home/anon
 chmod 700 mnt/home/nona
@@ -119,11 +123,12 @@ chown -R 100:100 mnt/home/anon
 chown -R 200:200 mnt/home/nona
 echo "done"
 
-printf "adding some desktop icons..."
+printf "adding some desktop icons... "
 ln -sf /bin/Browser mnt/home/anon/Desktop/
 ln -sf /bin/TextEditor mnt/home/anon/Desktop/Text\ Editor
 ln -sf /bin/Help mnt/home/anon/Desktop/
 ln -sf /home/anon mnt/home/anon/Desktop/Home
+chown -R 100:100 mnt/home/anon/Desktop
 echo "done"
 
 printf "installing shortcuts... "

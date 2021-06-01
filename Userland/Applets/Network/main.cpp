@@ -109,7 +109,7 @@ private:
 
         auto file = Core::File::construct("/proc/net/adapters");
         if (!file->open(Core::OpenMode::ReadOnly)) {
-            fprintf(stderr, "Error: %s\n", file->error_string());
+            dbgln("Error: Could not open {}: {}", file->name(), file->error_string());
             return adapter_info.to_string();
         }
 
@@ -126,7 +126,7 @@ private:
             auto ifname = if_object.get("name").to_string();
 
             if (!include_loopback)
-                if (ifname == "loop0")
+                if (ifname == "loop")
                     return;
             if (ip_address != "null")
                 connected_adapters++;

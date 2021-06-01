@@ -5,39 +5,19 @@
  */
 
 #include <AK/LexicalPath.h>
+#include <AK/URL.h>
 #include <LibCore/ArgsParser.h>
 #include <LibCore/DirIterator.h>
 #include <LibCore/EventLoop.h>
-#include <LibCore/File.h>
-#include <LibSymbolClient/Client.h>
+#include <LibSymbolication/Symbolication.h>
+#include <unistd.h>
 
 int main(int argc, char** argv)
 {
-    if (pledge("stdio rpath unix fattr", nullptr) < 0) {
+    if (pledge("stdio rpath", nullptr) < 0) {
         perror("pledge");
         return 1;
     }
-
-    if (unveil("/proc", "r") < 0) {
-        perror("unveil");
-        return 1;
-    }
-
-    if (unveil("/tmp/portal/symbol", "rw") < 0) {
-        perror("unveil");
-        return 1;
-    }
-
-    if (unveil("/usr/src", "b") < 0) {
-        perror("unveil");
-        return 1;
-    }
-
-    if (unveil(nullptr, nullptr) < 0) {
-        perror("unveil");
-        return 1;
-    }
-
     char hostname[256];
     if (gethostname(hostname, sizeof(hostname)) < 0) {
         perror("gethostname");
@@ -58,10 +38,14 @@ int main(int argc, char** argv)
 
     while (iterator.has_next()) {
         pid_t tid = iterator.next_path().to_int().value();
-        outln("tid: {}", tid);
-        auto symbols = SymbolClient::symbolicate_thread(pid, tid);
+        outln("thread: {}", tid);
+        outln("frames:");
+        auto symbols = Symbolication::symbolicate_thread(pid, tid);
+        auto frame_number = symbols.size() - 1;
         for (auto& symbol : symbols) {
-            out("{:p}  ", symbol.address);
+            // Make kernel stack frames stand out.
+            int color = symbol.address < 0xc0000000 ? 35 : 31;
+            out("{:3}: \033[{};1m{:p}\033[0m | ", frame_number, color, symbol.address);
             if (!symbol.name.is_empty())
                 out("{} ", symbol.name);
             if (!symbol.filename.is_empty()) {
@@ -74,7 +58,9 @@ int main(int argc, char** argv)
                 auto full_path = LexicalPath::canonicalized_path(String::formatted("/usr/src/serenity/dummy/dummy/{}", symbol.filename));
                 if (access(full_path.characters(), F_OK) == 0) {
                     linked = true;
-                    out("\033]8;;file://{}{}?line_number={}\033\\", hostname, full_path, symbol.line_number);
+                    auto url = URL::create_with_file_scheme(full_path, {}, hostname);
+                    url.set_query(String::formatted("line_number={}", symbol.line_number));
+                    out("\033]8;;{}\033\\", url.serialize());
                 }
 
                 out("\033[34;1m{}:{}\033[0m", LexicalPath(symbol.filename).basename(), symbol.line_number);
@@ -85,6 +71,7 @@ int main(int argc, char** argv)
                 out(")");
             }
             outln("");
+            frame_number--;
         }
         outln("");
     }

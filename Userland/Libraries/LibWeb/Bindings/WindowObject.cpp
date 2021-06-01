@@ -26,7 +26,8 @@
 #include <LibWeb/DOM/Event.h>
 #include <LibWeb/DOM/Window.h>
 #include <LibWeb/Origin.h>
-#include <LibWeb/Page/Frame.h>
+#include <LibWeb/Page/BrowsingContext.h>
+#include <LibWeb/WebAssembly/WebAssemblyObject.h>
 
 #include <LibWeb/Bindings/WindowObjectHelper.h>
 
@@ -71,6 +72,9 @@ void WindowObject::initialize_global_object()
 
     define_property("navigator", heap().allocate<NavigatorObject>(*this, *this), JS::Attribute::Enumerable | JS::Attribute::Configurable);
     define_property("location", heap().allocate<LocationObject>(*this, *this), JS::Attribute::Enumerable | JS::Attribute::Configurable);
+
+    // WebAssembly "namespace"
+    define_property("WebAssembly", heap().allocate<WebAssemblyObject>(*this, *this), JS::Attribute::Enumerable | JS::Attribute::Configurable);
 
     ADD_WINDOW_OBJECT_INTERFACES;
 }
@@ -335,31 +339,39 @@ JS_DEFINE_NATIVE_FUNCTION(WindowObject::btoa)
     return JS::js_string(vm, move(encoded));
 }
 
+// https://html.spec.whatwg.org/multipage/browsers.html#dom-top
 JS_DEFINE_NATIVE_GETTER(WindowObject::top_getter)
 {
     auto* impl = impl_from(vm, global_object);
     if (!impl)
         return {};
-    auto* this_frame = impl->document().frame();
-    VERIFY(this_frame);
-    VERIFY(this_frame->main_frame().document());
-    auto& top_window = this_frame->main_frame().document()->window();
+
+    auto* this_browsing_context = impl->document().browsing_context();
+    if (!this_browsing_context)
+        return JS::js_null();
+
+    VERIFY(this_browsing_context->top_level_browsing_context().document());
+    auto& top_window = this_browsing_context->top_level_browsing_context().document()->window();
     return top_window.wrapper();
 }
 
+// https://html.spec.whatwg.org/multipage/browsers.html#dom-parent
 JS_DEFINE_NATIVE_GETTER(WindowObject::parent_getter)
 {
     auto* impl = impl_from(vm, global_object);
     if (!impl)
         return {};
-    auto* this_frame = impl->document().frame();
-    VERIFY(this_frame);
-    if (this_frame->parent()) {
-        VERIFY(this_frame->parent()->document());
-        auto& parent_window = this_frame->parent()->document()->window();
+
+    auto* this_browsing_context = impl->document().browsing_context();
+    if (!this_browsing_context)
+        return JS::js_null();
+
+    if (this_browsing_context->parent()) {
+        VERIFY(this_browsing_context->parent()->document());
+        auto& parent_window = this_browsing_context->parent()->document()->window();
         return parent_window.wrapper();
     }
-    VERIFY(this_frame == &this_frame->main_frame());
+    VERIFY(this_browsing_context == &this_browsing_context->top_level_browsing_context());
     return impl->wrapper();
 }
 

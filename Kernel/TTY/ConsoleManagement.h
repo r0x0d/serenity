@@ -20,11 +20,15 @@ class ConsoleManagement {
 public:
     ConsoleManagement();
 
+    static constexpr unsigned s_max_virtual_consoles = 6;
+
     static bool is_initialized();
     static ConsoleManagement& the();
 
     void switch_to(unsigned);
     void initialize();
+
+    void resolution_was_changed();
 
     void switch_to_debug() { switch_to(1); }
 

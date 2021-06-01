@@ -174,6 +174,10 @@
 #cmakedefine01 HEAP_DEBUG
 #endif
 
+#ifndef HEARTS_DEBUG
+#cmakedefine01 HEARTS_DEBUG
+#endif
+
 #ifndef HEX_DEBUG
 #cmakedefine01 HEX_DEBUG
 #endif
@@ -350,6 +354,10 @@
 #cmakedefine01 SH_LANGUAGE_SERVER_DEBUG
 #endif
 
+#ifndef SHELL_JOB_DEBUG
+#cmakedefine01 SHELL_JOB_DEBUG
+#endif
+
 #ifndef SOLITAIRE_DEBUG
 #cmakedefine01 SOLITAIRE_DEBUG
 #endif
@@ -406,12 +414,20 @@
 #cmakedefine01 UPDATE_COALESCING_DEBUG
 #endif
 
+#ifndef URL_PARSER_DEBUG
+#cmakedefine01 URL_PARSER_DEBUG
+#endif
+
 #ifndef WASM_BINPARSER_DEBUG
 #cmakedefine01 WASM_BINPARSER_DEBUG
 #endif
 
 #ifndef WASM_TRACE_DEBUG
 #cmakedefine01 WASM_TRACE_DEBUG
+#endif
+
+#ifndef WEBSERVER_DEBUG
+#cmakedefine01 WEBSERVER_DEBUG
 #endif
 
 #ifndef WINDOWMANAGER_DEBUG

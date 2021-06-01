@@ -17,7 +17,7 @@ namespace Debug {
 
 DebugInfo::DebugInfo(NonnullOwnPtr<const ELF::Image> elf, String source_root, FlatPtr base_address)
     : m_elf(move(elf))
-    , m_source_root(source_root)
+    , m_source_root(move(source_root))
     , m_base_address(base_address)
     , m_dwarf_info(*m_elf)
 {
@@ -78,7 +78,7 @@ void DebugInfo::parse_scopes_impl(const Dwarf::DIE& die)
 
 void DebugInfo::prepare_lines()
 {
-    auto section = elf().lookup_section(".debug_line");
+    auto section = elf().lookup_section(".debug_line"sv);
     if (!section.has_value())
         return;
 
@@ -90,21 +90,32 @@ void DebugInfo::prepare_lines()
         all_lines.append(program.lines());
     }
 
-    String serenity_slash("serenity/");
+    HashMap<FlyString, Optional<String>> memoized_full_paths;
+    auto compute_full_path = [&](FlyString const& file_path) -> Optional<String> {
+        if (file_path.view().contains("Toolchain/"sv) || file_path.view().contains("libgcc"sv))
+            return {};
+        if (file_path.view().starts_with("./"sv) && !m_source_root.is_null())
+            return LexicalPath::join(m_source_root, file_path).string();
+        if (auto index_of_serenity_slash = file_path.view().find("serenity/"sv); index_of_serenity_slash.has_value()) {
+            auto start_index = index_of_serenity_slash.value() + "serenity/"sv.length();
+            return file_path.view().substring_view(start_index, file_path.length() - start_index);
+        }
+        return file_path;
+    };
 
-    for (auto& line_info : all_lines) {
-        String file_path = line_info.file;
-        if (file_path.contains("Toolchain/") || file_path.contains("libgcc"))
+    m_sorted_lines.ensure_capacity(all_lines.size());
+
+    for (auto const& line_info : all_lines) {
+        auto it = memoized_full_paths.find(line_info.file);
+        if (it == memoized_full_paths.end()) {
+            memoized_full_paths.set(line_info.file, compute_full_path(line_info.file));
+            it = memoized_full_paths.find(line_info.file);
+        }
+        if (!it->value.has_value())
             continue;
-        if (file_path.contains(serenity_slash)) {
-            auto start_index = file_path.index_of(serenity_slash).value() + serenity_slash.length();
-            file_path = file_path.substring(start_index, file_path.length() - start_index);
-        }
-        if (file_path.starts_with("./") && !m_source_root.is_null()) {
-            file_path = LexicalPath::canonicalized_path(String::formatted("{}/{}", m_source_root, file_path));
-        }
-        m_sorted_lines.append({ line_info.address, file_path, line_info.line });
+        m_sorted_lines.unchecked_append({ line_info.address, it->value.value(), line_info.line });
     }
+
     quick_sort(m_sorted_lines, [](auto& a, auto& b) {
         return a.address < b.address;
     });

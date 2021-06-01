@@ -131,7 +131,7 @@ TerminalWidget::TerminalWidget(int ptm_fd, bool automatic_size_policy, RefPtr<Co
     });
     m_paste_action->set_swallow_key_event_when_disabled(true);
 
-    m_clear_including_history_action = GUI::Action::create("&Clear Including History", { Mod_Ctrl | Mod_Shift, Key_K }, [this](auto&) {
+    m_clear_including_history_action = GUI::Action::create("Clear Including &History", { Mod_Ctrl | Mod_Shift, Key_K }, [this](auto&) {
         clear_including_history();
     });
 
@@ -326,6 +326,7 @@ void TerminalWidget::paint_event(GUI::PaintEvent& event)
 
         for (size_t column = 0; column < line.length(); ++column) {
             bool should_reverse_fill_for_cursor_or_selection = m_cursor_blink_state
+                && (m_cursor_style == VT::CursorStyle::SteadyBlock || m_cursor_style == VT::CursorStyle::BlinkingBlock)
                 && m_has_logical_focus
                 && visual_row == row_with_cursor
                 && column == m_terminal.cursor_column();
@@ -380,6 +381,9 @@ void TerminalWidget::paint_event(GUI::PaintEvent& event)
         painter.draw_rect(rect.inflated(2, 2).intersected(frame_inner_rect()), palette().base_text());
     }
 
+    auto& font = this->font();
+    auto& bold_font = font.bold_variant();
+
     // Pass: Paint foreground (text).
     for (u16 visual_row = 0; visual_row < m_terminal.rows(); ++visual_row) {
         auto row_rect = this->row_rect(visual_row);
@@ -389,6 +393,7 @@ void TerminalWidget::paint_event(GUI::PaintEvent& event)
         for (size_t column = 0; column < line.length(); ++column) {
             auto attribute = line.attribute_at(column);
             bool should_reverse_fill_for_cursor_or_selection = m_cursor_blink_state
+                && (m_cursor_style == VT::CursorStyle::SteadyBlock || m_cursor_style == VT::CursorStyle::BlinkingBlock)
                 && m_has_logical_focus
                 && visual_row == row_with_cursor
                 && column == m_terminal.cursor_column();
@@ -408,17 +413,37 @@ void TerminalWidget::paint_event(GUI::PaintEvent& event)
             painter.draw_glyph_or_emoji(
                 character_rect.location(),
                 code_point,
-                attribute.flags & VT::Attribute::Bold ? bold_font() : font(),
+                attribute.flags & VT::Attribute::Bold ? bold_font : font,
                 text_color);
         }
     }
 
     // Draw cursor.
-    if (!m_has_logical_focus && row_with_cursor < m_terminal.rows()) {
+    if (m_cursor_blink_state && row_with_cursor < m_terminal.rows()) {
         auto& cursor_line = m_terminal.line(first_row_from_history + row_with_cursor);
-        if (m_terminal.cursor_row() < (m_terminal.rows() - rows_from_history)) {
-            auto cell_rect = glyph_rect(row_with_cursor, m_terminal.cursor_column()).inflated(0, m_line_spacing);
-            painter.draw_rect(cell_rect, color_from_rgb(cursor_line.attribute_at(m_terminal.cursor_column()).effective_foreground_color()));
+        if (m_terminal.cursor_row() >= (m_terminal.rows() - rows_from_history))
+            return;
+
+        if (m_has_logical_focus && (m_cursor_style == VT::CursorStyle::BlinkingBlock || m_cursor_style == VT::CursorStyle::SteadyBlock))
+            return; // This has already been handled by inverting the cell colors
+
+        auto cursor_color = color_from_rgb(cursor_line.attribute_at(m_terminal.cursor_column()).effective_foreground_color());
+        auto cell_rect = glyph_rect(row_with_cursor, m_terminal.cursor_column()).inflated(0, m_line_spacing);
+        if (m_cursor_style == VT::CursorStyle::BlinkingUnderline || m_cursor_style == VT::CursorStyle::SteadyUnderline) {
+            auto x1 = cell_rect.bottom_left().x();
+            auto x2 = cell_rect.bottom_right().x();
+            auto y = cell_rect.bottom_left().y();
+            for (auto x = x1; x <= x2; ++x)
+                painter.set_pixel({ x, y }, cursor_color);
+        } else if (m_cursor_style == VT::CursorStyle::BlinkingBar || m_cursor_style == VT::CursorStyle::SteadyBar) {
+            auto x = cell_rect.bottom_left().x();
+            auto y1 = cell_rect.top_left().y();
+            auto y2 = cell_rect.bottom_left().y();
+            for (auto y = y1; y <= y2; ++y)
+                painter.set_pixel({ x, y }, cursor_color);
+        } else {
+            // We fall back to a block if we don't support the selected cursor type.
+            painter.draw_rect(cell_rect, cursor_color);
         }
     }
 }
@@ -723,17 +748,14 @@ void TerminalWidget::paste()
 {
     if (m_ptm_fd == -1)
         return;
+
     auto mime_type = GUI::Clipboard::the().mime_type();
     if (!mime_type.starts_with("text/"))
         return;
     auto text = GUI::Clipboard::the().data();
     if (text.is_empty())
         return;
-    int nwritten = write(m_ptm_fd, text.data(), text.size());
-    if (nwritten < 0) {
-        perror("write");
-        VERIFY_NOT_REACHED();
-    }
+    send_non_user_input(text);
 }
 
 void TerminalWidget::copy()
@@ -983,6 +1005,32 @@ void TerminalWidget::emit(const u8* data, size_t size)
     }
 }
 
+void TerminalWidget::set_cursor_style(CursorStyle style)
+{
+    switch (style) {
+    case None:
+        m_cursor_blink_timer->stop();
+        m_cursor_blink_state = false;
+        break;
+    case SteadyBlock:
+    case SteadyUnderline:
+    case SteadyBar:
+        m_cursor_blink_timer->stop();
+        m_cursor_blink_state = true;
+        break;
+    case BlinkingBlock:
+    case BlinkingUnderline:
+    case BlinkingBar:
+        m_cursor_blink_state = true;
+        m_cursor_blink_timer->restart();
+        break;
+    default:
+        dbgln("Cursor style not implemented");
+    }
+    m_cursor_style = style;
+    invalidate_cursor();
+}
+
 void TerminalWidget::context_menu_event(GUI::ContextMenuEvent& event)
 {
     if (m_hovered_href_id.is_null()) {
@@ -1040,20 +1088,21 @@ void TerminalWidget::drop_event(GUI::DropEvent& event)
     if (event.mime_data().has_text()) {
         event.accept();
         auto text = event.mime_data().text();
-        write(m_ptm_fd, text.characters(), text.length());
+        send_non_user_input(text.bytes());
     } else if (event.mime_data().has_urls()) {
         event.accept();
         auto urls = event.mime_data().urls();
         bool first = true;
         for (auto& url : event.mime_data().urls()) {
-            if (!first) {
-                write(m_ptm_fd, " ", 1);
-                first = false;
-            }
+            if (!first)
+                send_non_user_input(" "sv.bytes());
+
             if (url.protocol() == "file")
-                write(m_ptm_fd, url.path().characters(), url.path().length());
+                send_non_user_input(url.path().bytes());
             else
-                write(m_ptm_fd, url.to_string().characters(), url.to_string().length());
+                send_non_user_input(url.to_string().bytes());
+
+            first = false;
         }
     }
 }
@@ -1062,15 +1111,6 @@ void TerminalWidget::did_change_font()
 {
     GUI::Frame::did_change_font();
     m_line_height = font().glyph_height() + m_line_spacing;
-
-    // TODO: try to find a bold version of the new font (e.g. CsillaThin7x10 -> CsillaBold7x10)
-    const Gfx::Font& bold_font = Gfx::FontDatabase::default_bold_fixed_width_font();
-
-    if (bold_font.glyph_height() == font().glyph_height() && bold_font.glyph_width(' ') == font().glyph_width(' '))
-        m_bold_font = &bold_font;
-    else
-        m_bold_font = font();
-
     if (!size().is_empty())
         relayout(size());
 }
@@ -1112,6 +1152,35 @@ void TerminalWidget::set_font_and_resize_to_fit(const Gfx::Font& font)
 {
     set_font(font);
     resize(widget_size_for_font(font));
+}
+
+// Used for sending data that was not directly typed by the user.
+// This basically wraps the code that handles sending the escape sequence in bracketed paste mode.
+void TerminalWidget::send_non_user_input(const ReadonlyBytes& bytes)
+{
+    constexpr StringView leading_control_sequence = "\e[200~";
+    constexpr StringView trailing_control_sequence = "\e[201~";
+
+    int nwritten;
+    if (m_terminal.needs_bracketed_paste()) {
+        // We do not call write() separately for the control sequences and the data,
+        // because that would present a race condition where another process could inject data
+        // to prematurely terminate the escape. Could probably be solved by file locking.
+        Vector<u8> output;
+        output.ensure_capacity(leading_control_sequence.bytes().size() + bytes.size() + trailing_control_sequence.bytes().size());
+
+        // HACK: We don't have a `Vector<T>::unchecked_append(Span<T> const&)` yet :^(
+        output.append(leading_control_sequence.bytes().data(), leading_control_sequence.bytes().size());
+        output.append(bytes.data(), bytes.size());
+        output.append(trailing_control_sequence.bytes().data(), trailing_control_sequence.bytes().size());
+        nwritten = write(m_ptm_fd, output.data(), output.size());
+    } else {
+        nwritten = write(m_ptm_fd, bytes.data(), bytes.size());
+    }
+    if (nwritten < 0) {
+        perror("write");
+        VERIFY_NOT_REACHED();
+    }
 }
 
 }

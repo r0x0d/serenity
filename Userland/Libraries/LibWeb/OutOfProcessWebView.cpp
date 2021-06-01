@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2020-2021, Andreas Kling <kling@serenityos.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -7,7 +7,6 @@
 #include "OutOfProcessWebView.h"
 #include "WebContentClient.h"
 #include <AK/String.h>
-#include <AK/URLParser.h>
 #include <LibGUI/Application.h>
 #include <LibGUI/Desktop.h>
 #include <LibGUI/InputBox.h>
@@ -15,6 +14,7 @@
 #include <LibGUI/Painter.h>
 #include <LibGUI/Scrollbar.h>
 #include <LibGUI/Window.h>
+#include <LibGfx/FontDatabase.h>
 #include <LibGfx/Palette.h>
 #include <LibGfx/SystemTheme.h>
 
@@ -52,7 +52,8 @@ void OutOfProcessWebView::handle_web_content_process_crash()
         builder.appendff(" on {}", escape_html_entities(m_url.host()));
     }
     builder.append("</h1>");
-    builder.appendff("The web page <a href=\"{}\">{}</a> has crashed.<br><br>You can reload the page to try again.", escape_html_entities(m_url.to_string_encoded()), escape_html_entities(m_url.to_string()));
+    auto escaped_url = escape_html_entities(m_url.to_string());
+    builder.appendff("The web page <a href=\"{}\">{}</a> has crashed.<br><br>You can reload the page to try again.", escaped_url, escaped_url);
     builder.append("</body></html>");
     load_html(builder.to_string(), m_url);
 }
@@ -69,6 +70,7 @@ void OutOfProcessWebView::create_client()
     };
 
     client().async_update_system_theme(Gfx::current_system_theme_buffer());
+    client().async_update_system_fonts(Gfx::FontDatabase::default_font_query(), Gfx::FontDatabase::fixed_width_font_query());
     client().async_update_screen_rect(GUI::Desktop::the().rect());
 }
 

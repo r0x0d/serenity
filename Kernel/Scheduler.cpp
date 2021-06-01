@@ -4,7 +4,6 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
-#include <AK/QuickSort.h>
 #include <AK/ScopeGuard.h>
 #include <AK/TemporaryChange.h>
 #include <AK/Time.h>
@@ -342,6 +341,10 @@ bool Scheduler::donate_to(RefPtr<Thread>& beneficiary, const char* reason)
 
 bool Scheduler::context_switch(Thread* thread)
 {
+    if (s_mm_lock.own_lock()) {
+        PANIC("In context switch while holding s_mm_lock");
+    }
+
     thread->did_schedule();
 
     auto from_thread = Thread::current();
@@ -440,11 +443,6 @@ void Scheduler::prepare_for_idle_loop()
     auto& scheduler_data = Processor::current().get_scheduler_data();
     VERIFY(!scheduler_data.m_in_scheduler);
     scheduler_data.m_in_scheduler = true;
-}
-
-bool Scheduler::colonel_initialized()
-{
-    return !!s_colonel_process;
 }
 
 Process* Scheduler::colonel()

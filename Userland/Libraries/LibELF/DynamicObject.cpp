@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2020, Andrew Kaster <andrewdkaster@gmail.com>
+ * Copyright (c) 2019-2020, Andrew Kaster <akaster@serenityos.org>
  * Copyright (c) 2020, Itamar S. <itamar8910@gmail.com>
  *
  * SPDX-License-Identifier: BSD-2-Clause
@@ -454,13 +454,15 @@ VirtualAddress DynamicObject::patch_plt_entry(u32 relocation_offset)
     auto symbol = relocation.symbol();
     u8* relocation_address = relocation.address().as_ptr();
 
+    VirtualAddress symbol_location;
     auto result = DynamicLoader::lookup_symbol(symbol);
-    if (!result.has_value()) {
+    if (result.has_value()) {
+        symbol_location = result.value().address;
+    } else if (symbol.bind() != STB_WEAK) {
         dbgln("did not find symbol while doing relocations for library {}: {}", m_filename, symbol.name());
         VERIFY_NOT_REACHED();
     }
 
-    auto symbol_location = result.value().address;
     dbgln_if(DYNAMIC_LOAD_DEBUG, "DynamicLoader: Jump slot relocation: putting {} ({}) into PLT at {}", symbol.name(), symbol_location, (void*)relocation_address);
 
     *(FlatPtr*)relocation_address = symbol_location.get();

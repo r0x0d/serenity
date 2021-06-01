@@ -1,4 +1,9 @@
-add_compile_options(-Os)
+if (ENABLE_EXTRA_KERNEL_DEBUG_SYMBOLS)
+    add_compile_options(-Og)
+    add_compile_options(-ggdb3)
+else()
+    add_compile_options(-Os)
+endif()
 
 if ("${SERENITY_ARCH}" STREQUAL "i686")
     set(KERNEL_ARCH i386)
@@ -54,12 +59,10 @@ set(KERNEL_SOURCES
     Graphics/Console/FramebufferConsole.cpp
     Graphics/Console/TextModeConsole.cpp
     Graphics/Console/VGAConsole.cpp
-    Graphics/BochsFramebufferDevice.cpp
     Graphics/BochsGraphicsAdapter.cpp
     Graphics/FramebufferDevice.cpp
     Graphics/GraphicsManagement.cpp
     Graphics/IntelNativeGraphicsAdapter.cpp
-    Graphics/RawFramebufferDevice.cpp
     Graphics/VGACompatibleAdapter.cpp
     Storage/Partition/DiskPartition.cpp
     Storage/Partition/DiskPartitionMetadata.cpp
@@ -109,6 +112,7 @@ set(KERNEL_SOURCES
     Interrupts/SpuriousInterruptHandler.cpp
     Interrupts/UnhandledInterruptHandler.cpp
     KBufferBuilder.cpp
+    KString.cpp
     KSyms.cpp
     Lock.cpp
     Net/E1000NetworkAdapter.cpp
@@ -273,6 +277,7 @@ set(AK_SOURCES
     ../AK/JsonParser.cpp
     ../AK/JsonValue.cpp
     ../AK/LexicalPath.cpp
+    ../AK/RefCounted.cpp
     ../AK/String.cpp
     ../AK/StringBuilder.cpp
     ../AK/StringImpl.cpp
@@ -293,7 +298,6 @@ generate_state_machine(../Userland/Libraries/LibVT/StateMachine.txt ../Userland/
 set(VT_SOURCES
     ../Userland/Libraries/LibVT/Terminal.cpp
     ../Userland/Libraries/LibVT/Line.cpp
-    ../Userland/Libraries/LibVT/EscapeSequenceStateMachine.h
     ../Userland/Libraries/LibVT/EscapeSequenceParser.cpp
 )
 
@@ -376,6 +380,8 @@ else()
 endif()
 
 add_executable(Kernel ${SOURCES})
+add_dependencies(Kernel generate_EscapeSequenceStateMachine.h)
+
 if (ENABLE_KERNEL_LTO)
     include(CheckIPOSupported)
     check_ipo_supported()

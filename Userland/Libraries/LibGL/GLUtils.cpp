@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2021, Jesse Buhagiar <jooster669@gmail.com>
- * Copyright (c) 2021, Stephan Unverwerth <s.unverwerth@gmx.de>
+ * Copyright (c) 2021, Stephan Unverwerth <s.unverwerth@serenityos.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -62,10 +62,25 @@ GLenum glGetError()
 
 void glFlush()
 {
-    return g_gl_context->gl_flush();
+    g_gl_context->gl_flush();
 }
 
 void glFinish()
 {
-    return g_gl_context->gl_finish();
+    g_gl_context->gl_finish();
+}
+
+void glHint(GLenum target, GLenum mode)
+{
+    g_gl_context->gl_hint(target, mode);
+}
+
+void glReadBuffer(GLenum mode)
+{
+    g_gl_context->gl_read_buffer(mode);
+}
+
+void glReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type, GLvoid* pixels)
+{
+    g_gl_context->gl_read_pixels(x, y, width, height, format, type, pixels);
 }

@@ -103,7 +103,7 @@ int main(int argc, char** argv)
         sched_setparam(0, &param);
     }
 
-    if (pledge("stdio proc recvfd sendfd rpath exec unix", nullptr) < 0) {
+    if (pledge("stdio thread proc recvfd sendfd rpath exec unix", nullptr) < 0) {
         perror("pledge");
         return 1;
     }
@@ -130,12 +130,12 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    if (unveil("/tmp/portal/symbol", "rw") < 0) {
+    if (unveil("/bin", "r") < 0) {
         perror("unveil");
         return 1;
     }
 
-    if (unveil("/bin", "r") < 0) {
+    if (unveil("/usr/lib", "r") < 0) {
         perror("unveil");
         return 1;
     }
@@ -243,7 +243,7 @@ int main(int argc, char** argv)
     };
 
     auto kill_action = GUI::Action::create(
-        "Kill process", { Mod_Ctrl, Key_K }, Gfx::Bitmap::load_from_file("/res/icons/16x16/kill.png"), [&](const GUI::Action&) {
+        "&Kill Process", { Mod_Ctrl, Key_K }, Gfx::Bitmap::load_from_file("/res/icons/16x16/kill.png"), [&](const GUI::Action&) {
             pid_t pid = selected_id(ProcessModel::Column::PID);
             if (pid != -1)
                 kill(pid, SIGKILL);
@@ -251,7 +251,7 @@ int main(int argc, char** argv)
         &process_table_view);
 
     auto stop_action = GUI::Action::create(
-        "Stop process", { Mod_Ctrl, Key_S }, Gfx::Bitmap::load_from_file("/res/icons/16x16/stop-hand.png"), [&](const GUI::Action&) {
+        "&Stop Process", { Mod_Ctrl, Key_S }, Gfx::Bitmap::load_from_file("/res/icons/16x16/stop-hand.png"), [&](const GUI::Action&) {
             pid_t pid = selected_id(ProcessModel::Column::PID);
             if (pid != -1)
                 kill(pid, SIGSTOP);
@@ -259,7 +259,7 @@ int main(int argc, char** argv)
         &process_table_view);
 
     auto continue_action = GUI::Action::create(
-        "Continue process", { Mod_Ctrl, Key_C }, Gfx::Bitmap::load_from_file("/res/icons/16x16/continue.png"), [&](const GUI::Action&) {
+        "&Continue Process", { Mod_Ctrl, Key_C }, Gfx::Bitmap::load_from_file("/res/icons/16x16/continue.png"), [&](const GUI::Action&) {
             pid_t pid = selected_id(ProcessModel::Column::PID);
             if (pid != -1)
                 kill(pid, SIGCONT);
@@ -267,7 +267,7 @@ int main(int argc, char** argv)
         &process_table_view);
 
     auto profile_action = GUI::Action::create(
-        "Profile process", { Mod_Ctrl, Key_P },
+        "&Profile Process", { Mod_Ctrl, Key_P },
         Gfx::Bitmap::load_from_file("/res/icons/16x16/app-profiler.png"), [&](auto&) {
             pid_t pid = selected_id(ProcessModel::Column::PID);
             if (pid != -1) {
@@ -275,24 +275,6 @@ int main(int argc, char** argv)
                 pid_t child;
                 const char* argv[] = { "/bin/Profiler", "--pid", pid_string.characters(), nullptr };
                 if ((errno = posix_spawn(&child, "/bin/Profiler", nullptr, nullptr, const_cast<char**>(argv), environ))) {
-                    perror("posix_spawn");
-                } else {
-                    if (disown(child) < 0)
-                        perror("disown");
-                }
-            }
-        },
-        &process_table_view);
-
-    auto inspect_action = GUI::Action::create(
-        "Inspect process", { Mod_Ctrl, Key_I },
-        Gfx::Bitmap::load_from_file("/res/icons/16x16/app-inspector.png"), [&](auto&) {
-            pid_t pid = selected_id(ProcessModel::Column::PID);
-            if (pid != -1) {
-                auto pid_string = String::number(pid);
-                pid_t child;
-                const char* argv[] = { "/bin/Inspector", pid_string.characters(), nullptr };
-                if ((errno = posix_spawn(&child, "/bin/Inspector", nullptr, nullptr, const_cast<char**>(argv), environ))) {
                     perror("posix_spawn");
                 } else {
                     if (disown(child) < 0)
@@ -339,7 +321,6 @@ int main(int argc, char** argv)
     process_context_menu->add_action(continue_action);
     process_context_menu->add_separator();
     process_context_menu->add_action(profile_action);
-    process_context_menu->add_action(inspect_action);
     process_context_menu->add_separator();
     process_context_menu->add_action(process_properties_action);
     process_table_view.on_context_menu_request = [&]([[maybe_unused]] const GUI::ModelIndex& index, const GUI::ContextMenuEvent& event) {
@@ -371,7 +352,18 @@ int main(int argc, char** argv)
     window->set_menubar(move(menubar));
 
     process_table_view.on_activation = [&](auto&) {
-        process_properties_action->activate();
+        if (process_properties_action->is_enabled())
+            process_properties_action->activate();
+    };
+
+    process_table_view.on_selection_change = [&] {
+        pid_t pid = selected_id(ProcessModel::Column::PID);
+        bool has_access = can_access_pid(pid);
+        kill_action->set_enabled(has_access);
+        stop_action->set_enabled(has_access);
+        continue_action->set_enabled(has_access);
+        profile_action->set_enabled(has_access);
+        process_properties_action->set_enabled(has_access);
     };
 
     app->on_action_enter = [](GUI::Action const& action) {
@@ -456,7 +448,7 @@ NonnullRefPtr<GUI::Window> build_process_window(pid_t pid)
     }
 
     auto& process_name_label = hero_container.add<GUI::Label>();
-    process_name_label.set_font(Gfx::FontDatabase::default_bold_font());
+    process_name_label.set_font(Gfx::FontDatabase::default_font().bold_variant());
     process_name_label.set_text_alignment(Gfx::TextAlignment::CenterLeft);
     process_name_label.set_text(String::formatted("{} (PID {})",
         process_index.sibling_at_column(ProcessModel::Column::Name).data().to_string(),
@@ -506,42 +498,42 @@ NonnullRefPtr<GUI::Widget> build_file_systems_tab()
             [](const JsonObject& object) {
                 StringBuilder size_builder;
                 size_builder.append(" ");
-                size_builder.append(human_readable_size(object.get("total_block_count").to_u32() * object.get("block_size").to_u32()));
+                size_builder.append(human_readable_size(object.get("total_block_count").to_u64() * object.get("block_size").to_u64()));
                 size_builder.append(" ");
                 return size_builder.to_string();
             },
             [](const JsonObject& object) {
-                return object.get("total_block_count").to_u32() * object.get("block_size").to_u32();
+                return object.get("total_block_count").to_u64() * object.get("block_size").to_u64();
             },
             [](const JsonObject& object) {
-                auto total_blocks = object.get("total_block_count").to_u32();
+                auto total_blocks = object.get("total_block_count").to_u64();
                 if (total_blocks == 0)
                     return 0;
-                auto free_blocks = object.get("free_block_count").to_u32();
+                auto free_blocks = object.get("free_block_count").to_u64();
                 auto used_blocks = total_blocks - free_blocks;
-                int percentage = (int)((float)used_blocks / (float)total_blocks * 100.0f);
+                int percentage = (static_cast<double>(used_blocks) / static_cast<double>(total_blocks) * 100.0);
                 return percentage;
             });
         df_fields.empend(
             "Used", Gfx::TextAlignment::CenterRight,
             [](const JsonObject& object) {
-            auto total_blocks = object.get("total_block_count").to_u32();
-            auto free_blocks = object.get("free_block_count").to_u32();
+            auto total_blocks = object.get("total_block_count").to_u64();
+            auto free_blocks = object.get("free_block_count").to_u64();
             auto used_blocks = total_blocks - free_blocks;
-            return human_readable_size(used_blocks * object.get("block_size").to_u32()); },
+            return human_readable_size(used_blocks * object.get("block_size").to_u64()); },
             [](const JsonObject& object) {
-                auto total_blocks = object.get("total_block_count").to_u32();
-                auto free_blocks = object.get("free_block_count").to_u32();
+                auto total_blocks = object.get("total_block_count").to_u64();
+                auto free_blocks = object.get("free_block_count").to_u64();
                 auto used_blocks = total_blocks - free_blocks;
-                return used_blocks * object.get("block_size").to_u32();
+                return used_blocks * object.get("block_size").to_u64();
             });
         df_fields.empend(
             "Available", Gfx::TextAlignment::CenterRight,
             [](const JsonObject& object) {
-                return human_readable_size(object.get("free_block_count").to_u32() * object.get("block_size").to_u32());
+                return human_readable_size(object.get("free_block_count").to_u64() * object.get("block_size").to_u64());
             },
             [](const JsonObject& object) {
-                return object.get("free_block_count").to_u32() * object.get("block_size").to_u32();
+                return object.get("free_block_count").to_u64() * object.get("block_size").to_u64();
             });
         df_fields.empend("Access", Gfx::TextAlignment::CenterLeft, [](const JsonObject& object) {
             bool readonly = object.get("readonly").to_bool();

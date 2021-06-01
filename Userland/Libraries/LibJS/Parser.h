@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020, Stephan Unverwerth <s.unverwerth@gmx.de>
+ * Copyright (c) 2020, Stephan Unverwerth <s.unverwerth@serenityos.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -40,7 +40,8 @@ public:
 
     template<typename FunctionNodeType>
     NonnullRefPtr<FunctionNodeType> parse_function_node(u8 parse_options = FunctionNodeParseOptions::CheckForFunctionAndName);
-    Vector<FunctionNode::Parameter> parse_function_parameters(int& function_length, u8 parse_options = 0);
+    Vector<FunctionNode::Parameter> parse_formal_parameters(int& function_length, u8 parse_options = 0);
+    RefPtr<BindingPattern> parse_binding_pattern();
 
     NonnullRefPtr<Declaration> parse_declaration();
     NonnullRefPtr<Statement> parse_statement();

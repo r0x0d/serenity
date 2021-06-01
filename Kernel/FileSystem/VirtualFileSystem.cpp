@@ -131,11 +131,10 @@ bool VFS::mount_root(FS& file_system)
 
     m_mounts.append(move(mount));
 
-    auto root_custody = Custody::create(nullptr, "", *m_root_inode, root_mount_flags);
-    if (root_custody.is_error())
+    auto custody_or_error = Custody::try_create(nullptr, "", *m_root_inode, root_mount_flags);
+    if (custody_or_error.is_error())
         return false;
-    m_root_custody = root_custody.release_value();
-
+    m_root_custody = custody_or_error.release_value();
     return true;
 }
 
@@ -383,10 +382,10 @@ KResultOr<NonnullRefPtr<FileDescription>> VFS::create(StringView path, int optio
     if (inode_or_error.is_error())
         return inode_or_error.error();
 
-    auto new_custody = Custody::create(&parent_custody, p.basename(), inode_or_error.value(), parent_custody.mount_flags());
-    if (new_custody.is_error())
-        return new_custody.error();
-    auto description = FileDescription::create(*new_custody.release_value());
+    auto new_custody_or_error = Custody::try_create(&parent_custody, p.basename(), inode_or_error.value(), parent_custody.mount_flags());
+    if (new_custody_or_error.is_error())
+        return new_custody_or_error.error();
+    auto description = FileDescription::create(*new_custody_or_error.release_value());
     if (!description.is_error()) {
         description.value()->set_rw_mode(options);
         description.value()->set_file_flags(options);
@@ -852,7 +851,7 @@ KResult VFS::validate_path_against_process_veil(StringView path, int options)
         return EINVAL;
 
     auto* unveiled_path = find_matching_unveiled_path(path);
-    if (!unveiled_path) {
+    if (!unveiled_path || unveiled_path->permissions() == UnveilAccess::None) {
         dbgln("Rejecting path '{}' since it hasn't been unveiled.", path);
         dump_backtrace();
         return ENOENT;
@@ -941,13 +940,19 @@ KResultOr<NonnullRefPtr<Custody>> VFS::resolve_path_without_veil(StringView path
     if (path.is_empty())
         return EINVAL;
 
-    auto parts = path.split_view('/', true);
+    GenericLexer path_lexer(path);
     auto current_process = Process::current();
     auto& current_root = current_process->root_directory();
 
     NonnullRefPtr<Custody> custody = path[0] == '/' ? current_root : base;
+    bool extra_iteration = path[path.length() - 1] == '/';
 
-    for (size_t i = 0; i < parts.size(); ++i) {
+    while (!path_lexer.is_eof() || extra_iteration) {
+        if (path_lexer.is_eof())
+            extra_iteration = false;
+        auto part = path_lexer.consume_until('/');
+        path_lexer.consume_specific('/');
+
         Custody& parent = custody;
         auto parent_metadata = parent.inode().metadata();
         if (!parent_metadata.is_directory())
@@ -956,8 +961,7 @@ KResultOr<NonnullRefPtr<Custody>> VFS::resolve_path_without_veil(StringView path
         if (!parent_metadata.may_execute(*current_process))
             return EACCES;
 
-        auto& part = parts[i];
-        bool have_more_parts = i + 1 < parts.size();
+        bool have_more_parts = !path_lexer.is_eof() || extra_iteration;
 
         if (part == "..") {
             // If we encounter a "..", take a step back, but don't go beyond the root.
@@ -989,11 +993,11 @@ KResultOr<NonnullRefPtr<Custody>> VFS::resolve_path_without_veil(StringView path
             mount_flags_for_child = mount->flags();
         }
 
-        auto new_custody = Custody::create(&parent, part, *child_inode, mount_flags_for_child);
-        if (new_custody.is_error())
-            return new_custody.error();
+        auto new_custody_or_error = Custody::try_create(&parent, part, *child_inode, mount_flags_for_child);
+        if (new_custody_or_error.is_error())
+            return new_custody_or_error.error();
 
-        custody = new_custody.release_value();
+        custody = new_custody_or_error.release_value();
 
         if (child_inode->metadata().is_symlink()) {
             if (!have_more_parts) {

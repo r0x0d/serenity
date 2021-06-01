@@ -40,6 +40,8 @@ public:
 
     inline static void add_thread_created_event(Thread& thread)
     {
+        if (thread.is_profiling_suppressed())
+            return;
         if (auto* event_buffer = thread.process().current_perf_events_buffer()) {
             [[maybe_unused]] auto rc = event_buffer->append(PERF_EVENT_THREAD_CREATE, thread.tid().value(), 0, nullptr, &thread);
         }
@@ -47,6 +49,8 @@ public:
 
     inline static void add_thread_exit_event(Thread& thread)
     {
+        // As an exception this doesn't check whether profiling is suppressed for
+        // the thread so we can record the thread_exit event anyway.
         if (auto* event_buffer = thread.process().current_perf_events_buffer()) {
             [[maybe_unused]] auto rc = event_buffer->append(PERF_EVENT_THREAD_EXIT, thread.tid().value(), 0, nullptr, &thread);
         }
@@ -54,18 +58,10 @@ public:
 
     inline static void add_cpu_sample_event(Thread& current_thread, const RegisterState& regs, u32 lost_time)
     {
-        PerformanceEventBuffer* perf_events = nullptr;
-
-        if (g_profiling_all_threads) {
-            VERIFY(g_global_perf_events);
-            perf_events = g_global_perf_events;
-        } else if (current_thread.process().is_profiling()) {
-            VERIFY(current_thread.process().perf_events());
-            perf_events = current_thread.process().perf_events();
-        }
-
-        if (perf_events) {
-            [[maybe_unused]] auto rc = perf_events->append_with_eip_and_ebp(
+        if (current_thread.is_profiling_suppressed())
+            return;
+        if (auto* event_buffer = current_thread.process().current_perf_events_buffer()) {
+            [[maybe_unused]] auto rc = event_buffer->append_with_eip_and_ebp(
                 current_thread.pid(), current_thread.tid(),
                 regs.eip, regs.ebp, PERF_EVENT_SAMPLE, lost_time, 0, 0, nullptr);
         }
@@ -87,27 +83,35 @@ public:
 
     inline static void add_context_switch_perf_event(Thread& current_thread, Thread& next_thread)
     {
+        if (current_thread.is_profiling_suppressed())
+            return;
         if (auto* event_buffer = current_thread.process().current_perf_events_buffer()) {
             [[maybe_unused]] auto res = event_buffer->append(PERF_EVENT_CONTEXT_SWITCH, next_thread.pid().value(), next_thread.tid().value(), nullptr);
         }
     }
 
-    inline static void add_kmalloc_perf_event(Process& current_process, size_t size, FlatPtr ptr)
+    inline static void add_kmalloc_perf_event(Thread& current_thread, size_t size, FlatPtr ptr)
     {
-        if (auto* event_buffer = current_process.current_perf_events_buffer()) {
+        if (current_thread.is_profiling_suppressed())
+            return;
+        if (auto* event_buffer = current_thread.process().current_perf_events_buffer()) {
             [[maybe_unused]] auto res = event_buffer->append(PERF_EVENT_KMALLOC, size, ptr, nullptr);
         }
     }
 
-    inline static void add_kfree_perf_event(Process& current_process, size_t size, FlatPtr ptr)
+    inline static void add_kfree_perf_event(Thread& current_thread, size_t size, FlatPtr ptr)
     {
-        if (auto* event_buffer = current_process.current_perf_events_buffer()) {
+        if (current_thread.is_profiling_suppressed())
+            return;
+        if (auto* event_buffer = current_thread.process().current_perf_events_buffer()) {
             [[maybe_unused]] auto res = event_buffer->append(PERF_EVENT_KFREE, size, ptr, nullptr);
         }
     }
 
     inline static void add_page_fault_event(Thread& thread, const RegisterState& regs)
     {
+        if (thread.is_profiling_suppressed())
+            return;
         if (auto* event_buffer = thread.process().current_perf_events_buffer()) {
             [[maybe_unused]] auto rc = event_buffer->append_with_eip_and_ebp(
                 thread.pid(), thread.tid(),

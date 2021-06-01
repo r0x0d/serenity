@@ -358,7 +358,7 @@ void BrowserWindow::build_menus()
     }));
     debug_menu.add_separator();
     auto line_box_borders_action = GUI::Action::create_checkable(
-        "&Line Box Borders", [this](auto& action) {
+        "Line &Box Borders", [this](auto& action) {
             auto& tab = active_tab();
             if (tab.m_type == Tab::Type::InProcessWebView) {
                 tab.m_page_view->set_should_show_line_box_borders(action.is_checked());
@@ -392,7 +392,7 @@ void BrowserWindow::build_menus()
     }));
 
     m_user_agent_spoof_actions.set_exclusive(true);
-    auto& spoof_user_agent_menu = debug_menu.add_submenu("Spoof User Agent");
+    auto& spoof_user_agent_menu = debug_menu.add_submenu("Spoof &User Agent");
     m_disable_user_agent_spoofing = GUI::Action::create_checkable("Disabled", [this](auto&) {
         auto& tab = active_tab();
         if (tab.m_type == Tab::Type::InProcessWebView) {
@@ -477,7 +477,7 @@ void BrowserWindow::create_new_tab(URL url, bool activate)
     VERIFY(default_favicon);
     m_tab_widget->set_tab_icon(new_tab, default_favicon);
 
-    new_tab.on_title_change = [this, &new_tab](auto title) {
+    new_tab.on_title_change = [this, &new_tab](auto& title) {
         m_tab_widget->set_tab_title(new_tab, title);
         if (m_tab_widget->active_widget() == &new_tab)
             set_window_title_for_tab(new_tab);

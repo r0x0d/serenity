@@ -7,6 +7,7 @@
 #pragma once
 
 #include <AK/FlyString.h>
+#include <AK/String.h>
 #include <AK/Vector.h>
 
 namespace Web::CSS {
@@ -38,6 +39,10 @@ public:
             LastOfType,
             NthChild,
             NthLastChild,
+            Disabled,
+            Enabled,
+            Checked,
+            Not,
         };
         PseudoClass pseudo_class { PseudoClass::None };
 
@@ -72,6 +77,7 @@ public:
         // FIXME: We don't need this field on every single SimpleSelector, but it's also annoying to malloc it somewhere.
         // Only used when "pseudo_class" is "NthChild" or "NthLastChild".
         NthChildPattern nth_child_pattern;
+        String not_selector {};
     };
 
     struct ComplexSelector {

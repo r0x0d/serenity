@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021, Stephan Unverwerth <s.unverwerth@gmx.de>
+ * Copyright (c) 2021, Stephan Unverwerth <s.unverwerth@serenityos.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -9,6 +9,9 @@
 #include "DepthBuffer.h"
 #include "GL/gl.h"
 #include "GLStruct.h"
+#include "Tex/Texture2D.h"
+#include "Tex/TextureUnit.h"
+#include <AK/Array.h>
 #include <AK/OwnPtr.h>
 #include <LibGfx/Bitmap.h>
 #include <LibGfx/Vector4.h>
@@ -30,6 +33,7 @@ class SoftwareRasterizer final {
 public:
     SoftwareRasterizer(const Gfx::IntSize& min_size);
 
+    void submit_triangle(const GLTriangle& triangle, const Array<TextureUnit, 32>& texture_units);
     void submit_triangle(const GLTriangle& triangle);
     void resize(const Gfx::IntSize& min_size);
     void clear_color(const FloatVector4&);
@@ -38,6 +42,8 @@ public:
     void wait_for_all_threads() const;
     void set_options(const RasterizerOptions&);
     RasterizerOptions options() const { return m_options; }
+    Gfx::RGBA32 get_backbuffer_pixel(int x, int y);
+    float get_depthbuffer_value(int x, int y);
 
 private:
     RefPtr<Gfx::Bitmap> m_render_target;

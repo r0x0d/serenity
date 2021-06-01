@@ -141,11 +141,17 @@ int main(int argc, char** argv)
     tree_view.set_model(profile->model());
 
     auto& disassembly_view = bottom_splitter.add<GUI::TableView>();
+    disassembly_view.set_visible(false);
 
-    tree_view.on_selection = [&](auto& index) {
+    tree_view.on_selection_change = [&] {
+        const auto& index = tree_view.selection().first();
         profile->set_disassembly_index(index);
         disassembly_view.set_model(profile->disassembly_model());
     };
+
+    auto disassembly_action = GUI::Action::create_checkable("Show &Disassembly", { Mod_Ctrl, Key_D }, Gfx::Bitmap::load_from_file("/res/icons/16x16/x86.png"), [&](auto& action) {
+        disassembly_view.set_visible(action.is_checked());
+    });
 
     auto& samples_tab = tab_widget.add_tab<GUI::Widget>("Samples");
     samples_tab.set_layout<GUI::VerticalBoxLayout>();
@@ -156,7 +162,8 @@ int main(int argc, char** argv)
     samples_table_view.set_model(profile->samples_model());
 
     auto& individual_sample_view = samples_splitter.add<GUI::TableView>();
-    samples_table_view.on_selection = [&](const GUI::ModelIndex& index) {
+    samples_table_view.on_selection_change = [&] {
+        const auto& index = samples_table_view.selection().first();
         auto model = IndividualSampleModel::create(*profile, index.data(GUI::ModelRole::Custom).to_integer<size_t>());
         individual_sample_view.set_model(move(model));
     };
@@ -208,6 +215,8 @@ int main(int argc, char** argv)
     });
     percent_action->set_checked(false);
     view_menu.add_action(percent_action);
+
+    view_menu.add_action(disassembly_action);
 
     auto& help_menu = menubar->add_menu("&Help");
     help_menu.add_action(GUI::CommonActions::make_help_action([](auto&) {
@@ -263,15 +272,18 @@ bool generate_profile(pid_t& pid)
 
     auto all_processes = Core::ProcessStatisticsReader::get_all();
     if (all_processes.has_value()) {
-        if (auto it = all_processes.value().find(pid); it != all_processes.value().end())
-            process_name = it->value.name;
+        if (auto it = all_processes.value().find_if([&](auto& entry) { return entry.pid == pid; }); it != all_processes.value().end())
+            process_name = it->name;
         else
             process_name = "(unknown)";
     } else {
         process_name = "(unknown)";
     }
 
-    if (profiling_enable(pid, PERF_EVENT_MASK_ALL) < 0) {
+    static constexpr u64 event_mask = PERF_EVENT_SAMPLE | PERF_EVENT_MMAP | PERF_EVENT_MUNMAP | PERF_EVENT_PROCESS_CREATE
+        | PERF_EVENT_PROCESS_EXEC | PERF_EVENT_PROCESS_EXIT | PERF_EVENT_THREAD_CREATE | PERF_EVENT_THREAD_EXIT;
+
+    if (profiling_enable(pid, event_mask) < 0) {
         int saved_errno = errno;
         GUI::MessageBox::show(nullptr, String::formatted("Unable to profile process {}({}): {}", process_name, pid, strerror(saved_errno)), "Profiler", GUI::MessageBox::Type::Error);
         return false;

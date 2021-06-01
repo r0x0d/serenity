@@ -16,7 +16,7 @@
 #include <LibGUI/FileSystemModel.h>
 #include <LibGUI/Painter.h>
 #include <LibGfx/Bitmap.h>
-#include <LibThread/BackgroundAction.h>
+#include <LibThreading/BackgroundAction.h>
 #include <grp.h>
 #include <pwd.h>
 #include <stdio.h>
@@ -93,7 +93,7 @@ void FileSystemModel::Node::traverse_if_needed()
     Core::DirIterator di(full_path, m_model.should_show_dotfiles() ? Core::DirIterator::SkipParentAndBaseDir : Core::DirIterator::SkipDots);
     if (di.has_error()) {
         m_error = di.error();
-        fprintf(stderr, "DirIterator: %s\n", di.error_string());
+        warnln("DirIterator: {}", di.error_string());
         return;
     }
 
@@ -439,12 +439,8 @@ Variant FileSystemModel::data(const ModelIndex& index, ModelRole role) const
     }
 
     if (role == ModelRole::MimeData) {
-        if (index.column() == Column::Name) {
-            StringBuilder builder;
-            builder.append("file://");
-            builder.append(node.full_path());
-            return builder.to_string();
-        }
+        if (index.column() == Column::Name)
+            return URL::create_with_file_scheme(node.full_path()).serialize();
         return {};
     }
 
@@ -571,7 +567,7 @@ bool FileSystemModel::fetch_thumbnail_for(const Node& node)
 
     auto weak_this = make_weak_ptr();
 
-    LibThread::BackgroundAction<RefPtr<Gfx::Bitmap>>::create(
+    Threading::BackgroundAction<RefPtr<Gfx::Bitmap>>::create(
         [path] {
             return render_thumbnail(path);
         },

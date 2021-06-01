@@ -16,7 +16,7 @@ Please make sure to keep this list up to date when adding and updating ports. :^
 | [`chester`](chester/)                  | Chester Gameboy Emulator                                   |                          | https://github.com/veikkos/chester                                             |
 | [`cmake`](cmake/)                      | CMake                                                      | 3.19.4                   | https://cmake.org/                                                             |
 | [`cmatrix`](cmatrix/)                  | cmatrix                                                    |                          | https://github.com/abishekvashok/cmatrix                                       |
-| [`curl`](curl/)                        | curl                                                       | 7.65.3                   | https://curl.se/                                                               |
+| [`curl`](curl/)                        | curl                                                       | 7.77.0                   | https://curl.se/                                                               |
 | [`dash`](dash/)                        | DASH                                                       | 0.5.10.2                 | http://gondor.apana.org.au/~herbert/dash                                       |
 | [`dialog`](dialog/)                    | Dialog                                                     | 1.3-20210324             | https://invisible-island.net/dialog/                                           |
 | [`diffutils`](diffutils/)              | GNU Diffutils                                              | 3.5                      | https://www.gnu.org/software/diffutils/                                        |
@@ -93,6 +93,8 @@ Please make sure to keep this list up to date when adding and updating ports. :^
 | [`openttd`](openttd/)                  | OpenTTD                                                    | 1.11.0                   | https://www.openttd.org/                                                       |
 | [`openttd-opengfx`](openttd-opengfx/)  | OpenGFX graphics for OpenTTD                               | 0.6.1                    | https://www.openttd.org/                                                       |
 | [`openttd-opensfx`](openttd-opensfx/)  | OpenSFX audio files for OpenTTD                            | 1.0.1                    | https://www.openttd.org/                                                       |
+| [`opentyrian`](opentyrian/)            | OpenTyrian                                                 | 84b820f                  | https://github.com/opentyrian/opentyrian                                       |
+| [`opentyrian-data`](opentyrian-data/)  | OpenTyrian graphics and audio                              | 1.0.0                    | http://camanis.net/tyrian/tyrian21.zip                                         |
 | [`oksh`](oksh/)                        | oksh                                                       | 6.8.1                    | https://github.com/ibara/oksh                                                  |
 | [`patch`](patch/)                      | patch (OpenBSD)                                            | 6.6                      | https://github.com/ibara/libpuffy                                              |
 | [`pcre`](pcre/)                        | Perl-compatible Regular Expressions (PCRE)                 | 8.44                     | https://www.pcre.org/                                                          |
@@ -116,6 +118,7 @@ Please make sure to keep this list up to date when adding and updating ports. :^
 | [`sed`](sed/)                          | GNU sed                                                    | 4.2.1                    | https://www.gnu.org/software/sed/                                              |
 | [`sl`](sl/)                            | Steam Locomotive (SL)                                      |                          | https://github.com/mtoyoda/sl                                                  |
 | [`sqlite`](sqlite/)                    | SQLite                                                     | 3350300                  | https://www.sqlite.org/                                                        |
+| [`stpuzzles`](stpuzzles/)              | Simon Tatham's Portable Puzzle Collection                  |                          | https://www.chiark.greenend.org.uk/~sgtatham/puzzles/                          |
 | [`stress-ng`](stress-ng/)              | stress-ng                                                  | 0.11.23                  | https://github.com/ColinIanKing/stress-ng                                      |
 | [`Super-Mario`](Super-Mario/)          | Super-Mario Clone                                          |                          | https://github.com/Bennyhwanggggg/Super-Mario-Clone-Cpp                        |
 | [`tcl`](tcl/)                          | Tcl                                                        | 8.6.11                   | https://www.tcl-lang.org/                                                      |
@@ -126,6 +129,7 @@ Please make sure to keep this list up to date when adding and updating ports. :^
 | [`vim`](vim/)                          | Vim                                                        | 8.2.2772                 | https://www.vim.org/                                                           |
 | [`vitetris`](vitetris/)                | vitetris                                                   | 0.59.1                   | https://github.com/vicgeralds/vitetris                                         |
 | [`vttest`](vttest/)                    | vttest                                                     | 20210210                 | https://invisible-island.net/vttest/                                           |
+| [`wget`](wget/)                        | GNU Wget                                                   | 1.21.1                   | https://www.gnu.org/software/wget/                                             |
 | [`xz`](xz/)                            | xz                                                         | 5.2.5                    | https://tukaani.org/xz/                                                        |
 | [`yasm`](yasm/)                        | Yasm Modular Assembler                                     | 1.3.0                    | https://yasm.tortall.net/                                                      |
 | [`zlib`](zlib/)                        | zlib                                                       | 1.2.11                   | https://www.zlib.net/                                                          |

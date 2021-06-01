@@ -92,6 +92,7 @@ public:
     String(const FlyString&);
 
     [[nodiscard]] static String repeated(char, size_t count);
+    [[nodiscard]] static String repeated(const StringView&, size_t count);
 
     [[nodiscard]] static String bijective_base_from(size_t value, unsigned base = 26, StringView map = {});
 
@@ -118,22 +119,26 @@ public:
     [[nodiscard]] bool is_whitespace() const { return StringUtils::is_whitespace(*this); }
 
 #ifndef KERNEL
+    [[nodiscard]] String trim(const StringView& characters, TrimMode mode = TrimMode::Both) const
+    {
+        return StringUtils::trim(view(), characters, mode);
+    }
+
     [[nodiscard]] String trim_whitespace(TrimMode mode = TrimMode::Both) const
     {
-        return StringUtils::trim_whitespace(StringView { characters(), length() }, mode);
+        return StringUtils::trim_whitespace(view(), mode);
     }
 #endif
 
     [[nodiscard]] bool equals_ignoring_case(const StringView&) const;
 
     [[nodiscard]] bool contains(const StringView&, CaseSensitivity = CaseSensitivity::CaseSensitive) const;
-    [[nodiscard]] Optional<size_t> index_of(const String&, size_t start = 0) const;
 
     [[nodiscard]] Vector<String> split_limit(char separator, size_t limit, bool keep_empty = false) const;
     [[nodiscard]] Vector<String> split(char separator, bool keep_empty = false) const;
 
-    [[nodiscard]] Optional<size_t> find(char) const;
-    [[nodiscard]] Optional<size_t> find(const StringView&) const;
+    [[nodiscard]] Optional<size_t> find(char, size_t start = 0) const;
+    [[nodiscard]] Optional<size_t> find(StringView const&, size_t start = 0) const;
 
     [[nodiscard]] String substring(size_t start) const;
     [[nodiscard]] String substring(size_t start, size_t length) const;
@@ -160,6 +165,7 @@ public:
 
     [[nodiscard]] ALWAYS_INLINE const char& operator[](size_t i) const
     {
+        VERIFY(!is_null());
         return (*m_impl)[i];
     }
 

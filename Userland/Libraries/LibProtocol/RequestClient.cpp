@@ -13,12 +13,6 @@ namespace Protocol {
 RequestClient::RequestClient()
     : IPC::ServerConnection<RequestClientEndpoint, RequestServerEndpoint>(*this, "/tmp/portal/request")
 {
-    handshake();
-}
-
-void RequestClient::handshake()
-{
-    greet();
 }
 
 template<typename RequestHashMapTraits>

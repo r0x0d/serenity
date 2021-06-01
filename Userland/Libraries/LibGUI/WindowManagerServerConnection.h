@@ -12,7 +12,7 @@
 
 namespace GUI {
 
-class WindowManagerServerConnection
+class WindowManagerServerConnection final
     : public IPC::ServerConnection<WindowManagerClientEndpoint, WindowManagerServerEndpoint>
     , public WindowManagerClientEndpoint {
     C_OBJECT(WindowManagerServerConnection)
@@ -20,10 +20,8 @@ public:
     WindowManagerServerConnection()
         : IPC::ServerConnection<WindowManagerClientEndpoint, WindowManagerServerEndpoint>(*this, "/tmp/portal/wm")
     {
-        handshake();
     }
 
-    virtual void handshake() override;
     static WindowManagerServerConnection& the();
 
 private:

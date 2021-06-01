@@ -1,6 +1,8 @@
 cmake_minimum_required (VERSION 3.0)
 project (Lagom)
 
+include(../CMake/wasm_spec_tests.cmake)
+
 if (NOT ENABLE_OSS_FUZZ)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unknown-warning-option -Wno-literal-suffix -O2 -Wall -Wextra -Werror -std=c++2a -fPIC -g -Wno-deprecated-copy")
 else()
@@ -154,6 +156,22 @@ if (BUILD_LAGOM)
             COMMAND test-crypto_lagom test -t -s google.com --ca-certs-file ../../Base/etc/ca_certs.ini
             WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
         )
+
+        add_executable(test-wasm_lagom
+            ../../Tests/LibWasm/test-wasm.cpp
+            ../../Userland/Libraries/LibTest/JavaScriptTestRunnerMain.cpp)
+        set_target_properties(test-wasm_lagom PROPERTIES OUTPUT_NAME test-wasm)
+        target_link_libraries(test-wasm_lagom Lagom)
+        target_link_libraries(test-wasm_lagom stdc++)
+        target_link_libraries(test-wasm_lagom pthread)
+        add_test(
+            NAME WasmParser
+            COMMAND test-wasm_lagom --show-progress=false
+            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        )
+        set_tests_properties(WasmParser PROPERTIES
+            ENVIRONMENT SERENITY_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/../..
+            SKIP_RETURN_CODE 1)
 
         add_executable(disasm_lagom ../../Userland/Utilities/disasm.cpp)
         set_target_properties(disasm_lagom PROPERTIES OUTPUT_NAME disasm)

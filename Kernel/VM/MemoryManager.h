@@ -144,12 +144,12 @@ public:
     void deallocate_user_physical_page(const PhysicalPage&);
     void deallocate_supervisor_physical_page(const PhysicalPage&);
 
-    OwnPtr<Region> allocate_contiguous_kernel_region(size_t, String name, Region::Access access, size_t physical_alignment = PAGE_SIZE, Region::Cacheable = Region::Cacheable::Yes);
-    OwnPtr<Region> allocate_kernel_region(size_t, String name, Region::Access access, AllocationStrategy strategy = AllocationStrategy::Reserve, Region::Cacheable = Region::Cacheable::Yes);
-    OwnPtr<Region> allocate_kernel_region(PhysicalAddress, size_t, String name, Region::Access access, Region::Cacheable = Region::Cacheable::Yes);
-    OwnPtr<Region> allocate_kernel_region_identity(PhysicalAddress, size_t, String name, Region::Access access, Region::Cacheable = Region::Cacheable::Yes);
-    OwnPtr<Region> allocate_kernel_region_with_vmobject(VMObject&, size_t, String name, Region::Access access, Region::Cacheable = Region::Cacheable::Yes);
-    OwnPtr<Region> allocate_kernel_region_with_vmobject(const Range&, VMObject&, String name, Region::Access access, Region::Cacheable = Region::Cacheable::Yes);
+    OwnPtr<Region> allocate_contiguous_kernel_region(size_t, StringView name, Region::Access access, size_t physical_alignment = PAGE_SIZE, Region::Cacheable = Region::Cacheable::Yes);
+    OwnPtr<Region> allocate_kernel_region(size_t, StringView name, Region::Access access, AllocationStrategy strategy = AllocationStrategy::Reserve, Region::Cacheable = Region::Cacheable::Yes);
+    OwnPtr<Region> allocate_kernel_region(PhysicalAddress, size_t, StringView name, Region::Access access, Region::Cacheable = Region::Cacheable::Yes);
+    OwnPtr<Region> allocate_kernel_region_identity(PhysicalAddress, size_t, StringView name, Region::Access access, Region::Cacheable = Region::Cacheable::Yes);
+    OwnPtr<Region> allocate_kernel_region_with_vmobject(VMObject&, size_t, StringView name, Region::Access access, Region::Cacheable = Region::Cacheable::Yes);
+    OwnPtr<Region> allocate_kernel_region_with_vmobject(const Range&, VMObject&, StringView name, Region::Access access, Region::Cacheable = Region::Cacheable::Yes);
 
     unsigned user_physical_pages() const { return m_user_physical_pages; }
     unsigned user_physical_pages_used() const { return m_user_physical_pages_used; }
@@ -233,13 +233,13 @@ private:
     NonnullRefPtrVector<PhysicalRegion> m_user_physical_regions;
     NonnullRefPtrVector<PhysicalRegion> m_super_physical_regions;
 
-    InlineLinkedList<Region> m_user_regions;
-    InlineLinkedList<Region> m_kernel_regions;
+    Region::List m_user_regions;
+    Region::List m_kernel_regions;
     Vector<UsedMemoryRange> m_used_memory_ranges;
     Vector<PhysicalMemoryRange> m_physical_memory_ranges;
     Vector<ContiguousReservedMemoryRange> m_reserved_memory_ranges;
 
-    InlineLinkedList<VMObject> m_vmobjects;
+    VMObject::List m_vmobjects;
 };
 
 template<typename Callback>

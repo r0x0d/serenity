@@ -10,6 +10,7 @@
 #include <AK/QuickSort.h>
 #include <AK/String.h>
 #include <AK/StringBuilder.h>
+#include <AK/URL.h>
 #include <AK/Utf8View.h>
 #include <AK/Vector.h>
 #include <LibCore/ArgsParser.h>
@@ -196,7 +197,8 @@ static size_t print_name(const struct stat& st, const String& name, const char* 
     if (!flag_disable_hyperlinks) {
         auto full_path = Core::File::real_path_for(path_for_hyperlink);
         if (!full_path.is_null()) {
-            out("\033]8;;file://{}{}\033\\", hostname(), full_path);
+            auto url = URL::create_with_file_scheme(full_path, {}, hostname());
+            out("\033]8;;{}\033\\", url.serialize());
         }
     }
 
@@ -398,8 +400,8 @@ static int do_file_system_object_long(const char* path)
     quick_sort(files, [](auto& a, auto& b) {
         if (flag_sort_by_timestamp) {
             if (flag_reverse_sort)
-                return a.stat.st_mtime > b.stat.st_mtime;
-            return a.stat.st_mtime < b.stat.st_mtime;
+                return a.stat.st_mtime < b.stat.st_mtime;
+            return a.stat.st_mtime > b.stat.st_mtime;
         }
         // Fine, sort by name then!
         if (flag_reverse_sort)

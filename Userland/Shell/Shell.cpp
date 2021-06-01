@@ -10,10 +10,12 @@
 #include <AK/Debug.h>
 #include <AK/Function.h>
 #include <AK/LexicalPath.h>
+#include <AK/QuickSort.h>
 #include <AK/ScopeGuard.h>
 #include <AK/ScopedValueRollback.h>
 #include <AK/StringBuilder.h>
 #include <AK/TemporaryChange.h>
+#include <AK/URL.h>
 #include <LibCore/ArgsParser.h>
 #include <LibCore/DirIterator.h>
 #include <LibCore/Event.h>
@@ -65,7 +67,8 @@ void Shell::print_path(const String& path)
         printf("%s", path.characters());
         return;
     }
-    printf("\033]8;;file://%s%s\033\\%s\033]8;;\033\\", hostname, path.characters(), path.characters());
+    auto url = URL::create_with_file_scheme(path, {}, hostname);
+    out("\033]8;;{}\033\\{}\033]8;;\033\\", url.serialize(), path);
 }
 
 String Shell::prompt() const
@@ -342,7 +345,7 @@ Shell::LocalFrame* Shell::find_frame_containing_local_variable(const String& nam
     return nullptr;
 }
 
-RefPtr<AST::Value> Shell::lookup_local_variable(const String& name)
+RefPtr<AST::Value> Shell::lookup_local_variable(const String& name) const
 {
     if (auto* frame = find_frame_containing_local_variable(name))
         return frame->local_variables.get(name).value();
@@ -353,7 +356,7 @@ RefPtr<AST::Value> Shell::lookup_local_variable(const String& name)
     return nullptr;
 }
 
-RefPtr<AST::Value> Shell::get_argument(size_t index)
+RefPtr<AST::Value> Shell::get_argument(size_t index) const
 {
     if (index == 0)
         return adopt_ref(*new AST::StringValue(current_script));
@@ -377,7 +380,7 @@ RefPtr<AST::Value> Shell::get_argument(size_t index)
     return nullptr;
 }
 
-String Shell::local_variable_or(const String& name, const String& replacement)
+String Shell::local_variable_or(const String& name, const String& replacement) const
 {
     auto value = lookup_local_variable(name);
     if (value) {
@@ -846,6 +849,12 @@ RefPtr<Job> Shell::run_command(const AST::Command& command)
         last_return_code = job->exit_code();
         job->disown();
 
+        if (m_editor && job->exit_code() == 0 && is_allowed_to_modify_termios(job->command())) {
+            m_editor->refetch_default_termios();
+            default_termios = m_editor->default_termios();
+            termios = m_editor->termios();
+        }
+
         run_tail(job);
     };
 
@@ -1025,6 +1034,19 @@ bool Shell::run_file(const String& filename, bool explicitly_invoked)
     auto data = file->read_all();
     return run_command(data) == 0;
 }
+
+bool Shell::is_allowed_to_modify_termios(const AST::Command& command) const
+{
+    if (command.argv.is_empty())
+        return false;
+
+    auto value = lookup_local_variable("PROGRAMS_ALLOWED_TO_MODIFY_DEFAULT_TERMIOS"sv);
+    if (!value)
+        return false;
+
+    return value->resolve_as_list(*this).contains_slow(command.argv[0]);
+}
+
 void Shell::restore_ios()
 {
     if (m_is_subshell)
@@ -1976,16 +1998,16 @@ void Shell::possibly_print_error() const
                 warn("\x1b[31m");
                 size_t length_written_so_far = 0;
                 if (line == (i64)source_position.position->start_line.line_number) {
-                    warn(StringView { "{:~>{}}" }, "", 5 + source_position.position->start_line.line_column);
+                    warn("{:~>{}}", "", 5 + source_position.position->start_line.line_column);
                     length_written_so_far += source_position.position->start_line.line_column;
                 } else {
-                    warn(StringView { "{:~>{}}" }, "", 5);
+                    warn("{:~>{}}", "", 5);
                 }
                 if (line == (i64)source_position.position->end_line.line_number) {
-                    warn(StringView { "{:^>{}}" }, "", source_position.position->end_line.line_column - length_written_so_far);
+                    warn("{:^>{}}", "", source_position.position->end_line.line_column - length_written_so_far);
                     length_written_so_far += source_position.position->start_line.line_column;
                 } else {
-                    warn(StringView { "{:^>{}}" }, "", current_line.length() - length_written_so_far);
+                    warn("{:^>{}}", "", current_line.length() - length_written_so_far);
                 }
                 warnln("\x1b[0m");
             }

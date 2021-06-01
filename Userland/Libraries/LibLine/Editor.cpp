@@ -42,7 +42,14 @@ Configuration Configuration::from_config(const StringView& libname)
     // Read behaviour options.
     auto refresh = config_file->read_entry("behaviour", "refresh", "lazy");
     auto operation = config_file->read_entry("behaviour", "operation_mode");
+    auto bracketed_paste = config_file->read_bool_entry("behaviour", "bracketed_paste", true);
     auto default_text_editor = config_file->read_entry("behaviour", "default_text_editor");
+
+    Configuration::Flags flags { Configuration::Flags::None };
+    if (bracketed_paste)
+        flags = static_cast<Flags>(flags | Configuration::Flags::BracketedPaste);
+
+    configuration.set(flags);
 
     if (refresh.equals_ignoring_case("lazy"))
         configuration.set(Configuration::Lazy);
@@ -134,10 +141,6 @@ void Editor::set_default_keybinds()
 {
     register_key_input_callback(ctrl('N'), EDITOR_INTERNAL_FUNCTION(search_forwards));
     register_key_input_callback(ctrl('P'), EDITOR_INTERNAL_FUNCTION(search_backwards));
-    // Normally ^W. `stty werase \^n` can change it to ^N (or something else), but Serenity doesn't have `stty` yet.
-    register_key_input_callback(m_termios.c_cc[VWERASE], EDITOR_INTERNAL_FUNCTION(erase_word_backwards));
-    // Normally ^U. `stty kill \^n` can change it to ^N (or something else), but Serenity doesn't have `stty` yet.
-    register_key_input_callback(m_termios.c_cc[VKILL], EDITOR_INTERNAL_FUNCTION(kill_line));
     register_key_input_callback(ctrl('A'), EDITOR_INTERNAL_FUNCTION(go_home));
     register_key_input_callback(ctrl('B'), EDITOR_INTERNAL_FUNCTION(cursor_left_character));
     register_key_input_callback(ctrl('D'), EDITOR_INTERNAL_FUNCTION(erase_character_forwards));
@@ -147,7 +150,6 @@ void Editor::set_default_keybinds()
     register_key_input_callback(ctrl('H'), EDITOR_INTERNAL_FUNCTION(erase_character_backwards));
     // DEL - Some terminals send this instead of ^H.
     register_key_input_callback((char)127, EDITOR_INTERNAL_FUNCTION(erase_character_backwards));
-    register_key_input_callback(m_termios.c_cc[VERASE], EDITOR_INTERNAL_FUNCTION(erase_character_backwards));
     register_key_input_callback(ctrl('K'), EDITOR_INTERNAL_FUNCTION(erase_to_end));
     register_key_input_callback(ctrl('L'), EDITOR_INTERNAL_FUNCTION(clear_screen));
     register_key_input_callback(ctrl('R'), EDITOR_INTERNAL_FUNCTION(enter_search));
@@ -168,6 +170,13 @@ void Editor::set_default_keybinds()
     register_key_input_callback(Key { 'l', Key::Alt }, EDITOR_INTERNAL_FUNCTION(lowercase_word));
     register_key_input_callback(Key { 'u', Key::Alt }, EDITOR_INTERNAL_FUNCTION(uppercase_word));
     register_key_input_callback(Key { 't', Key::Alt }, EDITOR_INTERNAL_FUNCTION(transpose_words));
+
+    // Register these last to all the user to override the previous key bindings
+    // Normally ^W. `stty werase \^n` can change it to ^N (or something else).
+    register_key_input_callback(m_termios.c_cc[VWERASE], EDITOR_INTERNAL_FUNCTION(erase_word_backwards));
+    // Normally ^U. `stty kill \^n` can change it to ^N (or something else).
+    register_key_input_callback(m_termios.c_cc[VKILL], EDITOR_INTERNAL_FUNCTION(kill_line));
+    register_key_input_callback(m_termios.c_cc[VERASE], EDITOR_INTERNAL_FUNCTION(erase_character_backwards));
 }
 
 Editor::Editor(Configuration configuration)
@@ -545,6 +554,16 @@ void Editor::initialize()
     m_initialized = true;
 }
 
+void Editor::refetch_default_termios()
+{
+    struct termios termios;
+    tcgetattr(0, &termios);
+    m_default_termios = termios;
+    if (m_configuration.operation_mode == Configuration::Full)
+        termios.c_lflag &= ~(ECHO | ICANON);
+    m_termios = termios;
+}
+
 void Editor::interrupted()
 {
     if (m_is_searching)
@@ -649,6 +668,9 @@ auto Editor::get_line(const String& prompt) -> Result<String, Editor::Error>
     auto old_cols = m_num_columns;
     auto old_lines = m_num_lines;
     get_terminal_size();
+
+    if (m_configuration.enable_bracketed_paste)
+        fprintf(stderr, "\x1b[?2004h");
 
     if (m_num_columns != old_cols || m_num_lines != old_lines)
         m_refresh_needed = true;
@@ -844,13 +866,8 @@ void Editor::handle_read_event()
             m_state = InputState::CSIExpectFinal;
             [[fallthrough]];
         case InputState::CSIExpectFinal: {
-            m_state = InputState::Free;
-            if (!(code_point >= 0x40 && code_point <= 0x7f)) {
-                dbgln("LibLine: Invalid CSI: {:02x} ({:c})", code_point, code_point);
-                continue;
-            }
-            csi_final = code_point;
-
+            m_state = m_previous_free_state;
+            auto is_in_paste = m_state == InputState::Paste;
             for (auto& parameter : String::copy(csi_parameter_bytes).split(';')) {
                 if (auto value = parameter.to_uint(); value.has_value())
                     csi_parameters.append(value.value());
@@ -863,6 +880,25 @@ void Editor::handle_read_event()
             if (csi_parameters.size() >= 2)
                 param2 = csi_parameters[1];
             unsigned modifiers = param2 ? param2 - 1 : 0;
+
+            if (is_in_paste && code_point != '~' && param1 != 201) {
+                // The only valid escape to process in paste mode is the stop-paste sequence.
+                // so treat everything else as part of the pasted data.
+                insert('\x1b');
+                insert('[');
+                insert(StringView { csi_parameter_bytes.data(), csi_parameter_bytes.size() });
+                insert(StringView { csi_intermediate_bytes.data(), csi_intermediate_bytes.size() });
+                insert(code_point);
+                continue;
+            }
+            if (!(code_point >= 0x40 && code_point <= 0x7f)) {
+                dbgln("LibLine: Invalid CSI: {:02x} ({:c})", code_point, code_point);
+                continue;
+            }
+            csi_final = code_point;
+            csi_parameters.clear();
+            csi_parameter_bytes.clear();
+            csi_intermediate_bytes.clear();
 
             if (csi_final == 'Z') {
                 // 'reverse tab'
@@ -905,6 +941,18 @@ void Editor::handle_read_event()
                     m_search_offset = 0;
                     continue;
                 }
+                if (m_configuration.enable_bracketed_paste) {
+                    // ^[[200~: start bracketed paste
+                    // ^[[201~: end bracketed paste
+                    if (!is_in_paste && param1 == 200) {
+                        m_state = InputState::Paste;
+                        continue;
+                    }
+                    if (is_in_paste && param1 == 201) {
+                        m_state = InputState::Free;
+                        continue;
+                    }
+                }
                 // ^[[5~: page up
                 // ^[[6~: page down
                 dbgln("LibLine: Unhandled '~': {}", param1);
@@ -920,7 +968,16 @@ void Editor::handle_read_event()
             // Verbatim mode will bypass all mechanisms and just insert the code point.
             insert(code_point);
             continue;
+        case InputState::Paste:
+            if (code_point == 27) {
+                m_previous_free_state = InputState::Paste;
+                m_state = InputState::GotEscape;
+                continue;
+            }
+            insert(code_point);
+            continue;
         case InputState::Free:
+            m_previous_free_state = InputState::Free;
             if (code_point == 27) {
                 m_callback_machine.key_pressed(*this, code_point);
                 // Note that this should also deal with explicitly registered keys

@@ -271,7 +271,7 @@ Optional<Image::RelocationSection> Image::Section::relocations() const
     return static_cast<RelocationSection>(relocation_section.value());
 }
 
-Optional<Image::Section> Image::lookup_section(const String& name) const
+Optional<Image::Section> Image::lookup_section(const StringView& name) const
 {
     VERIFY(m_valid);
     for (unsigned i = 0; i < section_count(); ++i) {
@@ -288,7 +288,7 @@ StringView Image::Symbol::raw_data() const
     return { section.raw_data() + (value() - section.address()), size() };
 }
 
-Optional<Image::Symbol> Image::find_demangled_function(const String& name) const
+Optional<Image::Symbol> Image::find_demangled_function(const StringView& name) const
 {
     Optional<Image::Symbol> found;
     for_each_symbol([&](const Image::Symbol& symbol) {
@@ -297,7 +297,7 @@ Optional<Image::Symbol> Image::find_demangled_function(const String& name) const
         if (symbol.is_undefined())
             return IterationDecision::Continue;
         auto demangled = demangle(symbol.name());
-        auto index_of_paren = demangled.index_of("(");
+        auto index_of_paren = demangled.find('(');
         if (index_of_paren.has_value()) {
             demangled = demangled.substring(0, index_of_paren.value());
         }

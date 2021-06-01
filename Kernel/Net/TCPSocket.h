@@ -136,7 +136,7 @@ public:
     u32 duplicate_acks() const { return m_duplicate_acks; }
 
     KResult send_ack(bool allow_duplicate = false);
-    KResult send_tcp_packet(u16 flags, const UserOrKernelBuffer* = nullptr, size_t = 0);
+    KResult send_tcp_packet(u16 flags, const UserOrKernelBuffer* = nullptr, size_t = 0, RoutingDecision* = nullptr);
     void receive_tcp_packet(const TCPPacket&, u16 size);
 
     bool should_delay_next_ack() const;
@@ -157,6 +157,8 @@ public:
 
     virtual KResult close() override;
 
+    virtual bool can_write(const FileDescription&, size_t) const override;
+
 protected:
     void set_direction(Direction direction) { m_direction = direction; }
 
@@ -174,7 +176,7 @@ private:
     virtual KResultOr<u16> protocol_allocate_local_port() override;
     virtual bool protocol_is_disconnected() const override;
     virtual KResult protocol_bind() override;
-    virtual KResult protocol_listen() override;
+    virtual KResult protocol_listen(bool did_allocate_port) override;
 
     void enqueue_for_retransmit();
     void dequeue_for_retransmit();
@@ -194,12 +196,15 @@ private:
 
     struct OutgoingPacket {
         u32 ack_number { 0 };
-        NetworkByteBuffer buffer;
+        RefPtr<PacketWithTimestamp> buffer;
+        size_t ipv4_payload_offset;
+        WeakPtr<NetworkAdapter> adapter;
         int tx_counter { 0 };
     };
 
-    Lock m_not_acked_lock { "TCPSocket unacked packets" };
+    mutable Lock m_not_acked_lock { "TCPSocket unacked packets" };
     SinglyLinkedList<OutgoingPacket> m_not_acked;
+    size_t m_not_acked_size { 0 };
 
     u32 m_duplicate_acks { 0 };
 
@@ -210,6 +215,9 @@ private:
     static constexpr u32 maximum_retransmits = 5;
     Time m_last_retransmit_time;
     u32 m_retransmit_attempts { 0 };
+
+    // FIXME: Parse window size TCP option from the peer
+    u32 m_send_window_size { 64 * KiB };
 };
 
 }

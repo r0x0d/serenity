@@ -1,6 +1,7 @@
 set(SOURCES
-    Object.cpp
+    CommonNames.cpp
     Document.cpp
+    Filter.cpp
     Object.cpp
     Parser.cpp
     Renderer.cpp
@@ -8,4 +9,4 @@ set(SOURCES
     )
 
 serenity_lib(LibPDF pdf)
-target_link_libraries(LibPDF LibC LibCore LibIPC LibGfx)
+target_link_libraries(LibPDF LibC LibCore LibIPC LibGfx LibTextCodec)

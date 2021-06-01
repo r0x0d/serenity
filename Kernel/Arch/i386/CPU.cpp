@@ -528,6 +528,7 @@ UNMAP_AFTER_INIT static void idt_init()
     for (u8 i = 0x11; i < 0x50; i++)
         register_interrupt_handler(i, unimp_trap);
 
+    dbgln("Initializing unhandled interrupt handlers");
     register_interrupt_handler(0x50, interrupt_80_asm_entry);
     register_interrupt_handler(0x51, interrupt_81_asm_entry);
     register_interrupt_handler(0x52, interrupt_82_asm_entry);
@@ -704,8 +705,6 @@ UNMAP_AFTER_INIT static void idt_init()
     register_interrupt_handler(0xfd, interrupt_253_asm_entry);
     register_interrupt_handler(0xfe, interrupt_254_asm_entry);
     register_interrupt_handler(0xff, interrupt_255_asm_entry);
-
-    dbgln("Installing Unhandled Handlers");
 
     for (u8 i = 0; i < GENERIC_INTERRUPT_HANDLERS_COUNT; ++i) {
         auto* handler = new UnhandledInterruptHandler(i);
@@ -924,15 +923,13 @@ UNMAP_AFTER_INIT void write_xcr0(u64 value)
 
 READONLY_AFTER_INIT FPUState Processor::s_clean_fpu_state;
 
-READONLY_AFTER_INIT static Vector<Processor*>* s_processors;
-static SpinLock s_processor_lock;
+READONLY_AFTER_INIT static ProcessorContainer s_processors {};
 READONLY_AFTER_INIT volatile u32 Processor::g_total_processors;
 static volatile bool s_smp_enabled;
 
-Vector<Processor*>& Processor::processors()
+ProcessorContainer& Processor::processors()
 {
-    VERIFY(s_processors);
-    return *s_processors;
+    return s_processors;
 }
 
 Processor& Processor::by_id(u32 cpu)
@@ -1239,13 +1236,9 @@ UNMAP_AFTER_INIT void Processor::initialize(u32 cpu)
     m_info = new ProcessorInfo(*this);
 
     {
-        ScopedSpinLock lock(s_processor_lock);
         // We need to prevent races between APs starting up at the same time
-        if (!s_processors)
-            s_processors = new Vector<Processor*>();
-        if (cpu >= s_processors->size())
-            s_processors->resize(cpu + 1);
-        (*s_processors)[cpu] = this;
+        VERIFY(cpu < s_processors.size());
+        s_processors[cpu] = this;
     }
 }
 
@@ -1986,9 +1979,8 @@ UNMAP_AFTER_INIT void Processor::smp_enable()
 void Processor::smp_cleanup_message(ProcessorMessage& msg)
 {
     switch (msg.type) {
-    case ProcessorMessage::CallbackWithData:
-        if (msg.callback_with_data.free)
-            msg.callback_with_data.free(msg.callback_with_data.data);
+    case ProcessorMessage::Callback:
+        msg.callback_value().~Function();
         break;
     default:
         break;
@@ -2027,10 +2019,7 @@ bool Processor::smp_process_pending_messages()
 
             switch (msg->type) {
             case ProcessorMessage::Callback:
-                msg->callback.handler();
-                break;
-            case ProcessorMessage::CallbackWithData:
-                msg->callback_with_data.handler(msg->callback_with_data.data);
+                msg->invoke_callback();
                 break;
             case ProcessorMessage::FlushTlb:
                 if (is_user_address(VirtualAddress(msg->flush_tlb.ptr))) {
@@ -2125,25 +2114,12 @@ void Processor::smp_broadcast_wait_sync(ProcessorMessage& msg)
     smp_return_to_pool(msg);
 }
 
-void Processor::smp_broadcast(void (*callback)(void*), void* data, void (*free_data)(void*), bool async)
+void Processor::smp_broadcast(Function<void()> callback, bool async)
 {
     auto& msg = smp_get_from_pool();
     msg.async = async;
-    msg.type = ProcessorMessage::CallbackWithData;
-    msg.callback_with_data.handler = callback;
-    msg.callback_with_data.data = data;
-    msg.callback_with_data.free = free_data;
-    smp_broadcast_message(msg);
-    if (!async)
-        smp_broadcast_wait_sync(msg);
-}
-
-void Processor::smp_broadcast(void (*callback)(), bool async)
-{
-    auto& msg = smp_get_from_pool();
-    msg.async = async;
-    msg.type = ProcessorMessage::CallbackWithData;
-    msg.callback.handler = callback;
+    msg.type = ProcessorMessage::Callback;
+    new (msg.callback_storage) ProcessorMessage::CallbackFunction(move(callback));
     smp_broadcast_message(msg);
     if (!async)
         smp_broadcast_wait_sync(msg);
@@ -2180,21 +2156,11 @@ void Processor::smp_unicast_message(u32 cpu, ProcessorMessage& msg, bool async)
     }
 }
 
-void Processor::smp_unicast(u32 cpu, void (*callback)(void*), void* data, void (*free_data)(void*), bool async)
+void Processor::smp_unicast(u32 cpu, Function<void()> callback, bool async)
 {
     auto& msg = smp_get_from_pool();
-    msg.type = ProcessorMessage::CallbackWithData;
-    msg.callback_with_data.handler = callback;
-    msg.callback_with_data.data = data;
-    msg.callback_with_data.free = free_data;
-    smp_unicast_message(cpu, msg, async);
-}
-
-void Processor::smp_unicast(u32 cpu, void (*callback)(), bool async)
-{
-    auto& msg = smp_get_from_pool();
-    msg.type = ProcessorMessage::CallbackWithData;
-    msg.callback.handler = callback;
+    msg.type = ProcessorMessage::Callback;
+    new (msg.callback_storage) ProcessorMessage::CallbackFunction(move(callback));
     smp_unicast_message(cpu, msg, async);
 }
 
@@ -2240,6 +2206,7 @@ UNMAP_AFTER_INIT void Processor::deferred_call_pool_init()
     for (size_t i = 0; i < pool_count; i++) {
         auto& entry = m_deferred_call_pool[i];
         entry.next = i < pool_count - 1 ? &m_deferred_call_pool[i + 1] : nullptr;
+        new (entry.handler_storage) DeferredCallEntry::HandlerFunction;
         entry.was_allocated = false;
     }
     m_pending_deferred_calls = nullptr;
@@ -2250,6 +2217,8 @@ void Processor::deferred_call_return_to_pool(DeferredCallEntry* entry)
 {
     VERIFY(m_in_critical);
     VERIFY(!entry->was_allocated);
+
+    entry->handler_value() = {};
 
     entry->next = m_free_deferred_call_pool_entry;
     m_free_deferred_call_pool_entry = entry;
@@ -2268,6 +2237,7 @@ DeferredCallEntry* Processor::deferred_call_get_free()
     }
 
     auto* entry = new DeferredCallEntry;
+    new (entry->handler_storage) DeferredCallEntry::HandlerFunction;
     entry->was_allocated = true;
     return entry;
 }
@@ -2296,20 +2266,14 @@ void Processor::deferred_call_execute_pending()
     pending_list = reverse_list(pending_list);
 
     do {
-        // Call the appropriate callback handler
-        if (pending_list->have_data) {
-            pending_list->callback_with_data.handler(pending_list->callback_with_data.data);
-            if (pending_list->callback_with_data.free)
-                pending_list->callback_with_data.free(pending_list->callback_with_data.data);
-        } else {
-            pending_list->callback.handler();
-        }
+        pending_list->invoke_handler();
 
         // Return the entry back to the pool, or free it
         auto* next = pending_list->next;
-        if (pending_list->was_allocated)
+        if (pending_list->was_allocated) {
+            pending_list->handler_value().~Function();
             delete pending_list;
-        else
+        } else
             deferred_call_return_to_pool(pending_list);
         pending_list = next;
     } while (pending_list);
@@ -2322,7 +2286,7 @@ void Processor::deferred_call_queue_entry(DeferredCallEntry* entry)
     m_pending_deferred_calls = entry;
 }
 
-void Processor::deferred_call_queue(void (*callback)())
+void Processor::deferred_call_queue(Function<void()> callback)
 {
     // NOTE: If we are called outside of a critical section and outside
     // of an irq handler, the function will be executed before we return!
@@ -2330,24 +2294,7 @@ void Processor::deferred_call_queue(void (*callback)())
     auto& cur_proc = Processor::current();
 
     auto* entry = cur_proc.deferred_call_get_free();
-    entry->have_data = false;
-    entry->callback.handler = callback;
-
-    cur_proc.deferred_call_queue_entry(entry);
-}
-
-void Processor::deferred_call_queue(void (*callback)(void*), void* data, void (*free_data)(void*))
-{
-    // NOTE: If we are called outside of a critical section and outside
-    // of an irq handler, the function will be executed before we return!
-    ScopedCritical critical;
-    auto& cur_proc = Processor::current();
-
-    auto* entry = cur_proc.deferred_call_get_free();
-    entry->have_data = true;
-    entry->callback_with_data.handler = callback;
-    entry->callback_with_data.data = data;
-    entry->callback_with_data.free = free_data;
+    entry->handler_value() = move(callback);
 
     cur_proc.deferred_call_queue_entry(entry);
 }

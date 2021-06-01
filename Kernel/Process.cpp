@@ -434,19 +434,19 @@ Custody& Process::current_directory()
     return *m_cwd;
 }
 
-KResultOr<String> Process::get_syscall_path_argument(const char* user_path, size_t path_length) const
+KResultOr<NonnullOwnPtr<KString>> Process::get_syscall_path_argument(char const* user_path, size_t path_length) const
 {
     if (path_length == 0)
         return EINVAL;
     if (path_length > PATH_MAX)
         return ENAMETOOLONG;
-    auto copied_string = copy_string_from_user(user_path, path_length);
-    if (copied_string.is_null())
-        return EFAULT;
-    return copied_string;
+    auto string_or_error = try_copy_kstring_from_user(user_path, path_length);
+    if (string_or_error.is_error())
+        return string_or_error.error();
+    return string_or_error.release_value();
 }
 
-KResultOr<String> Process::get_syscall_path_argument(const Syscall::StringArgument& path) const
+KResultOr<NonnullOwnPtr<KString>> Process::get_syscall_path_argument(Syscall::StringArgument const& path) const
 {
     return get_syscall_path_argument(path.characters, path.length);
 }
@@ -480,7 +480,10 @@ bool Process::dump_perfcore()
     if (!json)
         return false;
     auto json_buffer = UserOrKernelBuffer::for_kernel_buffer(json->data());
-    return !description->write(json_buffer, json->size()).is_error();
+    if (description->write(json_buffer, json->size()).is_error())
+        return false;
+    dbgln("Wrote perfcore to {}", description->absolute_path());
+    return true;
 }
 
 void Process::finalize()

@@ -46,7 +46,7 @@ private:
 template<class T, typename Container, IntrusiveListNode<T, Container> T::*member>
 class IntrusiveList {
 public:
-    IntrusiveList();
+    IntrusiveList() = default;
     ~IntrusiveList();
 
     void clear();
@@ -163,11 +163,6 @@ inline typename IntrusiveList<T, Container, member>::Iterator& IntrusiveList<T, 
     m_value = IntrusiveList<T, Container, member>::next(m_value);
     (old->*member).remove();
     return *this;
-}
-
-template<class T, typename Container, IntrusiveListNode<T, Container> T::*member>
-inline IntrusiveList<T, Container, member>::IntrusiveList()
-{
 }
 
 template<class T, typename Container, IntrusiveListNode<T, Container> T::*member>
@@ -320,8 +315,7 @@ namespace Detail {
 template<typename T, typename Container>
 inline IntrusiveListNode<T, Container>::~IntrusiveListNode()
 {
-    if (m_storage)
-        remove();
+    VERIFY(!is_in_list());
 }
 
 template<typename T, typename Container>

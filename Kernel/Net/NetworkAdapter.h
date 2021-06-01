@@ -15,8 +15,10 @@
 #include <AK/Weakable.h>
 #include <Kernel/KBuffer.h>
 #include <Kernel/Net/ARP.h>
+#include <Kernel/Net/EthernetFrameHeader.h>
 #include <Kernel/Net/ICMP.h>
 #include <Kernel/Net/IPv4.h>
+#include <Kernel/PCI/Definitions.h>
 #include <Kernel/UserOrKernelBuffer.h>
 
 namespace Kernel {
@@ -25,7 +27,20 @@ class NetworkAdapter;
 
 using NetworkByteBuffer = AK::Detail::ByteBuffer<1500>;
 
-class NetworkAdapter : public RefCounted<NetworkAdapter> {
+struct PacketWithTimestamp : public RefCounted<PacketWithTimestamp> {
+    PacketWithTimestamp(KBuffer buffer, Time timestamp)
+        : buffer(move(buffer))
+        , timestamp(timestamp)
+    {
+    }
+
+    KBuffer buffer;
+    Time timestamp;
+    IntrusiveListNode<PacketWithTimestamp, RefPtr<PacketWithTimestamp>> packet_node;
+};
+
+class NetworkAdapter : public RefCounted<NetworkAdapter>
+    , public Weakable<NetworkAdapter> {
 public:
     template<typename Callback>
     static inline void for_each(Callback callback)
@@ -54,8 +69,7 @@ public:
     void set_ipv4_gateway(const IPv4Address&);
 
     void send(const MACAddress&, const ARPPacket&);
-    KResult send_ipv4(const IPv4Address& source_ipv4, const MACAddress&, const IPv4Address&, IPv4Protocol, const UserOrKernelBuffer& payload, size_t payload_size, u8 ttl);
-    KResult send_ipv4_fragmented(const IPv4Address& source_ipv4, const MACAddress&, const IPv4Address&, IPv4Protocol, const UserOrKernelBuffer& payload, size_t payload_size, u8 ttl);
+    void fill_in_ipv4_header(PacketWithTimestamp&, IPv4Address const&, MACAddress const&, IPv4Address const&, IPv4Protocol, size_t, u8);
 
     size_t dequeue_packet(u8* buffer, size_t buffer_size, Time& packet_timestamp);
 
@@ -69,14 +83,23 @@ public:
     u32 packets_out() const { return m_packets_out; }
     u32 bytes_out() const { return m_bytes_out; }
 
+    RefPtr<PacketWithTimestamp> acquire_packet_buffer(size_t);
+    void release_packet_buffer(PacketWithTimestamp&);
+
+    constexpr size_t layer3_payload_offset() const { return sizeof(EthernetFrameHeader); }
+    constexpr size_t ipv4_payload_offset() const { return layer3_payload_offset() + sizeof(IPv4Packet); }
+
+    virtual void send_raw(ReadonlyBytes) = 0;
+
     Function<void()> on_receive;
 
 protected:
     NetworkAdapter();
-    void set_interface_name(const StringView& basename);
+    void set_interface_name(const PCI::Address&);
     void set_mac_address(const MACAddress& mac_address) { m_mac_address = mac_address; }
-    virtual void send_raw(ReadonlyBytes) = 0;
     void did_receive(ReadonlyBytes);
+
+    void set_loopback_name();
 
 private:
     static Lockable<HashTable<NetworkAdapter*>>& all_adapters();
@@ -85,18 +108,6 @@ private:
     IPv4Address m_ipv4_address;
     IPv4Address m_ipv4_netmask;
     IPv4Address m_ipv4_gateway;
-
-    struct PacketWithTimestamp : public RefCounted<PacketWithTimestamp> {
-        PacketWithTimestamp(KBuffer buffer, Time timestamp)
-            : buffer(move(buffer))
-            , timestamp(timestamp)
-        {
-        }
-
-        KBuffer buffer;
-        Time timestamp;
-        IntrusiveListNode<PacketWithTimestamp, RefPtr<PacketWithTimestamp>> packet_node;
-    };
 
     // FIXME: Make this configurable
     static constexpr size_t max_packet_buffers = 1024;

@@ -82,7 +82,7 @@ volatile AHCI::HBA& AHCIController::hba() const
 AHCIController::AHCIController(PCI::Address address)
     : StorageController()
     , PCI::DeviceController(address)
-    , m_hba_region(hba_region())
+    , m_hba_region(default_hba_region())
     , m_capabilities(capabilities())
 {
     initialize();
@@ -125,7 +125,7 @@ AHCI::HBADefinedCapabilities AHCIController::capabilities() const
     };
 }
 
-NonnullOwnPtr<Region> AHCIController::hba_region() const
+NonnullOwnPtr<Region> AHCIController::default_hba_region() const
 {
     auto region = MM.allocate_kernel_region(PhysicalAddress(PCI::get_BAR5(pci_address())).page_base(), page_round_up(sizeof(AHCI::HBA)), "AHCI HBA", Region::Access::Read | Region::Access::Write);
     return region.release_nonnull();
@@ -137,13 +137,11 @@ AHCIController::~AHCIController()
 
 void AHCIController::initialize()
 {
-    if (kernel_command_line().ahci_reset_mode() != AHCIResetMode::None) {
-        if (!reset()) {
-            dmesgln("{}: AHCI controller reset failed", pci_address());
-            return;
-        }
-        dmesgln("{}: AHCI controller reset", pci_address());
+    if (!reset()) {
+        dmesgln("{}: AHCI controller reset failed", pci_address());
+        return;
     }
+    dmesgln("{}: AHCI controller reset", pci_address());
     dbgln("{}: AHCI command list entries count - {}", pci_address(), hba_capabilities().max_command_list_entries_count);
 
     u32 version = hba().control_regs.version;

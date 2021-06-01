@@ -80,7 +80,7 @@ void Game::start_game_over_animation()
     start_timer(s_timer_interval_ms);
 
     if (on_game_end)
-        on_game_end();
+        on_game_end(GameOverReason::Victory, m_score);
 }
 
 void Game::stop_game_over_animation()
@@ -103,13 +103,14 @@ void Game::setup(Mode mode)
     m_mode = mode;
 
     if (on_game_end)
-        on_game_end();
+        on_game_end(GameOverReason::NewGame, m_score);
 
     for (auto& stack : m_stacks)
         stack.clear();
 
     m_new_deck.clear();
     m_new_game_animation_pile = 0;
+    m_passes_left_before_punishment = recycle_rules().passes_allowed_before_punishment;
     m_score = 0;
     update_score(0);
 
@@ -154,6 +155,11 @@ void Game::mousedown_event(GUI::MouseEvent& event)
     if (m_new_game_animation || m_game_over_animation)
         return;
 
+    if (on_game_start && m_waiting_for_new_game) {
+        on_game_start();
+        m_waiting_for_new_game = false;
+    }
+
     auto click_location = event.position();
     for (auto& to_check : m_stacks) {
         if (to_check.type() == CardStack::Type::Waste)
@@ -182,7 +188,11 @@ void Game::mousedown_event(GUI::MouseEvent& event)
                         stock.push(card);
                     }
 
-                    update_score(-100);
+                    if (m_passes_left_before_punishment == 0)
+                        update_score(recycle_rules().punishment);
+                    else
+                        --m_passes_left_before_punishment;
+
                     update(stock.bounding_box());
                 } else {
                     auto play_bounding_box = play.bounding_box();
@@ -321,7 +331,6 @@ void Game::doubleclick_event(GUI::MouseEvent& event)
     GUI::Frame::doubleclick_event(event);
 
     if (m_game_over_animation) {
-        start_game_over_animation();
         setup(mode());
         return;
     }
@@ -436,10 +445,8 @@ void Game::paint_event(GUI::PaintEvent& event)
                 while (!m_new_deck.is_empty())
                     stack(Stock).push(m_new_deck.take_last());
                 m_new_game_animation = false;
+                m_waiting_for_new_game = true;
                 stop_timer();
-
-                if (on_game_start)
-                    on_game_start();
             }
         }
     }

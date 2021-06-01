@@ -49,15 +49,27 @@ class ReplObject final : public JS::GlobalObject {
     JS_OBJECT(ReplObject, JS::GlobalObject);
 
 public:
-    ReplObject();
+    ReplObject() = default;
     virtual void initialize_global_object() override;
-    virtual ~ReplObject() override;
+    virtual ~ReplObject() override = default;
 
 private:
     JS_DECLARE_NATIVE_FUNCTION(exit_interpreter);
     JS_DECLARE_NATIVE_FUNCTION(repl_help);
     JS_DECLARE_NATIVE_FUNCTION(load_file);
     JS_DECLARE_NATIVE_FUNCTION(save_to_file);
+};
+
+class ScriptObject final : public JS::GlobalObject {
+    JS_OBJECT(ScriptObject, JS::GlobalObject);
+
+public:
+    ScriptObject() = default;
+    virtual void initialize_global_object() override;
+    virtual ~ScriptObject() override = default;
+
+private:
+    JS_DECLARE_NATIVE_FUNCTION(load_file);
 };
 
 static bool s_dump_ast = false;
@@ -294,6 +306,8 @@ static void print_array_buffer(const JS::Object& object, HashTable<JS::Object*>&
     print_type("ArrayBuffer");
     out("\n  byteLength: ");
     print_value(JS::Value((double)byte_length), seen_objects);
+    if (!byte_length)
+        return;
     outln();
     for (size_t i = 0; i < byte_length; ++i) {
         out("{:02x}", buffer[i]);
@@ -530,8 +544,30 @@ static bool parse_and_run(JS::Interpreter& interpreter, const StringView& source
     return true;
 }
 
-ReplObject::ReplObject()
+static JS::Value load_file_impl(JS::VM& vm, JS::GlobalObject& global_object)
 {
+    auto filename = vm.argument(0).to_string(global_object);
+    if (vm.exception())
+        return {};
+    auto file = Core::File::construct(filename);
+    if (!file->open(Core::OpenMode::ReadOnly)) {
+        vm.throw_exception<JS::Error>(global_object, String::formatted("Failed to open '{}': {}", filename, file->error_string()));
+        return {};
+    }
+    auto file_contents = file->read_all();
+    auto source = file_has_shebang(file_contents)
+        ? strip_shebang(file_contents)
+        : StringView { file_contents };
+    auto parser = JS::Parser(JS::Lexer(source));
+    auto program = parser.parse_program();
+    if (parser.has_errors()) {
+        auto& error = parser.errors()[0];
+        vm.throw_exception<JS::SyntaxError>(global_object, error.to_string());
+        return {};
+    }
+    // FIXME: Use eval()-like semantics and execute in current scope?
+    vm.interpreter().run(global_object, *program);
+    return JS::js_undefined();
 }
 
 void ReplObject::initialize_global_object()
@@ -542,10 +578,6 @@ void ReplObject::initialize_global_object()
     define_native_function("help", repl_help);
     define_native_function("load", load_file, 1);
     define_native_function("save", save_to_file, 1);
-}
-
-ReplObject::~ReplObject()
-{
 }
 
 JS_DEFINE_NATIVE_FUNCTION(ReplObject::save_to_file)
@@ -575,34 +607,26 @@ JS_DEFINE_NATIVE_FUNCTION(ReplObject::repl_help)
     outln("REPL commands:");
     outln("    exit(code): exit the REPL with specified code. Defaults to 0.");
     outln("    help(): display this menu");
-    outln("    load(files): accepts filenames as params to load into running session. For example load(\"js/1.js\", \"js/2.js\", \"js/3.js\")");
-    outln("    save(file): accepts a filename, writes REPL input history to a file. For example: save(\"foo.txt\")");
+    outln("    load(file): load given JS file into running session. For example: load(\"foo.js\")");
+    outln("    save(file): write REPL input history to the given file. For example: save(\"foo.txt\")");
     return JS::js_undefined();
 }
 
 JS_DEFINE_NATIVE_FUNCTION(ReplObject::load_file)
 {
-    if (!vm.argument_count())
-        return JS::Value(false);
+    return load_file_impl(vm, global_object);
+}
 
-    for (auto& file : vm.call_frame().arguments) {
-        String filename = file.as_string().string();
-        auto js_file = Core::File::construct(filename);
-        if (!js_file->open(Core::OpenMode::ReadOnly)) {
-            warnln("Failed to open {}: {}", filename, js_file->error_string());
-            continue;
-        }
-        auto file_contents = js_file->read_all();
+void ScriptObject::initialize_global_object()
+{
+    Base::initialize_global_object();
+    define_property("global", this, JS::Attribute::Enumerable);
+    define_native_function("load", load_file, 1);
+}
 
-        StringView source;
-        if (file_has_shebang(file_contents)) {
-            source = strip_shebang(file_contents);
-        } else {
-            source = file_contents;
-        }
-        parse_and_run(vm.interpreter(), source);
-    }
-    return JS::Value(true);
+JS_DEFINE_NATIVE_FUNCTION(ScriptObject::load_file)
+{
+    return load_file_impl(vm, global_object);
 }
 
 static void repl(JS::Interpreter& interpreter)
@@ -960,7 +984,7 @@ int main(int argc, char** argv)
         repl(*interpreter);
         s_editor->save_history(s_history_path);
     } else {
-        interpreter = JS::Interpreter::create<JS::GlobalObject>(*vm);
+        interpreter = JS::Interpreter::create<ScriptObject>(*vm);
         ReplConsoleClient console_client(interpreter->global_object().console());
         interpreter->global_object().console().set_client(console_client);
         interpreter->heap().set_should_collect_on_every_allocation(gc_on_every_allocation);

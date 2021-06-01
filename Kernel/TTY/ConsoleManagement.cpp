@@ -15,6 +15,13 @@ namespace Kernel {
 
 static AK::Singleton<ConsoleManagement> s_the;
 
+void ConsoleManagement::resolution_was_changed()
+{
+    for (auto& console : m_consoles) {
+        console.refresh_after_resolution_change();
+    }
+}
+
 bool ConsoleManagement::is_initialized()
 {
     if (!s_the.is_initialized())
@@ -37,7 +44,7 @@ UNMAP_AFTER_INIT ConsoleManagement::ConsoleManagement()
 
 UNMAP_AFTER_INIT void ConsoleManagement::initialize()
 {
-    for (size_t index = 0; index < 4; index++) {
+    for (size_t index = 0; index < s_max_virtual_consoles; index++) {
         // FIXME: Better determine the debug TTY we chose...
         if (index == 1) {
             m_consoles.append(VirtualConsole::create_with_preset_log(index, ConsoleDevice::the().logbuffer()));

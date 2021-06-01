@@ -14,11 +14,6 @@ ClientConnection::ClientConnection()
 {
 }
 
-void ClientConnection::handshake()
-{
-    greet();
-}
-
 void ClientConnection::enqueue(const Buffer& buffer)
 {
     for (;;) {

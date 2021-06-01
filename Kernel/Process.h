@@ -152,16 +152,18 @@ public:
     }
 
     template<typename EntryFunction>
+    static void kernel_process_trampoline(void* data)
+    {
+        EntryFunction* func = reinterpret_cast<EntryFunction*>(data);
+        (*func)();
+        delete func;
+    }
+
+    template<typename EntryFunction>
     static RefPtr<Process> create_kernel_process(RefPtr<Thread>& first_thread, String&& name, EntryFunction entry, u32 affinity = THREAD_AFFINITY_DEFAULT)
     {
         auto* entry_func = new EntryFunction(move(entry));
-        return create_kernel_process(
-            first_thread, move(name), [](void* data) {
-                EntryFunction* func = reinterpret_cast<EntryFunction*>(data);
-                (*func)();
-                delete func;
-            },
-            entry_func, affinity);
+        return create_kernel_process(first_thread, move(name), &Process::kernel_process_trampoline<EntryFunction>, entry_func, affinity);
     }
 
     static RefPtr<Process> create_kernel_process(RefPtr<Thread>& first_thread, String&& name, void (*entry)(void*), void* entry_data = nullptr, u32 affinity = THREAD_AFFINITY_DEFAULT);
@@ -377,7 +379,7 @@ public:
     KResultOr<int> sys$sched_setparam(pid_t pid, Userspace<const struct sched_param*>);
     KResultOr<int> sys$sched_getparam(pid_t pid, Userspace<struct sched_param*>);
     KResultOr<int> sys$create_thread(void* (*)(void*), Userspace<const Syscall::SC_create_thread_params*>);
-    [[noreturn]] void sys$exit_thread(Userspace<void*>);
+    [[noreturn]] void sys$exit_thread(Userspace<void*>, Userspace<void*>, size_t);
     KResultOr<int> sys$join_thread(pid_t tid, Userspace<void**> exit_value);
     KResultOr<int> sys$detach_thread(pid_t tid);
     KResultOr<int> sys$set_thread_name(pid_t tid, Userspace<const char*> buffer, size_t buffer_size);
@@ -544,12 +546,12 @@ private:
 
     KResultOr<siginfo_t> do_waitid(idtype_t idtype, int id, int options);
 
-    KResultOr<String> get_syscall_path_argument(const char* user_path, size_t path_length) const;
-    KResultOr<String> get_syscall_path_argument(Userspace<const char*> user_path, size_t path_length) const
+    KResultOr<NonnullOwnPtr<KString>> get_syscall_path_argument(const char* user_path, size_t path_length) const;
+    KResultOr<NonnullOwnPtr<KString>> get_syscall_path_argument(Userspace<const char*> user_path, size_t path_length) const
     {
         return get_syscall_path_argument(user_path.unsafe_userspace_ptr(), path_length);
     }
-    KResultOr<String> get_syscall_path_argument(const Syscall::StringArgument&) const;
+    KResultOr<NonnullOwnPtr<KString>> get_syscall_path_argument(const Syscall::StringArgument&) const;
 
     bool has_tracee_thread(ProcessID tracer_pid);
 
@@ -559,7 +561,12 @@ private:
 
     inline PerformanceEventBuffer* current_perf_events_buffer()
     {
-        return g_profiling_all_threads ? g_global_perf_events : m_perf_event_buffer.ptr();
+        if (g_profiling_all_threads)
+            return g_global_perf_events;
+        else if (m_profiling)
+            return m_perf_event_buffer.ptr();
+        else
+            return nullptr;
     }
 
     Process* m_prev { nullptr };
@@ -800,12 +807,16 @@ inline ProcessID Thread::pid() const
             VERIFY_NOT_REACHED();                                    \
         }                                                            \
     } while (0)
-
 }
 
 inline static String copy_string_from_user(const Kernel::Syscall::StringArgument& string)
 {
     return copy_string_from_user(string.characters, string.length);
+}
+
+inline static KResultOr<NonnullOwnPtr<KString>> try_copy_kstring_from_user(const Kernel::Syscall::StringArgument& string)
+{
+    return try_copy_kstring_from_user(string.characters, string.length);
 }
 
 template<>

@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2019-2020, Sergey Bugaev <bugaevc@serenityos.org>
+ * Copyright (c) 2021, Max Wipfli <mail@maxwipfli.ch>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -35,17 +36,28 @@ const unsigned char* Utf8View::end_ptr() const
     return begin_ptr() + m_string.length();
 }
 
-Utf8CodepointIterator Utf8View::begin() const
+Utf8CodePointIterator Utf8View::begin() const
 {
     return { begin_ptr(), m_string.length() };
 }
 
-Utf8CodepointIterator Utf8View::end() const
+Utf8CodePointIterator Utf8View::end() const
 {
     return { end_ptr(), 0 };
 }
 
-size_t Utf8View::byte_offset_of(const Utf8CodepointIterator& it) const
+Utf8CodePointIterator Utf8View::iterator_at_byte_offset(size_t byte_offset) const
+{
+    size_t current_offset = 0;
+    for (auto iterator = begin(); !iterator.done(); ++iterator) {
+        if (current_offset >= byte_offset)
+            return iterator;
+        current_offset += iterator.code_point_length_in_bytes();
+    }
+    return end();
+}
+
+size_t Utf8View::byte_offset_of(const Utf8CodePointIterator& it) const
 {
     VERIFY(it.m_ptr >= begin_ptr());
     VERIFY(it.m_ptr <= end_ptr());
@@ -53,10 +65,29 @@ size_t Utf8View::byte_offset_of(const Utf8CodepointIterator& it) const
     return it.m_ptr - begin_ptr();
 }
 
-Utf8View Utf8View::substring_view(int byte_offset, int byte_length) const
+Utf8View Utf8View::substring_view(size_t byte_offset, size_t byte_length) const
 {
     StringView string = m_string.substring_view(byte_offset, byte_length);
     return Utf8View { string };
+}
+
+Utf8View Utf8View::unicode_substring_view(size_t code_point_offset, size_t code_point_length) const
+{
+    if (code_point_length == 0)
+        return {};
+
+    size_t code_point_index = 0, offset_in_bytes = 0;
+    for (auto iterator = begin(); !iterator.done(); ++iterator) {
+        if (code_point_index == code_point_offset)
+            offset_in_bytes = byte_offset_of(iterator);
+        if (code_point_index == code_point_offset + code_point_length - 1) {
+            size_t length_in_bytes = byte_offset_of(++iterator) - offset_in_bytes;
+            return substring_view(offset_in_bytes, length_in_bytes);
+        }
+        ++code_point_index;
+    }
+
+    VERIFY_NOT_REACHED();
 }
 
 static inline bool decode_first_byte(
@@ -142,23 +173,23 @@ bool Utf8View::starts_with(const Utf8View& start) const
     return true;
 }
 
-Utf8CodepointIterator::Utf8CodepointIterator(const unsigned char* ptr, size_t length)
+Utf8CodePointIterator::Utf8CodePointIterator(const unsigned char* ptr, size_t length)
     : m_ptr(ptr)
     , m_length(length)
 {
 }
 
-bool Utf8CodepointIterator::operator==(const Utf8CodepointIterator& other) const
+bool Utf8CodePointIterator::operator==(const Utf8CodePointIterator& other) const
 {
     return m_ptr == other.m_ptr && m_length == other.m_length;
 }
 
-bool Utf8CodepointIterator::operator!=(const Utf8CodepointIterator& other) const
+bool Utf8CodePointIterator::operator!=(const Utf8CodePointIterator& other) const
 {
     return !(*this == other);
 }
 
-Utf8CodepointIterator& Utf8CodepointIterator::operator++()
+Utf8CodePointIterator& Utf8CodePointIterator::operator++()
 {
     VERIFY(m_length > 0);
 
@@ -175,7 +206,7 @@ Utf8CodepointIterator& Utf8CodepointIterator::operator++()
     return *this;
 }
 
-size_t Utf8CodepointIterator::code_point_length_in_bytes() const
+size_t Utf8CodePointIterator::code_point_length_in_bytes() const
 {
     VERIFY(m_length > 0);
     size_t code_point_length_in_bytes = 0;
@@ -185,7 +216,7 @@ size_t Utf8CodepointIterator::code_point_length_in_bytes() const
     return code_point_length_in_bytes;
 }
 
-u32 Utf8CodepointIterator::operator*() const
+u32 Utf8CodePointIterator::operator*() const
 {
     VERIFY(m_length > 0);
 
@@ -207,6 +238,23 @@ u32 Utf8CodepointIterator::operator*() const
     }
 
     return code_point_value_so_far;
+}
+
+Optional<u32> Utf8CodePointIterator::peek(size_t offset) const
+{
+    if (offset == 0) {
+        if (this->done())
+            return {};
+        return this->operator*();
+    }
+
+    auto new_iterator = *this;
+    for (size_t index = 0; index < offset; ++index) {
+        ++new_iterator;
+        if (new_iterator.done())
+            return {};
+    }
+    return *new_iterator;
 }
 
 }

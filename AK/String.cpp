@@ -234,6 +234,7 @@ bool String::ends_with(char ch) const
         return false;
     return characters()[length() - 1] == ch;
 }
+
 String String::repeated(char ch, size_t count)
 {
     if (!count)
@@ -241,6 +242,17 @@ String String::repeated(char ch, size_t count)
     char* buffer;
     auto impl = StringImpl::create_uninitialized(count, buffer);
     memset(buffer, ch, count);
+    return *impl;
+}
+
+String String::repeated(const StringView& string, size_t count)
+{
+    if (!count || string.is_empty())
+        return empty();
+    char* buffer;
+    auto impl = StringImpl::create_uninitialized(count * string.length(), buffer);
+    for (size_t i = 0; i < count; i++)
+        __builtin_memcpy(buffer + i * string.length(), string.characters_without_null_termination(), string.length());
     return *impl;
 }
 
@@ -284,18 +296,6 @@ bool String::matches(const StringView& mask, CaseSensitivity case_sensitivity) c
 bool String::contains(const StringView& needle, CaseSensitivity case_sensitivity) const
 {
     return StringUtils::contains(*this, needle, case_sensitivity);
-}
-
-Optional<size_t> String::index_of(const String& needle, size_t start) const
-{
-    if (is_null() || needle.is_null())
-        return {};
-
-    const char* self_characters = characters();
-    const char* result = strstr(self_characters + start, needle.characters());
-    if (!result)
-        return {};
-    return Optional<size_t> { result - self_characters };
 }
 
 bool String::equals_ignoring_case(const StringView& other) const
@@ -491,14 +491,17 @@ String String::vformatted(StringView fmtstr, TypeErasedFormatParams params)
     return builder.to_string();
 }
 
-Optional<size_t> String::find(char c) const
+Optional<size_t> String::find(char c, size_t start) const
 {
-    return find(StringView { &c, 1 });
+    return find(StringView { &c, 1 }, start);
 }
 
-Optional<size_t> String::find(const StringView& view) const
+Optional<size_t> String::find(StringView const& view, size_t start) const
 {
-    return StringUtils::find(*this, view);
+    auto index = StringUtils::find(substring_view(start), view);
+    if (!index.has_value())
+        return {};
+    return index.value() + start;
 }
 
 }

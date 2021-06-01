@@ -46,8 +46,8 @@ public:
 
     void load(const URL&, LoadType = LoadType::Normal);
     void reload();
-    void go_back();
-    void go_forward();
+    void go_back(int steps = 1);
+    void go_forward(int steps = 1);
 
     void did_become_active();
     void context_menu_requested(const Gfx::IntPoint& screen_position);
@@ -55,12 +55,12 @@ public:
     void action_entered(GUI::Action&);
     void action_left(GUI::Action&);
 
-    Function<void(String)> on_title_change;
+    Function<void(const String&)> on_title_change;
     Function<void(const URL&)> on_tab_open_request;
     Function<void(Tab&)> on_tab_close_request;
     Function<void(const Gfx::Bitmap&)> on_favicon_change;
-    Function<String(const URL& url, Web::Cookie::Source source)> on_get_cookie;
-    Function<void(const URL& url, const Web::Cookie::ParsedCookie& cookie, Web::Cookie::Source source)> on_set_cookie;
+    Function<String(const URL&, Web::Cookie::Source source)> on_get_cookie;
+    Function<void(const URL&, const Web::Cookie::ParsedCookie& cookie, Web::Cookie::Source source)> on_set_cookie;
     Function<void()> on_dump_cookies;
 
     const String& title() const { return m_title; }
@@ -104,7 +104,8 @@ private:
 
     RefPtr<GUI::Menu> m_tab_context_menu;
     RefPtr<GUI::Menu> m_page_context_menu;
-
+    RefPtr<GUI::Menu> m_go_back_context_menu;
+    RefPtr<GUI::Menu> m_go_forward_context_menu;
     String m_title;
     RefPtr<const Gfx::Bitmap> m_icon;
 

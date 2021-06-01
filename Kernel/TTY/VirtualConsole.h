@@ -60,6 +60,7 @@ class VirtualConsole final : public TTY
 public:
     struct Line {
         bool dirty;
+        size_t length;
     };
 
     struct Cell {
@@ -79,6 +80,8 @@ public:
     virtual ~VirtualConsole() override;
 
     size_t index() const { return m_index; }
+
+    void refresh_after_resolution_change();
 
     bool is_graphical() { return m_graphical; }
     void set_graphical(bool graphical);
@@ -103,6 +106,7 @@ private:
     virtual void terminal_did_resize(u16 columns, u16 rows) override;
     virtual void terminal_history_changed() override;
     virtual void emit(const u8*, size_t) override;
+    virtual void set_cursor_style(VT::CursorStyle) override;
 
     // ^CharacterDevice
     virtual const char* class_name() const override { return "VirtualConsole"; }

@@ -1,13 +1,12 @@
 /*
- * Copyright (c) 2018-2020, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2018-2021, Andreas Kling <kling@serenityos.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
+#include <AK/QuickSort.h>
 #include <LibCore/ArgsParser.h>
-#include <LibCore/File.h>
 #include <LibCore/ProcessStatisticsReader.h>
-#include <fcntl.h>
 #include <stdio.h>
 #include <unistd.h>
 
@@ -86,26 +85,27 @@ int main(int argc, char** argv)
 
     auto print_column = [](auto& column, auto& string) {
         if (!column.width) {
-            printf("%s", string.characters());
+            out("{}", string);
             return;
         }
         if (column.alignment == Alignment::Right)
-            printf("%*s ", column.width, string.characters());
+            out("{1:>{0}} ", column.width, string);
         else
-            printf("%-*s ", column.width, string.characters());
+            out("{1:{0}} ", column.width, string);
     };
 
     for (auto& column : columns)
         print_column(column, column.title);
-    printf("\n");
+    outln();
 
-    auto all_processes = Core::ProcessStatisticsReader::get_all();
-    if (!all_processes.has_value())
+    auto processes = Core::ProcessStatisticsReader::get_all();
+    if (!processes.has_value())
         return 1;
 
-    for (const auto& it : all_processes.value()) {
-        const auto& proc = it.value;
-        auto tty = proc.tty;
+    quick_sort(processes.value(), [](auto& a, auto& b) { return a.pid < b.pid; });
+
+    for (auto const& process : processes.value()) {
+        auto tty = process.tty;
 
         if (!every_process_flag && tty != this_tty)
             continue;
@@ -115,24 +115,24 @@ int main(int argc, char** argv)
         else
             tty = "n/a";
 
-        auto* state = proc.threads.is_empty() ? "Zombie" : proc.threads.first().state.characters();
+        auto* state = process.threads.is_empty() ? "Zombie" : process.threads.first().state.characters();
 
         if (uid_column != -1)
-            columns[uid_column].buffer = proc.username;
+            columns[uid_column].buffer = process.username;
         if (pid_column != -1)
-            columns[pid_column].buffer = String::number(proc.pid);
+            columns[pid_column].buffer = String::number(process.pid);
         if (ppid_column != -1)
-            columns[ppid_column].buffer = String::number(proc.ppid);
+            columns[ppid_column].buffer = String::number(process.ppid);
         if (tty_column != -1)
             columns[tty_column].buffer = tty;
         if (state_column != -1)
             columns[state_column].buffer = state;
         if (cmd_column != -1)
-            columns[cmd_column].buffer = proc.name;
+            columns[cmd_column].buffer = process.name;
 
         for (auto& column : columns)
             print_column(column, column.buffer);
-        printf("\n");
+        outln();
     }
 
     return 0;

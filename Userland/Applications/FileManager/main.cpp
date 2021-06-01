@@ -352,7 +352,7 @@ int run_in_desktop_mode([[maybe_unused]] RefPtr<Core::ConfigFile> config)
 
     auto desktop_view_context_menu = GUI::Menu::construct("Directory View");
 
-    auto file_manager_action = GUI::Action::create("Show in &File Manager", {}, Gfx::Bitmap::load_from_file("/res/icons/16x16/app-file-manager.png"), [&](const GUI::Action&) {
+    auto file_manager_action = GUI::Action::create("Show in File &Manager", {}, Gfx::Bitmap::load_from_file("/res/icons/16x16/app-file-manager.png"), [&](const GUI::Action&) {
         Desktop::Launcher::open(URL::create_with_file_protocol(directory_view.path()));
     });
 
@@ -790,7 +790,7 @@ int run_in_windowed_mode(RefPtr<Core::ConfigFile> config, String initial_locatio
     });
     focus_dependent_delete_action->set_enabled(false);
 
-    auto mkdir_action = GUI::Action::create("New &Directory...", { Mod_Ctrl | Mod_Shift, Key_N }, Gfx::Bitmap::load_from_file("/res/icons/16x16/mkdir.png"), [&](const GUI::Action&) {
+    auto mkdir_action = GUI::Action::create("&New Directory...", { Mod_Ctrl | Mod_Shift, Key_N }, Gfx::Bitmap::load_from_file("/res/icons/16x16/mkdir.png"), [&](const GUI::Action&) {
         directory_view.mkdir_action().activate();
         refresh_tree_view();
     });
@@ -820,7 +820,7 @@ int run_in_windowed_mode(RefPtr<Core::ConfigFile> config, String initial_locatio
     edit_menu.add_separator();
     edit_menu.add_action(select_all_action);
 
-    auto action_show_dotfiles = GUI::Action::create_checkable("Show &Dotfiles", { Mod_Ctrl, Key_H }, [&](auto& action) {
+    auto action_show_dotfiles = GUI::Action::create_checkable("&Show Dotfiles", { Mod_Ctrl, Key_H }, [&](auto& action) {
         directory_view.set_should_show_dotfiles(action.is_checked());
         refresh_tree_view();
         config->write_bool_entry("DirectoryView", "ShowDotFiles", action.is_checked());
@@ -1049,7 +1049,8 @@ int run_in_windowed_mode(RefPtr<Core::ConfigFile> config, String initial_locatio
         }
     };
 
-    tree_view.on_selection = [&](const GUI::ModelIndex& index) {
+    tree_view.on_selection_change = [&] {
+        const auto& index = tree_view.selection().first();
         if (directories_model->m_previously_selected_index.is_valid())
             directories_model->update_node_on_selection(directories_model->m_previously_selected_index, false);
 

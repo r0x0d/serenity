@@ -61,7 +61,7 @@ ByteBuffer IODevice::read(size_t max_size)
     int nread = ::read(m_fd, buffer_ptr, remaining_buffer_space);
     if (nread < 0) {
         if (taken_from_buffered) {
-            buffer.trim(taken_from_buffered);
+            buffer.resize(taken_from_buffered);
             return buffer;
         }
         set_error(errno);
@@ -70,12 +70,12 @@ ByteBuffer IODevice::read(size_t max_size)
     if (nread == 0) {
         set_eof(true);
         if (taken_from_buffered) {
-            buffer.trim(taken_from_buffered);
+            buffer.resize(taken_from_buffered);
             return buffer;
         }
         return {};
     }
-    buffer.trim(taken_from_buffered + nread);
+    buffer.resize(taken_from_buffered + nread);
     return buffer;
 }
 
@@ -105,14 +105,31 @@ bool IODevice::can_read_line() const
 {
     if (m_eof && !m_buffered_data.is_empty())
         return true;
+
     if (m_buffered_data.contains_slow('\n'))
         return true;
+
     if (!can_read_from_fd())
         return false;
-    populate_read_buffer();
-    if (m_eof && !m_buffered_data.is_empty())
-        return true;
-    return m_buffered_data.contains_slow('\n');
+
+    while (true) {
+        // Populate buffer until a newline is found or we reach EOF.
+
+        auto previous_buffer_size = m_buffered_data.size();
+        populate_read_buffer();
+        auto new_buffer_size = m_buffered_data.size();
+
+        if (m_error)
+            return false;
+
+        if (m_eof)
+            return !m_buffered_data.is_empty();
+
+        if (m_buffered_data.contains_in_range('\n', previous_buffer_size, new_buffer_size - 1))
+            return true;
+    }
+
+    return true;
 }
 
 bool IODevice::can_read() const
@@ -178,7 +195,7 @@ String IODevice::read_line(size_t max_size)
             Vector<u8> new_buffered_data;
             new_buffered_data.append(m_buffered_data.data() + line_index, m_buffered_data.size() - line_index);
             m_buffered_data = move(new_buffered_data);
-            line.trim(line_index);
+            line.resize(line_index);
             return String::copy(line, Chomp);
         }
     }

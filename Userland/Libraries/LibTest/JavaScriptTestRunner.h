@@ -2,6 +2,7 @@
  * Copyright (c) 2020, Matthew Olsson <mattco@serenityos.org>
  * Copyright (c) 2020-2021, Linus Groh <linusg@serenityos.org>
  * Copyright (c) 2021, Ali Mohammad Pur <mpfard@serenityos.org>
+ * Copyright (c) 2021, Andreas Kling <kling@serenityos.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -26,6 +27,7 @@
 #include <LibJS/Runtime/JSONObject.h>
 #include <LibJS/Runtime/TypedArray.h>
 #include <LibTest/Results.h>
+#include <fcntl.h>
 #include <sys/time.h>
 #include <unistd.h>
 
@@ -66,8 +68,27 @@
     } __testjs_common_register_##name {};   \
     void __TestJS_main_hook::hook()
 
+#define TESTJS_PROGRAM_FLAG(flag, help_string, long_name, short_name)                      \
+    bool flag { false };                                                                   \
+    struct __TestJS_flag_hook_##flag {                                                     \
+        __TestJS_flag_hook_##flag()                                                        \
+        {                                                                                  \
+            ::Test::JS::g_extra_args.set(&(flag), { help_string, long_name, short_name }); \
+        };                                                                                 \
+    } __testjs_flag_hook_##flag;
+
 #define TEST_ROOT(path) \
     String Test::JS::g_test_root_fragment = path
+
+#define TESTJS_RUN_FILE_FUNCTION(...)                                                       \
+    struct __TestJS_run_file {                                                              \
+        __TestJS_run_file()                                                                 \
+        {                                                                                   \
+            ::Test::JS::g_run_file = hook;                                                  \
+        }                                                                                   \
+        static ::Test::JS::IntermediateRunFileResult hook(const String&, JS::Interpreter&); \
+    } __testjs_common_run_file {};                                                          \
+    ::Test::JS::IntermediateRunFileResult __TestJS_run_file::hook(__VA_ARGS__)
 
 namespace Test::JS {
 
@@ -94,6 +115,7 @@ extern String g_test_root;
 extern int g_test_argc;
 extern char** g_test_argv;
 extern Function<void()> g_main_hook;
+extern HashMap<bool*, Tuple<String, String, char>> g_extra_args;
 
 struct ParserError {
     JS::Parser::Error error;
@@ -110,6 +132,14 @@ struct JSFileResult {
     Vector<Test::Suite> suites {};
     Vector<String> logged_messages {};
 };
+
+enum class RunFileHookResult {
+    RunAsNormal,
+    SkipFile,
+};
+
+using IntermediateRunFileResult = AK::Result<JSFileResult, RunFileHookResult>;
+extern IntermediateRunFileResult (*g_run_file)(const String&, JS::Interpreter&);
 
 class TestRunner {
 public:
@@ -179,11 +209,16 @@ inline void TestRunnerGlobalObject::initialize_global_object()
     }
 }
 
-inline void cleanup_and_exit()
+inline void cleanup()
 {
     // Clear the taskbar progress.
     if (TestRunner::the() && TestRunner::the()->is_printing_progress())
         warn("\033]9;-1;\033\\");
+}
+
+inline void cleanup_and_exit()
+{
+    cleanup();
     exit(1);
 }
 
@@ -201,12 +236,16 @@ inline void iterate_directory_recursively(const String& directory_path, Callback
     Core::DirIterator directory_iterator(directory_path, Core::DirIterator::Flags::SkipDots);
 
     while (directory_iterator.has_next()) {
-        auto file_path = directory_iterator.next_full_path();
-        auto is_directory = Core::File::is_directory(file_path);
-        if (is_directory && !file_path.contains("/Fixtures")) {
-            iterate_directory_recursively(file_path, callback);
+        auto name = directory_iterator.next_path();
+        struct stat st = {};
+        if (fstatat(directory_iterator.fd(), name.characters(), &st, AT_SYMLINK_NOFOLLOW) < 0)
+            continue;
+        bool is_directory = S_ISDIR(st.st_mode);
+        auto full_path = String::formatted("{}/{}", directory_path, name);
+        if (is_directory && name != "/Fixtures"sv) {
+            iterate_directory_recursively(full_path, callback);
         } else if (!is_directory) {
-            callback(move(file_path));
+            callback(full_path);
         }
     }
 }
@@ -290,6 +329,41 @@ inline JSFileResult TestRunner::run_file_test(const String& test_path)
     JS::VM::InterpreterExecutionScope scope(*interpreter);
 
     interpreter->heap().set_should_collect_on_every_allocation(g_collect_on_every_allocation);
+
+    if (g_run_file) {
+        auto result = g_run_file(test_path, *interpreter);
+        if (result.is_error() && result.error() == RunFileHookResult::SkipFile) {
+            return {
+                test_path,
+                {},
+                0,
+                Test::Result::Skip,
+                {},
+                {}
+            };
+        }
+        if (!result.is_error()) {
+            auto value = result.release_value();
+            for (auto& suite : value.suites) {
+                if (suite.most_severe_test_result == Result::Pass)
+                    m_counts.suites_passed++;
+                else if (suite.most_severe_test_result == Result::Fail)
+                    m_counts.suites_failed++;
+                for (auto& test : suite.tests) {
+                    if (test.result == Result::Pass)
+                        m_counts.tests_passed++;
+                    else if (test.result == Result::Fail)
+                        m_counts.tests_failed++;
+                    else if (test.result == Result::Skip)
+                        m_counts.tests_skipped++;
+                }
+            }
+            ++m_counts.files_total;
+            m_total_elapsed_time_in_ms += value.time_taken;
+
+            return value;
+        }
+    }
 
     if (!m_test_program) {
         auto result = parse_file(m_common_path);

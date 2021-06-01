@@ -88,7 +88,6 @@ private:
     void set_unresponsive(bool);
     void destroy_window(Window&, Vector<i32>& destroyed_window_ids);
 
-    virtual Messages::WindowServer::GreetResponse greet() override;
     virtual void create_menubar(i32) override;
     virtual void destroy_menubar(i32) override;
     virtual void create_menu(i32, String const&) override;
@@ -134,6 +133,7 @@ private:
     virtual Messages::WindowServer::StartDragResponse start_drag(String const&, HashMap<String, ByteBuffer> const&, Gfx::ShareableBitmap const&) override;
     virtual Messages::WindowServer::SetSystemThemeResponse set_system_theme(String const&, String const&) override;
     virtual Messages::WindowServer::GetSystemThemeResponse get_system_theme() override;
+    virtual Messages::WindowServer::SetSystemFontsResponse set_system_fonts(String const&, String const&) override;
     virtual void set_window_base_size_and_size_increment(i32, Gfx::IntSize const&, Gfx::IntSize const&) override;
     virtual void set_window_resize_aspect_ratio(i32, Optional<Gfx::IntSize> const&) override;
     virtual void enable_display_link() override;

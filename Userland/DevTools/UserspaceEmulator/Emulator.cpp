@@ -278,7 +278,7 @@ String Emulator::create_backtrace_line(FlatPtr address)
     const auto* region = find_text_region(address);
     if (!region)
         return minimal;
-    auto separator_index = region->name().index_of(":");
+    auto separator_index = region->name().find(':');
     if (!separator_index.has_value())
         return minimal;
 
@@ -445,8 +445,8 @@ void Emulator::dispatch_one_pending_signal()
 }
 
 // Make sure the compiler doesn't "optimize away" this function:
-extern void signal_trampoline_dummy();
-void signal_trampoline_dummy()
+static void signal_trampoline_dummy() __attribute__((used));
+NEVER_INLINE void signal_trampoline_dummy()
 {
     // The trampoline preserves the current eax, pushes the signal code and
     // then calls the signal handler. We do this because, when interrupting a

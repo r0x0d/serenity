@@ -26,18 +26,27 @@ public:
     bool is_marked() const { return m_mark; }
     void set_marked(bool b) { m_mark = b; }
 
-    bool is_live() const { return m_live; }
-    void set_live(bool b) { m_live = b; }
+    enum class State {
+        Live,
+        Dead,
+    };
+
+    State state() const { return m_state; }
+    void set_state(State state) { m_state = state; }
 
     virtual const char* class_name() const = 0;
 
     class Visitor {
     public:
-        void visit(Cell*);
+        void visit(Cell* cell)
+        {
+            if (cell)
+                visit_impl(*cell);
+        }
         void visit(Value);
 
     protected:
-        virtual void visit_impl(Cell*) = 0;
+        virtual void visit_impl(Cell&) = 0;
         virtual ~Visitor() = default;
     };
 
@@ -50,8 +59,8 @@ protected:
     Cell() { }
 
 private:
-    bool m_mark { false };
-    bool m_live { true };
+    bool m_mark : 1 { false };
+    State m_state : 7 { State::Live };
 };
 
 }

@@ -50,7 +50,6 @@ int main(int argc, char** argv)
     window->set_title("Solitaire");
 
     auto mode = static_cast<Solitaire::Mode>(config->read_num_entry("Settings", "Mode", static_cast<int>(Solitaire::Mode::SingleCardDraw)));
-    auto high_score = static_cast<u32>(config->read_num_entry("Game", "HighScore", 0));
 
     auto update_mode = [&](Solitaire::Mode new_mode) {
         mode = new_mode;
@@ -59,9 +58,29 @@ int main(int argc, char** argv)
             GUI::MessageBox::show(window, "Configuration could not be saved", "Error", GUI::MessageBox::Type::Error);
     };
 
+    auto high_score = [&]() {
+        switch (mode) {
+        case Solitaire::Mode::SingleCardDraw:
+            return static_cast<u32>(config->read_num_entry("HighScores", "SingleCardDraw", 0));
+        case Solitaire::Mode::ThreeCardDraw:
+            return static_cast<u32>(config->read_num_entry("HighScores", "ThreeCardDraw", 0));
+        default:
+            VERIFY_NOT_REACHED();
+        }
+    };
+
     auto update_high_score = [&](u32 new_high_score) {
-        high_score = new_high_score;
-        config->write_num_entry("Game", "HighScore", static_cast<int>(high_score));
+        switch (mode) {
+        case Solitaire::Mode::SingleCardDraw:
+            config->write_num_entry("HighScores", "SingleCardDraw", static_cast<int>(new_high_score));
+            break;
+        case Solitaire::Mode::ThreeCardDraw:
+            config->write_num_entry("HighScores", "ThreeCardDraw", static_cast<int>(new_high_score));
+            break;
+        default:
+            VERIFY_NOT_REACHED();
+        }
+
         if (!config->sync())
             GUI::MessageBox::show(window, "Configuration could not be saved", "Error", GUI::MessageBox::Type::Error);
     };
@@ -77,7 +96,7 @@ int main(int argc, char** argv)
 
     auto& statusbar = *widget.find_descendant_of_type_named<GUI::Statusbar>("statusbar");
     statusbar.set_text(0, "Score: 0");
-    statusbar.set_text(1, String::formatted("High Score: {}", high_score));
+    statusbar.set_text(1, String::formatted("High Score: {}", high_score()));
     statusbar.set_text(2, "Time: 00:00:00");
 
     app->on_action_enter = [&](GUI::Action& action) {
@@ -93,11 +112,6 @@ int main(int argc, char** argv)
 
     game.on_score_update = [&](uint32_t score) {
         statusbar.set_text(0, String::formatted("Score: {}", score));
-
-        if (score > high_score) {
-            update_high_score(score);
-            statusbar.set_text(1, String::formatted("High Score: {}", high_score));
-        }
     };
 
     uint64_t seconds_elapsed = 0;
@@ -116,29 +130,45 @@ int main(int argc, char** argv)
         seconds_elapsed = 0;
         timer->start();
     };
-    game.on_game_end = [&]() {
+    game.on_game_end = [&](Solitaire::GameOverReason reason, uint32_t score) {
         if (timer->is_active())
             timer->stop();
+
+        if (reason == Solitaire::GameOverReason::Victory) {
+            if (seconds_elapsed >= 30) {
+                uint32_t bonus = (20'000 / seconds_elapsed) * 35;
+                statusbar.set_text(0, String::formatted("Score: {} (Bonus: {})", score, bonus));
+                score += bonus;
+            }
+
+            if (score > high_score()) {
+                update_high_score(score);
+                statusbar.set_text(1, String::formatted("High Score: {}", score));
+            }
+        }
+        statusbar.set_text(2, "Timer starts after your first move");
     };
 
-    GUI::ActionGroup draw_settng_actions;
-    draw_settng_actions.set_exclusive(true);
+    GUI::ActionGroup draw_setting_actions;
+    draw_setting_actions.set_exclusive(true);
 
     auto single_card_draw_action = GUI::Action::create_checkable("&Single Card Draw", [&](auto&) {
         update_mode(Solitaire::Mode::SingleCardDraw);
+        statusbar.set_text(1, String::formatted("High Score: {}", high_score()));
         game.setup(mode);
     });
     single_card_draw_action->set_checked(mode == Solitaire::Mode::SingleCardDraw);
     single_card_draw_action->set_status_tip("Draw one card at a time");
-    draw_settng_actions.add_action(single_card_draw_action);
+    draw_setting_actions.add_action(single_card_draw_action);
 
     auto three_card_draw_action = GUI::Action::create_checkable("&Three Card Draw", [&](auto&) {
         update_mode(Solitaire::Mode::ThreeCardDraw);
+        statusbar.set_text(1, String::formatted("High Score: {}", high_score()));
         game.setup(mode);
     });
     three_card_draw_action->set_checked(mode == Solitaire::Mode::ThreeCardDraw);
     three_card_draw_action->set_status_tip("Draw three cards at a time");
-    draw_settng_actions.add_action(three_card_draw_action);
+    draw_setting_actions.add_action(three_card_draw_action);
 
     auto menubar = GUI::Menubar::construct();
     auto& game_menu = menubar->add_menu("&Game");

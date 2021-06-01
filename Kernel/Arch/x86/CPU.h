@@ -9,6 +9,7 @@
 #include <AK/Atomic.h>
 #include <AK/Badge.h>
 #include <AK/Concepts.h>
+#include <AK/Function.h>
 #include <AK/Noncopyable.h>
 #include <AK/Vector.h>
 
@@ -573,23 +574,17 @@ struct MemoryManagerData;
 struct ProcessorMessageEntry;
 
 struct ProcessorMessage {
+    using CallbackFunction = Function<void()>;
+
     enum Type {
         FlushTlb,
         Callback,
-        CallbackWithData
     };
     Type type;
     volatile u32 refs; // atomic
     union {
         ProcessorMessage* next; // only valid while in the pool
-        struct {
-            void (*handler)();
-        } callback;
-        struct {
-            void* data;
-            void (*handler)(void*);
-            void (*free)(void*);
-        } callback_with_data;
+        alignas(CallbackFunction) u8 callback_storage[sizeof(CallbackFunction)];
         struct {
             const PageDirectory* page_directory;
             u8* ptr;
@@ -600,6 +595,17 @@ struct ProcessorMessage {
     volatile bool async;
 
     ProcessorMessageEntry* per_proc_entries;
+
+    CallbackFunction& callback_value()
+    {
+        return *bit_cast<CallbackFunction*>(&callback_storage);
+    }
+
+    void invoke_callback()
+    {
+        VERIFY(type == Type::Callback);
+        callback_value()();
+    }
 };
 
 struct ProcessorMessageEntry {
@@ -608,20 +614,27 @@ struct ProcessorMessageEntry {
 };
 
 struct DeferredCallEntry {
+    using HandlerFunction = Function<void()>;
+
     DeferredCallEntry* next;
-    union {
-        struct {
-            void (*handler)();
-        } callback;
-        struct {
-            void* data;
-            void (*handler)(void*);
-            void (*free)(void*);
-        } callback_with_data;
-    };
-    bool have_data;
+    alignas(HandlerFunction) u8 handler_storage[sizeof(HandlerFunction)];
     bool was_allocated;
+
+    HandlerFunction& handler_value()
+    {
+        return *bit_cast<HandlerFunction*>(&handler_storage);
+    }
+
+    void invoke_handler()
+    {
+        handler_value()();
+    }
 };
+
+class Processor;
+// Note: We only support processors at most at the moment,
+// so allocate 8 slots of inline capacity in the container.
+using ProcessorContainer = Array<Processor*, 8>;
 
 class Processor {
     friend class ProcessorInfo;
@@ -665,7 +678,7 @@ class Processor {
     void gdt_init();
     void write_raw_gdt_entry(u16 selector, u32 low, u32 high);
     void write_gdt_entry(u16 selector, Descriptor& descriptor);
-    static Vector<Processor*>& processors();
+    static ProcessorContainer& processors();
 
     static void smp_return_to_pool(ProcessorMessage& msg);
     static ProcessorMessage& smp_get_from_pool();
@@ -751,8 +764,10 @@ public:
     {
         auto& procs = processors();
         size_t count = procs.size();
-        for (size_t i = 0; i < count; i++)
-            callback(*procs[i]);
+        for (size_t i = 0; i < count; i++) {
+            if (procs[i] != nullptr)
+                callback(*procs[i]);
+        }
         return IterationDecision::Continue;
     }
 
@@ -932,57 +947,12 @@ public:
     static void smp_enable();
     bool smp_process_pending_messages();
 
-    template<typename Callback>
-    static void smp_broadcast(Callback callback, bool async)
-    {
-        auto* data = new Callback(move(callback));
-        smp_broadcast(
-            [](void* data) {
-                (*reinterpret_cast<Callback*>(data))();
-            },
-            data,
-            [](void* data) {
-                delete reinterpret_cast<Callback*>(data);
-            },
-            async);
-    }
-    static void smp_broadcast(void (*callback)(), bool async);
-    static void smp_broadcast(void (*callback)(void*), void* data, void (*free_data)(void*), bool async);
-    template<typename Callback>
-    static void smp_unicast(u32 cpu, Callback callback, bool async)
-    {
-        auto* data = new Callback(move(callback));
-        smp_unicast(
-            cpu,
-            [](void* data) {
-                (*reinterpret_cast<Callback*>(data))();
-            },
-            data,
-            [](void* data) {
-                delete reinterpret_cast<Callback*>(data);
-            },
-            async);
-    }
-    static void smp_unicast(u32 cpu, void (*callback)(), bool async);
-    static void smp_unicast(u32 cpu, void (*callback)(void*), void* data, void (*free_data)(void*), bool async);
+    static void smp_broadcast(Function<void()>, bool async);
+    static void smp_unicast(u32 cpu, Function<void()>, bool async);
     static void smp_broadcast_flush_tlb(const PageDirectory*, VirtualAddress, size_t);
     static u32 smp_wake_n_idle_processors(u32 wake_count);
 
-    template<typename Callback>
-    static void deferred_call_queue(Callback callback)
-    {
-        auto* data = new Callback(move(callback));
-        deferred_call_queue(
-            [](void* data) {
-                (*reinterpret_cast<Callback*>(data))();
-            },
-            data,
-            [](void* data) {
-                delete reinterpret_cast<Callback*>(data);
-            });
-    }
-    static void deferred_call_queue(void (*callback)());
-    static void deferred_call_queue(void (*callback)(void*), void* data, void (*free_data)(void*));
+    static void deferred_call_queue(Function<void()> callback);
 
     ALWAYS_INLINE bool has_feature(CPUFeature f) const
     {

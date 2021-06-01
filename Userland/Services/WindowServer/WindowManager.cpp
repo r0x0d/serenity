@@ -99,7 +99,7 @@ const Gfx::Font& WindowManager::font() const
 
 const Gfx::Font& WindowManager::window_title_font() const
 {
-    return Gfx::FontDatabase::default_bold_font();
+    return Gfx::FontDatabase::default_font().bold_variant();
 }
 
 bool WindowManager::set_resolution(int width, int height, int scale)
@@ -1543,6 +1543,23 @@ Gfx::IntRect WindowManager::dnd_rect() const
     return Gfx::IntRect(location, { width, height }).inflated(16, 8);
 }
 
+void WindowManager::invalidate_after_theme_or_font_change()
+{
+    Compositor::the().set_background_color(palette().desktop_background().to_string());
+    WindowFrame::reload_config();
+    for_each_window([&](Window& window) {
+        window.frame().theme_changed();
+        return IterationDecision::Continue;
+    });
+    ClientConnection::for_each_client([&](ClientConnection& client) {
+        client.async_update_system_theme(Gfx::current_system_theme_buffer());
+    });
+    MenuManager::the().did_change_theme();
+    AppletManager::the().did_change_theme();
+    Compositor::the().invalidate_occlusions();
+    Compositor::the().invalidate_screen();
+}
+
 bool WindowManager::update_theme(String theme_path, String theme_name)
 {
     auto new_theme = Gfx::load_system_theme(theme_path);
@@ -1550,26 +1567,10 @@ bool WindowManager::update_theme(String theme_path, String theme_name)
         return false;
     Gfx::set_system_theme(new_theme);
     m_palette = Gfx::PaletteImpl::create_with_anonymous_buffer(new_theme);
-    Compositor::the().set_background_color(palette().desktop_background().to_string());
-    HashTable<ClientConnection*> notified_clients;
-    WindowFrame::reload_config();
-    for_each_window([&](Window& window) {
-        if (window.client()) {
-            if (!notified_clients.contains(window.client())) {
-                window.client()->async_update_system_theme(Gfx::current_system_theme_buffer());
-                notified_clients.set(window.client());
-            }
-        }
-        window.frame().theme_changed();
-        return IterationDecision::Continue;
-    });
-    MenuManager::the().did_change_theme();
-    AppletManager::the().did_change_theme();
     auto wm_config = Core::ConfigFile::open("/etc/WindowServer.ini");
     wm_config->write_entry("Theme", "Name", theme_name);
     wm_config->sync();
-    Compositor::the().invalidate_occlusions();
-    Compositor::the().invalidate_screen();
+    invalidate_after_theme_or_font_change();
     return true;
 }
 

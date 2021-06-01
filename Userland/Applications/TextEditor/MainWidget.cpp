@@ -39,6 +39,7 @@
 #include <LibJS/SyntaxHighlighter.h>
 #include <LibMarkdown/Document.h>
 #include <LibSQL/SyntaxHighlighter.h>
+#include <LibWeb/HTML/SyntaxHighlighter/SyntaxHighlighter.h>
 #include <LibWeb/OutOfProcessWebView.h>
 #include <Shell/SyntaxHighlighter.h>
 
@@ -64,23 +65,6 @@ MainWidget::MainWidget()
 
     m_editor->on_modified_change = [this](bool modified) {
         window()->set_modified(modified);
-    };
-
-    m_page_view = *find_descendant_of_type_named<Web::OutOfProcessWebView>("webview");
-    m_page_view->on_link_hover = [this](auto& url) {
-        if (url.is_valid())
-            m_statusbar->set_text(url.to_string());
-        else
-            update_statusbar();
-    };
-    m_page_view->on_link_click = [&](auto& url, auto&, unsigned) {
-        if (!Desktop::Launcher::open(url)) {
-            GUI::MessageBox::show(
-                window(),
-                String::formatted("The link to '{}' could not be opened.", url),
-                "Failed to open link",
-                GUI::MessageBox::Type::Error);
-        }
     };
 
     m_find_replace_widget = *find_descendant_of_type_named<GUI::GroupBox>("find_replace_widget");
@@ -130,7 +114,7 @@ MainWidget::MainWidget()
         }
     });
 
-    m_find_previous_action = GUI::Action::create("Find &Previous", { Mod_Ctrl | Mod_Shift, Key_G }, Gfx::Bitmap::load_from_file("/res/icons/16x16/find-previous.png"), [&](auto&) {
+    m_find_previous_action = GUI::Action::create("Find Pr&evious", { Mod_Ctrl | Mod_Shift, Key_G }, Gfx::Bitmap::load_from_file("/res/icons/16x16/find-previous.png"), [&](auto&) {
         auto needle = m_find_textbox->text();
         if (needle.is_empty())
             return;
@@ -153,7 +137,7 @@ MainWidget::MainWidget()
         }
     });
 
-    m_replace_action = GUI::Action::create("&Replace", { Mod_Ctrl, Key_F1 }, [&](auto&) {
+    m_replace_action = GUI::Action::create("Rep&lace", { Mod_Ctrl, Key_F1 }, [&](auto&) {
         auto needle = m_find_textbox->text();
         auto substitute = m_replace_textbox->text();
         if (needle.is_empty())
@@ -346,6 +330,30 @@ MainWidget::~MainWidget()
 {
 }
 
+Web::OutOfProcessWebView& MainWidget::ensure_web_view()
+{
+    if (!m_page_view) {
+        auto& web_view_container = *find_descendant_of_type_named<GUI::Widget>("web_view_container");
+        m_page_view = web_view_container.add<Web::OutOfProcessWebView>();
+        m_page_view->on_link_hover = [this](auto& url) {
+            if (url.is_valid())
+                m_statusbar->set_text(url.to_string());
+            else
+                update_statusbar();
+        };
+        m_page_view->on_link_click = [&](auto& url, auto&, unsigned) {
+            if (!Desktop::Launcher::open(url)) {
+                GUI::MessageBox::show(
+                    window(),
+                    String::formatted("The link to '{}' could not be opened.", url),
+                    "Failed to open link",
+                    GUI::MessageBox::Type::Error);
+            }
+        };
+    }
+    return *m_page_view;
+}
+
 void MainWidget::initialize_menubar(GUI::Menubar& menubar)
 {
     auto& file_menu = menubar.add_menu("&File");
@@ -503,7 +511,7 @@ void MainWidget::initialize_menubar(GUI::Menubar& menubar)
 
     view_menu.add_separator();
 
-    m_visualize_trailing_whitespace_action = GUI::Action::create_checkable("Visualize &Trailing Whitespace", [&](auto&) {
+    m_visualize_trailing_whitespace_action = GUI::Action::create_checkable("&Visualize Trailing Whitespace", [&](auto&) {
         m_editor->set_visualize_trailing_whitespace(m_visualize_trailing_whitespace_action->is_checked());
     });
     m_visualize_leading_whitespace_action = GUI::Action::create_checkable("Visualize &Leading Whitespace", [&](auto&) {
@@ -546,6 +554,13 @@ void MainWidget::initialize_menubar(GUI::Menubar& menubar)
     });
     syntax_actions.add_action(*m_js_highlight);
     syntax_menu.add_action(*m_js_highlight);
+
+    m_html_highlight = GUI::Action::create_checkable("&HTML File", [&](auto&) {
+        m_editor->set_syntax_highlighter(make<Web::HTML::SyntaxHighlighter>());
+        m_editor->update();
+    });
+    syntax_actions.add_action(*m_html_highlight);
+    syntax_menu.add_action(*m_html_highlight);
 
     m_gml_highlight = GUI::Action::create_checkable("&GML", [&](auto&) {
         m_editor->set_syntax_highlighter(make<GUI::GMLSyntaxHighlighter>());
@@ -598,6 +613,8 @@ void MainWidget::set_path(const LexicalPath& lexical_path)
         m_ini_highlight->activate();
     } else if (m_extension == "sql") {
         m_sql_highlight->activate();
+    } else if (m_extension == "html") {
+        m_html_highlight->activate();
     } else {
         m_plain_text_highlight->activate();
     }
@@ -681,6 +698,15 @@ void MainWidget::drop_event(GUI::DropEvent& event)
     }
 }
 
+void MainWidget::set_web_view_visible(bool visible)
+{
+    if (!visible && !m_page_view)
+        return;
+    ensure_web_view();
+    auto& web_view_container = *find_descendant_of_type_named<GUI::Widget>("web_view_container");
+    web_view_container.set_visible(visible);
+}
+
 void MainWidget::set_preview_mode(PreviewMode mode)
 {
     if (m_preview_mode == mode)
@@ -689,15 +715,15 @@ void MainWidget::set_preview_mode(PreviewMode mode)
 
     if (m_preview_mode == PreviewMode::HTML) {
         m_html_preview_action->set_checked(true);
-        m_page_view->set_visible(true);
+        set_web_view_visible(true);
         update_html_preview();
     } else if (m_preview_mode == PreviewMode::Markdown) {
         m_markdown_preview_action->set_checked(true);
-        m_page_view->set_visible(true);
+        set_web_view_visible(true);
         update_markdown_preview();
     } else {
         m_no_preview_action->set_checked(true);
-        m_page_view->set_visible(false);
+        set_web_view_visible(false);
     }
 }
 
@@ -739,20 +765,8 @@ void MainWidget::update_statusbar()
     builder.appendff("Line: {}, Column: {}", m_editor->cursor().line() + 1, m_editor->cursor().column());
 
     if (m_editor->has_selection()) {
-        int word_count = 0;
-        bool in_word = false;
         String selected_text = m_editor->selected_text();
-        for (char c : selected_text) {
-            if (in_word && isspace(c)) {
-                in_word = false;
-                word_count++;
-                continue;
-            }
-            if (!in_word && !isspace(c))
-                in_word = true;
-        }
-        if (in_word)
-            word_count++;
+        auto word_count = m_editor->number_of_selected_words();
         builder.appendff("        Selected: {} {} ({} {})", selected_text.length(), selected_text.length() == 1 ? "character" : "characters", word_count, word_count != 1 ? "words" : "word");
     }
     m_statusbar->set_text(builder.to_string());

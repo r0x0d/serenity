@@ -20,6 +20,9 @@ public:
 
 private:
     JS_DECLARE_NATIVE_GETTER(length_getter);
+    JS_DECLARE_NATIVE_GETTER(buffer_getter);
+    JS_DECLARE_NATIVE_GETTER(byte_length_getter);
+    JS_DECLARE_NATIVE_GETTER(byte_offset_getter);
 
     JS_DECLARE_NATIVE_FUNCTION(at);
 };

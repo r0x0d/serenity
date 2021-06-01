@@ -397,7 +397,7 @@ int main(int argc, char** argv)
 
     auto file_or_error = Core::File::open(path, Core::OpenMode::ReadOnly);
     if (file_or_error.is_error()) {
-        fprintf(stderr, "Cannot open %s\n", path);
+        warnln("Failed to open {}: {}", path, file_or_error.error());
         return 1;
     }
 
@@ -856,7 +856,7 @@ void generate_implementation(const IDL::Interface& interface)
 #include <LibJS/Runtime/Error.h>
 #include <LibJS/Runtime/Function.h>
 #include <LibJS/Runtime/GlobalObject.h>
-#include <LibJS/Runtime/Uint8ClampedArray.h>
+#include <LibJS/Runtime/TypedArray.h>
 #include <LibJS/Runtime/Value.h>
 #include <LibWeb/Bindings/@prototype_class@.h>
 #include <LibWeb/Bindings/@wrapper_class@.h>
@@ -1200,7 +1200,7 @@ void generate_prototype_implementation(const IDL::Interface& interface)
 #include <LibJS/Runtime/Error.h>
 #include <LibJS/Runtime/Function.h>
 #include <LibJS/Runtime/GlobalObject.h>
-#include <LibJS/Runtime/Uint8ClampedArray.h>
+#include <LibJS/Runtime/TypedArray.h>
 #include <LibWeb/Bindings/@prototype_class@.h>
 #include <LibWeb/Bindings/@wrapper_class@.h>
 #include <LibWeb/Bindings/CSSStyleDeclarationWrapper.h>

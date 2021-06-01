@@ -15,25 +15,34 @@
 
 int main(int argc, char** argv)
 {
+    String default_listen_address = "0.0.0.0";
     u16 default_port = 8000;
     const char* root_path = "/www";
 
+    String listen_address = default_listen_address;
     int port = default_port;
 
     Core::ArgsParser args_parser;
+    args_parser.add_option(listen_address, "IP address to listen on", "listen-address", 'l', "listen_address");
     args_parser.add_option(port, "Port to listen on", "port", 'p', "port");
     args_parser.add_positional_argument(root_path, "Path to serve the contents of", "path", Core::ArgsParser::Required::No);
     args_parser.parse(argc, argv);
 
+    auto ipv4_address = IPv4Address::from_string(listen_address);
+    if (!ipv4_address.has_value()) {
+        warnln("Invalid listen address: {}", listen_address);
+        return 1;
+    }
+
     if ((u16)port != port) {
-        printf("Warning: invalid port number: %d\n", port);
-        port = default_port;
+        warnln("Invalid port number: {}", port);
+        return 1;
     }
 
     auto real_root_path = Core::File::real_path_for(root_path);
 
     if (!Core::File::exists(real_root_path)) {
-        fprintf(stderr, "Root path does not exist: '%s'\n", root_path);
+        warnln("Root path does not exist: '{}'", root_path);
         return 1;
     }
 
@@ -53,12 +62,12 @@ int main(int argc, char** argv)
         client->start();
     };
 
-    if (!server->listen({}, port)) {
-        warnln("Failed to listen on 0.0.0.0:{}", port);
+    if (!server->listen(ipv4_address.value(), port)) {
+        warnln("Failed to listen on {}:{}", ipv4_address.value(), port);
         return 1;
     }
 
-    outln("Listening on 0.0.0.0:{}", port);
+    outln("Listening on {}:{}", ipv4_address.value(), port);
 
     if (unveil("/res/icons", "r") < 0) {
         perror("unveil");

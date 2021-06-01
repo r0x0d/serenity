@@ -13,8 +13,9 @@
 #include <AK/Vector.h>
 #include <LibCore/Forward.h>
 #include <LibJS/Forward.h>
-#include <LibJS/Heap/Allocator.h>
+#include <LibJS/Heap/BlockAllocator.h>
 #include <LibJS/Heap/Cell.h>
+#include <LibJS/Heap/CellAllocator.h>
 #include <LibJS/Heap/Handle.h>
 #include <LibJS/Runtime/Object.h>
 
@@ -72,6 +73,8 @@ public:
     void defer_gc(Badge<DeferGC>);
     void undefer_gc(Badge<DeferGC>);
 
+    BlockAllocator& block_allocator() { return m_block_allocator; }
+
 private:
     Cell* allocate_cell(size_t);
 
@@ -80,7 +83,7 @@ private:
     void mark_live_cells(const HashTable<Cell*>& live_cells);
     void sweep_dead_cells(bool print_report, const Core::ElapsedTimer&);
 
-    Allocator& allocator_for_size(size_t);
+    CellAllocator& allocator_for_size(size_t);
 
     template<typename Callback>
     void for_each_block(Callback callback)
@@ -98,10 +101,12 @@ private:
 
     VM& m_vm;
 
-    Vector<NonnullOwnPtr<Allocator>> m_allocators;
+    Vector<NonnullOwnPtr<CellAllocator>> m_allocators;
     HashTable<HandleImpl*> m_handles;
 
     HashTable<MarkedValueList*> m_marked_value_lists;
+
+    BlockAllocator m_block_allocator;
 
     size_t m_gc_deferrals { 0 };
     bool m_should_gc_when_deferral_ends { false };

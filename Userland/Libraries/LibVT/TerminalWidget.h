@@ -39,8 +39,6 @@ public:
 
     void apply_size_increments_to_window(GUI::Window&);
 
-    const Gfx::Font& bold_font() const { return *m_bold_font; }
-
     void set_opacity(u8);
     float opacity() { return m_opacity; };
 
@@ -116,8 +114,11 @@ private:
     virtual void terminal_did_resize(u16 columns, u16 rows) override;
     virtual void terminal_history_changed() override;
     virtual void emit(const u8*, size_t) override;
+    virtual void set_cursor_style(CursorStyle) override;
 
     void set_logical_focus(bool);
+
+    void send_non_user_input(const ReadonlyBytes&);
 
     Gfx::IntRect glyph_rect(u16 row, u16 column);
     Gfx::IntRect row_rect(u16 row);
@@ -175,7 +176,7 @@ private:
     bool m_cursor_blink_state { true };
     bool m_automatic_size_policy { false };
 
-    RefPtr<Gfx::Font> m_bold_font;
+    VT::CursorStyle m_cursor_style { BlinkingBlock };
 
     enum class AutoScrollDirection {
         None,

@@ -60,8 +60,8 @@
 #include <LibGUI/Window.h>
 #include <LibGfx/FontDatabase.h>
 #include <LibGfx/Palette.h>
-#include <LibThread/Lock.h>
-#include <LibThread/Thread.h>
+#include <LibThreading/Lock.h>
+#include <LibThreading/Thread.h>
 #include <LibVT/TerminalWidget.h>
 #include <fcntl.h>
 #include <spawn.h>
@@ -363,7 +363,7 @@ NonnullRefPtr<GUI::Action> HackStudioWidget::create_new_file_action()
 
 NonnullRefPtr<GUI::Action> HackStudioWidget::create_new_directory_action()
 {
-    return GUI::Action::create("New &Directory...", { Mod_Ctrl | Mod_Shift, Key_N }, Gfx::Bitmap::load_from_file("/res/icons/16x16/mkdir.png"), [this](const GUI::Action&) {
+    return GUI::Action::create("&New Directory...", { Mod_Ctrl | Mod_Shift, Key_N }, Gfx::Bitmap::load_from_file("/res/icons/16x16/mkdir.png"), [this](const GUI::Action&) {
         String directory_name;
         if (GUI::InputBox::show(window(), directory_name, "Enter name of new directory:", "Add new folder to project") != GUI::InputBox::ExecOK)
             return;
@@ -565,7 +565,7 @@ NonnullRefPtr<GUI::Action> HackStudioWidget::create_save_action()
 
 NonnullRefPtr<GUI::Action> HackStudioWidget::create_remove_current_terminal_action()
 {
-    return GUI::Action::create("&Remove Current Terminal", { Mod_Alt | Mod_Shift, Key_T }, [this](auto&) {
+    return GUI::Action::create("Remove &Current Terminal", { Mod_Alt | Mod_Shift, Key_T }, [this](auto&) {
         auto widget = m_action_tab_widget->active_widget();
         if (!widget)
             return;
@@ -621,7 +621,7 @@ NonnullRefPtr<GUI::Action> HackStudioWidget::create_debug_action()
         }
 
         Debugger::the().set_executable_path(get_project_executable_path());
-        m_debugger_thread = LibThread::Thread::construct(Debugger::start_static);
+        m_debugger_thread = Threading::Thread::construct(Debugger::start_static);
         m_debugger_thread->start();
         m_stop_action->set_enabled(true);
     });
@@ -903,7 +903,7 @@ void HackStudioWidget::create_project_menubar(GUI::Menubar& menubar)
 void HackStudioWidget::create_edit_menubar(GUI::Menubar& menubar)
 {
     auto& edit_menu = menubar.add_menu("&Edit");
-    edit_menu.add_action(GUI::Action::create("Find in Files...", { Mod_Ctrl | Mod_Shift, Key_F }, Gfx::Bitmap::load_from_file("/res/icons/16x16/find.png"), [this](auto&) {
+    edit_menu.add_action(GUI::Action::create("&Find in Files...", { Mod_Ctrl | Mod_Shift, Key_F }, Gfx::Bitmap::load_from_file("/res/icons/16x16/find.png"), [this](auto&) {
         reveal_action_tab(*m_find_in_files_widget);
         m_find_in_files_widget->focus_textbox_and_select_all();
     }));

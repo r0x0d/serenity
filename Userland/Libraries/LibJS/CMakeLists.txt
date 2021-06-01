@@ -1,9 +1,9 @@
 set(SOURCES
     AST.cpp
     Console.cpp
-    Heap/Allocator.cpp
-    Heap/Cell.cpp
-    Heap/Handle.cpp
+        Heap/CellAllocator.cpp
+        Heap/BlockAllocator.cpp
+        Heap/Handle.cpp
     Heap/HeapBlock.cpp
     Heap/Heap.cpp
     Interpreter.cpp
@@ -83,7 +83,6 @@ set(SOURCES
     Runtime/TypedArray.cpp
     Runtime/TypedArrayConstructor.cpp
     Runtime/TypedArrayPrototype.cpp
-    Runtime/Uint8ClampedArray.cpp
     Runtime/VM.cpp
     Runtime/Value.cpp
     Runtime/WithScope.cpp
