@@ -363,6 +363,10 @@ Messages::WindowServer::SetWindowRectResponse ClientConnection::set_window_rect(
         dbgln("ClientConnection: Ignoring SetWindowRect request for fullscreen window");
         return nullptr;
     }
+    if (rect.width() > INT16_MAX || rect.height() > INT16_MAX) {
+        did_misbehave(String::formatted("SetWindowRect: Bad window sizing(width={}, height={}), dimension exceeds INT16_MAX", rect.width(), rect.height()).characters());
+        return nullptr;
+    }
 
     if (rect.location() != window.rect().location()) {
         window.set_default_positioned(false);
@@ -461,6 +465,11 @@ Messages::WindowServer::CreateWindowResponse ClientConnection::create_window(Gfx
         }
     }
 
+    if (type < 0 || type >= (i32)WindowType::_Count) {
+        did_misbehave("CreateWindow with a bad type");
+        return nullptr;
+    }
+
     int window_id = m_next_window_id++;
     auto window = Window::construct(*this, (WindowType)type, window_id, modal, minimizable, frameless, resizable, fullscreen, accessory, parent_window);
 
@@ -488,7 +497,8 @@ Messages::WindowServer::CreateWindowResponse ClientConnection::create_window(Gfx
     window->set_alpha_hit_threshold(alpha_hit_threshold);
     window->set_size_increment(size_increment);
     window->set_base_size(base_size);
-    window->set_resize_aspect_ratio(resize_aspect_ratio);
+    if (resize_aspect_ratio.has_value() && !resize_aspect_ratio.value().is_null())
+        window->set_resize_aspect_ratio(resize_aspect_ratio);
     window->invalidate(true, true);
     if (window->type() == WindowType::Applet)
         AppletManager::the().add_applet(*window);
@@ -894,6 +904,20 @@ Messages::WindowServer::GetScreenBitmapResponse ClientConnection::get_screen_bit
     return bitmap.to_shareable_bitmap();
 }
 
+Messages::WindowServer::GetScreenBitmapAroundCursorResponse ClientConnection::get_screen_bitmap_around_cursor(Gfx::IntSize const& size)
+{
+    auto scale_factor = WindowManager::the().scale_factor();
+    auto cursor_location = Screen::the().cursor_location();
+    Gfx::Rect rect { (cursor_location.x() * scale_factor) - (size.width() / 2), (cursor_location.y() * scale_factor) - (size.height() / 2), size.width(), size.height() };
+
+    // Recompose the screen to make sure the cursor is painted in the location we think it is.
+    // FIXME: This is rather wasteful. We can probably think of a way to avoid this.
+    Compositor::the().compose();
+
+    auto bitmap = Compositor::the().front_bitmap_for_screenshot({}).cropped(rect);
+    return bitmap->to_shareable_bitmap();
+}
+
 Messages::WindowServer::IsWindowModifiedResponse ClientConnection::is_window_modified(i32 window_id)
 {
     auto it = m_windows.find(window_id);
@@ -903,6 +927,11 @@ Messages::WindowServer::IsWindowModifiedResponse ClientConnection::is_window_mod
     }
     auto& window = *it->value;
     return window.is_modified();
+}
+
+Messages::WindowServer::GetDesktopDisplayScaleResponse ClientConnection::get_desktop_display_scale()
+{
+    return WindowManager::the().scale_factor();
 }
 
 void ClientConnection::set_window_modified(i32 window_id, bool modified)

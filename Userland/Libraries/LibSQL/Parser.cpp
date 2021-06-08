@@ -321,11 +321,11 @@ NonnullRefPtr<Select> Parser::parse_select_statement(RefPtr<CommonTableExpressio
         RefPtr<Expression> offset_expression;
         if (consume_if(TokenType::Offset)) {
             offset_expression = parse_expression();
-        } else {
+        } else if (consume_if(TokenType::Comma)) {
             // Note: The limit clause may instead be defined as "offset-expression, limit-expression", effectively reversing the
             // order of the expressions. SQLite notes "this is counter-intuitive" and "to avoid confusion, programmers are strongly
             // encouraged to ... avoid using a LIMIT clause with a comma-separated offset."
-            VERIFY(!consume_if(TokenType::Comma));
+            syntax_error("LIMIT clauses of the form 'LIMIT <expr>, <expr>' are not supported");
         }
 
         limit_clause = create_ast_node<LimitClause>(move(limit_expression), move(offset_expression));
@@ -352,6 +352,11 @@ RefPtr<CommonTableExpressionList> Parser::parse_common_table_expression_list()
 
 NonnullRefPtr<Expression> Parser::parse_expression()
 {
+    if (++m_parser_state.m_current_expression_depth > Limits::maximum_expression_tree_depth) {
+        syntax_error(String::formatted("Exceeded maximum expression tree depth of {}", Limits::maximum_expression_tree_depth));
+        return create_ast_node<ErrorExpression>();
+    }
+
     // https://sqlite.org/lang_expr.html
     auto expression = parse_primary_expression();
 
@@ -362,6 +367,7 @@ NonnullRefPtr<Expression> Parser::parse_expression()
     // FIXME: Parse 'function-name'.
     // FIXME: Parse 'raise-function'.
 
+    --m_parser_state.m_current_expression_depth;
     return expression;
 }
 

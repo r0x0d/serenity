@@ -180,7 +180,7 @@ void VM::assign(const NonnullRefPtr<BindingPattern>& target, Value value, Global
 
     switch (binding.kind) {
     case BindingPattern::Kind::Array: {
-        auto iterator = get_iterator(global_object, value, "sync"sv, {});
+        auto iterator = get_iterator(global_object, value);
         if (!iterator)
             return;
 
@@ -542,6 +542,12 @@ void VM::promise_rejection_tracker(const Promise& promise, Promise::RejectionOpe
     default:
         VERIFY_NOT_REACHED();
     }
+}
+
+void VM::dump_backtrace() const
+{
+    for (ssize_t i = m_call_stack.size() - 1; i >= 0; --i)
+        dbgln("-> {}", m_call_stack[i]->function_name);
 }
 
 }

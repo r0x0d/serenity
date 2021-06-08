@@ -21,6 +21,7 @@ That said, please do file any bugs you find, keeping the following in mind:
 * One issue per bug. Putting multiple things in the same issue makes both discussion and completion unnecessarily complicated.
 * No build issues (or other support requests). If the GitHub Actions CI build succeeds, the build problem is most likely on your side. Work it out locally, or ask in the `#build-problems` channel on Discord.
 * Don't comment on issues just to add a joke or irrelevant commentary. Hundreds of people get notified about comments so let's keep them relevant.
+* For bare metal issues, please include the complete debug log from the serial console and what you tried to do to solve the issue before opening the issue. Don't forget to add the hardware model of your machine and relevant details about it, to help us diagnose what is the problem.
 
 ## Human language policy
 
@@ -63,3 +64,29 @@ Nobody is perfect, and sometimes we mess things up. That said, here are some goo
 * Include commented-out code.
 * Write in C. (Instead, take advantage of C++'s amenities, and don't limit yourself to the standard C library.)
 * Attempt large architectural changes until you are familiar with the system and have worked on it for a while.
+
+## Pull Request Q&A
+
+### I've submitted a PR and it passes CI. When can I expect to get first reviewer feedback?
+
+While unadvertised PR's may get randomly merged by curious reviewers, you will have a much smoother time if you engage with the community on Discord.
+
+### If my PR isn't getting attention, how long should I wait before pinging one of the project reviewers?
+
+Ping them right away if it's something urgent! If it's less urgent, advertise your PR on Discord and ask if someone could review it.
+
+### Who are the project reviewers?
+
+The project reviewers at this time are @awesomekling, @linusg and @alimpfard.
+
+### Is there a policy for branches/PRs that haven't been touched in X days? Should they be closed?
+
+Yes, we have a "stalebot" that will mark untouched PR's as "stale" after 21 days, and close them after another 7 days if nothing happens.
+
+### Are there specific people to reach out to for different subsystems (e.g. Kernel, Browser, GUI, etc)?
+
+In theory, the best person to speak with is whoever wrote most code adjacent to what you're working on. In practice, asking in one of the development channels on Discord is usually easier/better, since that allows many people to join the discussion.
+
+### Is Discord the place to ask for review help, or is Github preferred?
+
+It's definitely better to ask on Discord. Due to the volume of GitHub notifications, many of us turn them off and rely on Discord for learning about review requests.
