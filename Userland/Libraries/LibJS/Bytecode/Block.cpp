@@ -34,6 +34,8 @@ Block::~Block()
         ++it;
         Instruction::destroy(const_cast<Instruction&>(to_destroy));
     }
+
+    munmap(m_buffer, m_buffer_capacity);
 }
 
 void Block::seal()
@@ -41,6 +43,7 @@ void Block::seal()
     // FIXME: mprotect the instruction stream as PROT_READ
     // This is currently not possible because instructions can have destructors (that clean up strings)
     // Instructions should instead be destructor-less and refer to strings in a string table on the Bytecode::Block.
+    // It also doesn't work because instructions that have String members use RefPtr internally which must be in writable memory.
 }
 
 void Block::dump() const

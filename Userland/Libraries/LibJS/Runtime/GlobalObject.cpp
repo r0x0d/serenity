@@ -290,6 +290,11 @@ void GlobalObject::put_to_scope(const FlyString& name, Variable variable)
     put(name, variable.value);
 }
 
+bool GlobalObject::delete_from_scope(FlyString const& name)
+{
+    return delete_property(name);
+}
+
 bool GlobalObject::has_this_binding() const
 {
     return true;
@@ -317,10 +322,8 @@ JS_DEFINE_NATIVE_FUNCTION(GlobalObject::eval)
     auto& caller_frame = vm.call_stack().at(vm.call_stack().size() - 2);
     TemporaryChange scope_change(vm.call_frame().scope, caller_frame->scope);
 
-    vm.interpreter().execute_statement(global_object, program);
-    if (vm.exception())
-        return {};
-    return vm.last_value().value_or(js_undefined());
+    auto& interpreter = vm.interpreter();
+    return interpreter.execute_statement(global_object, program).value_or(js_undefined());
 }
 
 // 19.2.6.1.1 Encode ( string, unescapedSet )
