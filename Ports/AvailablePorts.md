@@ -123,7 +123,7 @@ Please make sure to keep this list up to date when adding and updating ports. :^
 | [`SDL2_ttf`](SDL2_ttf/)                | SDL2\_ttf (TrueType Font add-on for SDL2)                  | 2.0.15                   | https://www.libsdl.org/projects/SDL_ttf/                                       |
 | [`sed`](sed/)                          | GNU sed                                                    | 4.2.1                    | https://www.gnu.org/software/sed/                                              |
 | [`sl`](sl/)                            | Steam Locomotive (SL)                                      |                          | https://github.com/mtoyoda/sl                                                  |
-| [`sqlite`](sqlite/)                    | SQLite                                                     | 3350300                  | https://www.sqlite.org/                                                        |
+| [`sqlite`](sqlite/)                    | SQLite                                                     | 3350500                  | https://www.sqlite.org/                                                        |
 | [`stpuzzles`](stpuzzles/)              | Simon Tatham's Portable Puzzle Collection                  |                          | https://www.chiark.greenend.org.uk/~sgtatham/puzzles/                          |
 | [`stress-ng`](stress-ng/)              | stress-ng                                                  | 0.11.23                  | https://github.com/ColinIanKing/stress-ng                                      |
 | [`Super-Mario`](Super-Mario/)          | Super-Mario Clone                                          |                          | https://github.com/Bennyhwanggggg/Super-Mario-Clone-Cpp                        |
@@ -139,4 +139,5 @@ Please make sure to keep this list up to date when adding and updating ports. :^
 | [`xz`](xz/)                            | xz                                                         | 5.2.5                    | https://tukaani.org/xz/                                                        |
 | [`yasm`](yasm/)                        | Yasm Modular Assembler                                     | 1.3.0                    | https://yasm.tortall.net/                                                      |
 | [`zlib`](zlib/)                        | zlib                                                       | 1.2.11                   | https://www.zlib.net/                                                          |
+| [`zsh`](zsh/)                          | Z Shell (Zsh)                                              | 5.8                      | https://www.zsh.org                                                            |
 | [`zstd`](zstd/)                        | Zstandard                                                  | 1.4.4                    | https://facebook.github.io/zstd/                                               |

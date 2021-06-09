@@ -6,7 +6,7 @@
 
 #pragma once
 
-#include <AK/NonnullOwnPtrVector.h>
+#include "Generator.h"
 #include <LibJS/Bytecode/Label.h>
 #include <LibJS/Bytecode/Register.h>
 #include <LibJS/Forward.h>
@@ -28,13 +28,18 @@ public:
     GlobalObject& global_object() { return m_global_object; }
     VM& vm() { return m_vm; }
 
-    Value run(Bytecode::Block const&);
+    Value run(Bytecode::Executable const&);
 
     ALWAYS_INLINE Value& accumulator() { return reg(Register::accumulator()); }
     Value& reg(Register const& r) { return registers()[r.index()]; }
 
-    void jump(Label const& label) { m_pending_jump = label.address(); }
+    void jump(Label const& label)
+    {
+        m_pending_jump = &label.block();
+    }
     void do_return(Value return_value) { m_return_value = return_value; }
+
+    Executable const& current_executable() { return *m_current_executable; }
 
 private:
     RegisterWindow& registers() { return m_register_windows.last(); }
@@ -42,8 +47,9 @@ private:
     VM& m_vm;
     GlobalObject& m_global_object;
     NonnullOwnPtrVector<RegisterWindow> m_register_windows;
-    Optional<size_t> m_pending_jump;
+    Optional<BasicBlock const*> m_pending_jump;
     Value m_return_value;
+    Executable const* m_current_executable { nullptr };
 };
 
 }

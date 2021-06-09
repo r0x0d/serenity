@@ -937,6 +937,7 @@ public:
 
     virtual Value execute(Interpreter&, GlobalObject&) const override;
     virtual void dump(int indent) const override;
+    virtual void generate_bytecode(Bytecode::Generator&) const override;
 
 private:
     UpdateOp m_op;
@@ -1114,6 +1115,7 @@ public:
 
     virtual Value execute(Interpreter&, GlobalObject&) const override;
     virtual void dump(int indent) const override;
+    virtual void generate_bytecode(Bytecode::Generator&) const override;
 
 private:
     const NonnullRefPtr<Expression> m_tag;
@@ -1244,6 +1246,7 @@ public:
 
     virtual void dump(int indent) const override;
     virtual Value execute(Interpreter&, GlobalObject&) const override;
+    virtual void generate_bytecode(Bytecode::Generator&) const override;
 
 private:
     NonnullRefPtr<Expression> m_argument;

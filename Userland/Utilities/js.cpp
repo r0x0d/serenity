@@ -14,7 +14,7 @@
 #include <LibCore/File.h>
 #include <LibCore/StandardPaths.h>
 #include <LibJS/AST.h>
-#include <LibJS/Bytecode/Block.h>
+#include <LibJS/Bytecode/BasicBlock.h>
 #include <LibJS/Bytecode/Generator.h>
 #include <LibJS/Bytecode/Interpreter.h>
 #include <LibJS/Console.h>
@@ -35,6 +35,7 @@
 #include <LibJS/Runtime/ProxyObject.h>
 #include <LibJS/Runtime/RegExpObject.h>
 #include <LibJS/Runtime/ScriptFunction.h>
+#include <LibJS/Runtime/Set.h>
 #include <LibJS/Runtime/Shape.h>
 #include <LibJS/Runtime/StringObject.h>
 #include <LibJS/Runtime/TypedArray.h>
@@ -277,6 +278,22 @@ static void print_proxy_object(const JS::Object& object, HashTable<JS::Object*>&
     print_value(&proxy_object.handler(), seen_objects);
 }
 
+static void print_set(const JS::Object& object, HashTable<JS::Object*>& seen_objects)
+{
+    auto& set = static_cast<const JS::Set&>(object);
+    auto& values = set.values();
+    print_type("Set");
+    out(" {{");
+    bool first = true;
+    for (auto& value : values) {
+        print_separator(first);
+        print_value(value, seen_objects);
+    }
+    if (!first)
+        out(" ");
+    out("}}");
+}
+
 static void print_promise(const JS::Object& object, HashTable<JS::Object*>& seen_objects)
 {
     auto& promise = static_cast<const JS::Promise&>(object);
@@ -398,6 +415,8 @@ static void print_value(JS::Value value, HashTable<JS::Object*>& seen_objects)
             return print_error(object, seen_objects);
         if (is<JS::RegExpObject>(object))
             return print_regexp_object(object, seen_objects);
+        if (is<JS::Set>(object))
+            return print_set(object, seen_objects);
         if (is<JS::ProxyObject>(object))
             return print_proxy_object(object, seen_objects);
         if (is<JS::Promise>(object))
@@ -494,15 +513,19 @@ static bool parse_and_run(JS::Interpreter& interpreter, const StringView& source
         program->dump(0);
 
     if (s_dump_bytecode || s_run_bytecode) {
-        auto block = JS::Bytecode::Generator::generate(*program);
-        VERIFY(block);
-
-        if (s_dump_bytecode)
-            block->dump();
+        auto unit = JS::Bytecode::Generator::generate(*program);
+        if (s_dump_bytecode) {
+            for (auto& block : unit.basic_blocks)
+                block.dump(unit);
+            if (!unit.string_table->is_empty()) {
+                outln();
+                unit.string_table->dump();
+            }
+        }
 
         if (s_run_bytecode) {
             JS::Bytecode::Interpreter bytecode_interpreter(interpreter.global_object());
-            bytecode_interpreter.run(*block);
+            bytecode_interpreter.run(unit);
         }
 
         return true;

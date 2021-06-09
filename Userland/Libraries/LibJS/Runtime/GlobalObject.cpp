@@ -47,6 +47,9 @@
 #include <LibJS/Runtime/ReflectObject.h>
 #include <LibJS/Runtime/RegExpConstructor.h>
 #include <LibJS/Runtime/RegExpPrototype.h>
+#include <LibJS/Runtime/SetConstructor.h>
+#include <LibJS/Runtime/SetIteratorPrototype.h>
+#include <LibJS/Runtime/SetPrototype.h>
 #include <LibJS/Runtime/Shape.h>
 #include <LibJS/Runtime/StringConstructor.h>
 #include <LibJS/Runtime/StringIteratorPrototype.h>
@@ -57,6 +60,8 @@
 #include <LibJS/Runtime/TypedArrayConstructor.h>
 #include <LibJS/Runtime/TypedArrayPrototype.h>
 #include <LibJS/Runtime/Value.h>
+#include <LibJS/Runtime/WeakSetConstructor.h>
+#include <LibJS/Runtime/WeakSetPrototype.h>
 
 namespace JS {
 
@@ -87,7 +92,7 @@ void GlobalObject::initialize_global_object()
     static_cast<FunctionPrototype*>(m_function_prototype)->initialize(*this);
     static_cast<ObjectPrototype*>(m_object_prototype)->initialize(*this);
 
-    set_prototype(m_object_prototype);
+    Object::set_prototype(m_object_prototype);
 
 #define __JS_ENUMERATE(ClassName, snake_name, PrototypeName, ConstructorName, ArrayType) \
     if (!m_##snake_name##_prototype)                                                     \
@@ -137,8 +142,10 @@ void GlobalObject::initialize_global_object()
     add_constructor(vm.names.Promise, m_promise_constructor, m_promise_prototype);
     add_constructor(vm.names.Proxy, m_proxy_constructor, nullptr);
     add_constructor(vm.names.RegExp, m_regexp_constructor, m_regexp_prototype);
+    add_constructor(vm.names.Set, m_set_constructor, m_set_prototype);
     add_constructor(vm.names.String, m_string_constructor, m_string_prototype);
     add_constructor(vm.names.Symbol, m_symbol_constructor, m_symbol_prototype);
+    add_constructor(vm.names.WeakSet, m_weak_set_constructor, m_weak_set_prototype);
 
     initialize_constructor(vm.names.TypedArray, m_typed_array_constructor, m_typed_array_prototype);
 

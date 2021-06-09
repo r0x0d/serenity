@@ -1,17 +1,18 @@
 /*
  * Copyright (c) 2021, Andreas Kling <kling@serenityos.org>
  * Copyright (c) 2021, Linus Groh <linusg@serenityos.org>
+ * Copyright (c) 2021, Gunnar Beutner <gbeutner@serenityos.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
 #pragma once
 
-#include <AK/FlyString.h>
 #include <LibCrypto/BigInt/SignedBigInteger.h>
 #include <LibJS/Bytecode/Instruction.h>
 #include <LibJS/Bytecode/Label.h>
 #include <LibJS/Bytecode/Register.h>
+#include <LibJS/Bytecode/StringTable.h>
 #include <LibJS/Heap/Cell.h>
 #include <LibJS/Runtime/Value.h>
 
@@ -26,7 +27,7 @@ public:
     }
 
     void execute(Bytecode::Interpreter&) const;
-    String to_string() const;
+    String to_string(Bytecode::Executable const&) const;
 
 private:
     Register m_src;
@@ -41,7 +42,7 @@ public:
     }
 
     void execute(Bytecode::Interpreter&) const;
-    String to_string() const;
+    String to_string(Bytecode::Executable const&) const;
 
 private:
     Value m_value;
@@ -56,7 +57,7 @@ public:
     }
 
     void execute(Bytecode::Interpreter&) const;
-    String to_string() const;
+    String to_string(Bytecode::Executable const&) const;
 
 private:
     Register m_dst;
@@ -96,7 +97,7 @@ private:
         }                                                       \
                                                                 \
         void execute(Bytecode::Interpreter&) const;             \
-        String to_string() const;                               \
+        String to_string(Bytecode::Executable const&) const;    \
                                                                 \
     private:                                                    \
         Register m_lhs_reg;                                     \
@@ -121,7 +122,7 @@ JS_ENUMERATE_COMMON_BINARY_OPS(JS_DECLARE_COMMON_BINARY_OP)
         }                                                      \
                                                                \
         void execute(Bytecode::Interpreter&) const;            \
-        String to_string() const;                              \
+        String to_string(Bytecode::Executable const&) const;   \
     };
 
 JS_ENUMERATE_COMMON_UNARY_OPS(JS_DECLARE_COMMON_UNARY_OP)
@@ -129,17 +130,17 @@ JS_ENUMERATE_COMMON_UNARY_OPS(JS_DECLARE_COMMON_UNARY_OP)
 
 class NewString final : public Instruction {
 public:
-    NewString(String string)
+    NewString(StringTableIndex string)
         : Instruction(Type::NewString)
         , m_string(move(string))
     {
     }
 
     void execute(Bytecode::Interpreter&) const;
-    String to_string() const;
+    String to_string(Bytecode::Executable const&) const;
 
 private:
-    String m_string;
+    StringTableIndex m_string;
 };
 
 class NewObject final : public Instruction {
@@ -150,7 +151,7 @@ public:
     }
 
     void execute(Bytecode::Interpreter&) const;
-    String to_string() const;
+    String to_string(Bytecode::Executable const&) const;
 };
 
 class NewBigInt final : public Instruction {
@@ -162,7 +163,7 @@ public:
     }
 
     void execute(Bytecode::Interpreter&) const;
-    String to_string() const;
+    String to_string(Bytecode::Executable const&) const;
 
 private:
     Crypto::SignedBigInteger m_bigint;
@@ -180,7 +181,7 @@ public:
     }
 
     void execute(Bytecode::Interpreter&) const;
-    String to_string() const;
+    String to_string(Bytecode::Executable const&) const;
 
     size_t length() const { return sizeof(*this) + sizeof(Register) * m_element_count; }
 
@@ -198,7 +199,7 @@ public:
     }
 
     void execute(Bytecode::Interpreter&) const;
-    String to_string() const;
+    String to_string(Bytecode::Executable const&) const;
 
 private:
     Register m_lhs;
@@ -206,52 +207,52 @@ private:
 
 class SetVariable final : public Instruction {
 public:
-    SetVariable(FlyString identifier)
+    SetVariable(StringTableIndex identifier)
         : Instruction(Type::SetVariable)
         , m_identifier(move(identifier))
     {
     }
 
     void execute(Bytecode::Interpreter&) const;
-    String to_string() const;
+    String to_string(Bytecode::Executable const&) const;
 
 private:
-    FlyString m_identifier;
+    StringTableIndex m_identifier;
 };
 
 class GetVariable final : public Instruction {
 public:
-    GetVariable(FlyString identifier)
+    GetVariable(StringTableIndex identifier)
         : Instruction(Type::GetVariable)
         , m_identifier(move(identifier))
     {
     }
 
     void execute(Bytecode::Interpreter&) const;
-    String to_string() const;
+    String to_string(Bytecode::Executable const&) const;
 
 private:
-    FlyString m_identifier;
+    StringTableIndex m_identifier;
 };
 
 class GetById final : public Instruction {
 public:
-    GetById(FlyString property)
+    GetById(StringTableIndex property)
         : Instruction(Type::GetById)
         , m_property(move(property))
     {
     }
 
     void execute(Bytecode::Interpreter&) const;
-    String to_string() const;
+    String to_string(Bytecode::Executable const&) const;
 
 private:
-    FlyString m_property;
+    StringTableIndex m_property;
 };
 
 class PutById final : public Instruction {
 public:
-    PutById(Register base, FlyString property)
+    PutById(Register base, StringTableIndex property)
         : Instruction(Type::PutById)
         , m_base(base)
         , m_property(move(property))
@@ -259,67 +260,65 @@ public:
     }
 
     void execute(Bytecode::Interpreter&) const;
-    String to_string() const;
+    String to_string(Bytecode::Executable const&) const;
 
 private:
     Register m_base;
-    FlyString m_property;
+    StringTableIndex m_property;
 };
 
 class Jump : public Instruction {
 public:
-    explicit Jump(Type type, Optional<Label> target = {})
+    constexpr static bool IsTerminator = true;
+
+    explicit Jump(Type type, Optional<Label> taken_target = {}, Optional<Label> nontaken_target = {})
         : Instruction(type)
-        , m_target(move(target))
+        , m_true_target(move(taken_target))
+        , m_false_target(move(nontaken_target))
     {
     }
 
-    explicit Jump(Optional<Label> target = {})
+    explicit Jump(Optional<Label> taken_target = {}, Optional<Label> nontaken_target = {})
         : Instruction(Type::Jump)
-        , m_target(move(target))
+        , m_true_target(move(taken_target))
+        , m_false_target(move(nontaken_target))
     {
     }
 
-    void set_target(Optional<Label> target) { m_target = move(target); }
+    void set_targets(Optional<Label> true_target, Optional<Label> false_target)
+    {
+        m_true_target = move(true_target);
+        m_false_target = move(false_target);
+    }
 
     void execute(Bytecode::Interpreter&) const;
-    String to_string() const;
+    String to_string(Bytecode::Executable const&) const;
 
 protected:
-    Optional<Label> m_target;
+    Optional<Label> m_true_target;
+    Optional<Label> m_false_target;
 };
 
-class JumpIfFalse final : public Jump {
+class JumpConditional final : public Jump {
 public:
-    explicit JumpIfFalse(Optional<Label> target = {})
-        : Jump(Type::JumpIfFalse, move(target))
+    explicit JumpConditional(Optional<Label> true_target = {}, Optional<Label> false_target = {})
+        : Jump(Type::JumpConditional, move(true_target), move(false_target))
     {
     }
 
     void execute(Bytecode::Interpreter&) const;
-    String to_string() const;
+    String to_string(Bytecode::Executable const&) const;
 };
 
-class JumpIfTrue : public Jump {
+class JumpNullish final : public Jump {
 public:
-    explicit JumpIfTrue(Optional<Label> target = {})
-        : Jump(Type::JumpIfTrue, move(target))
+    explicit JumpNullish(Optional<Label> true_target = {}, Optional<Label> false_target = {})
+        : Jump(Type::JumpNullish, move(true_target), move(false_target))
     {
     }
 
     void execute(Bytecode::Interpreter&) const;
-    String to_string() const;
-};
-
-class JumpIfNotNullish final : public Jump {
-public:
-    explicit JumpIfNotNullish(Optional<Label> target = {})
-        : Jump(Type::JumpIfNotNullish, move(target))
-    {
-    }
-
-    void execute(Bytecode::Interpreter&) const;
-    String to_string() const;
+    String to_string(Bytecode::Executable const&) const;
 };
 
 // NOTE: This instruction is variable-width depending on the number of arguments!
@@ -336,7 +335,7 @@ public:
     }
 
     void execute(Bytecode::Interpreter&) const;
-    String to_string() const;
+    String to_string(Bytecode::Executable const&) const;
 
     size_t length() const { return sizeof(*this) + sizeof(Register) * m_argument_count; }
 
@@ -356,7 +355,7 @@ public:
     }
 
     void execute(Bytecode::Interpreter&) const;
-    String to_string() const;
+    String to_string(Bytecode::Executable const&) const;
 
 private:
     ScopeNode const& m_scope_node;
@@ -364,13 +363,88 @@ private:
 
 class Return final : public Instruction {
 public:
+    constexpr static bool IsTerminator = true;
+
     Return()
         : Instruction(Type::Return)
     {
     }
 
     void execute(Bytecode::Interpreter&) const;
-    String to_string() const;
+    String to_string(Bytecode::Executable const&) const;
 };
+
+class Increment final : public Instruction {
+public:
+    Increment()
+        : Instruction(Type::Increment)
+    {
+    }
+
+    void execute(Bytecode::Interpreter&) const;
+    String to_string(Bytecode::Executable const&) const;
+};
+
+class Decrement final : public Instruction {
+public:
+    Decrement()
+        : Instruction(Type::Decrement)
+    {
+    }
+
+    void execute(Bytecode::Interpreter&) const;
+    String to_string(Bytecode::Executable const&) const;
+};
+
+class Throw final : public Instruction {
+public:
+    constexpr static bool IsTerminator = true;
+
+    Throw()
+        : Instruction(Type::Throw)
+    {
+    }
+
+    void execute(Bytecode::Interpreter&) const;
+    String to_string(Bytecode::Executable const&) const;
+};
+
+}
+
+namespace JS::Bytecode {
+
+ALWAYS_INLINE void Instruction::execute(Bytecode::Interpreter& interpreter) const
+{
+#define __BYTECODE_OP(op)       \
+    case Instruction::Type::op: \
+        return static_cast<Bytecode::Op::op const&>(*this).execute(interpreter);
+
+    switch (type()) {
+        ENUMERATE_BYTECODE_OPS(__BYTECODE_OP)
+    default:
+        VERIFY_NOT_REACHED();
+    }
+
+#undef __BYTECODE_OP
+}
+
+ALWAYS_INLINE size_t Instruction::length() const
+{
+    if (type() == Type::Call)
+        return static_cast<Op::Call const&>(*this).length();
+    else if (type() == Type::NewArray)
+        return static_cast<Op::NewArray const&>(*this).length();
+
+#define __BYTECODE_OP(op) \
+    case Type::op:        \
+        return sizeof(Op::op);
+
+    switch (type()) {
+        ENUMERATE_BYTECODE_OPS(__BYTECODE_OP)
+    default:
+        VERIFY_NOT_REACHED();
+    }
+#undef __BYTECODE_OP
+}
 
 }
