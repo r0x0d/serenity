@@ -57,13 +57,18 @@ public:
 
     void begin_continuable_scope(Label continue_target);
     void end_continuable_scope();
+    void begin_breakable_scope(Label breakable_target);
+    void end_breakable_scope();
 
     [[nodiscard]] Label nearest_continuable_scope() const;
+    [[nodiscard]] Label nearest_breakable_scope() const;
 
     void switch_to_basic_block(BasicBlock& block)
     {
         m_current_basic_block = &block;
     }
+
+    [[nodiscard]] BasicBlock& current_block() { return *m_current_basic_block; }
 
     BasicBlock& make_block(String name = {})
     {
@@ -94,9 +99,10 @@ private:
     NonnullOwnPtrVector<BasicBlock> m_root_basic_blocks;
     NonnullOwnPtr<StringTable> m_string_table;
 
-    u32 m_next_register { 1 };
+    u32 m_next_register { 2 };
     u32 m_next_block { 1 };
     Vector<Label> m_continuable_scopes;
+    Vector<Label> m_breakable_scopes;
 };
 
 }

@@ -39,7 +39,7 @@
     O(JumpConditional)            \
     O(JumpNullish)                \
     O(Call)                       \
-    O(EnterScope)                 \
+    O(NewFunction)                \
     O(Return)                     \
     O(BitwiseAnd)                 \
     O(BitwiseOr)                  \
@@ -57,7 +57,11 @@
     O(ConcatString)               \
     O(Increment)                  \
     O(Decrement)                  \
-    O(Throw)
+    O(Throw)                      \
+    O(PushLexicalEnvironment)     \
+    O(EnterUnwindContext)         \
+    O(LeaveUnwindContext)         \
+    O(ContinuePendingUnwind)
 
 namespace JS::Bytecode {
 

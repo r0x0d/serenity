@@ -14,6 +14,7 @@
 #include <LibJS/Bytecode/Register.h>
 #include <LibJS/Bytecode/StringTable.h>
 #include <LibJS/Heap/Cell.h>
+#include <LibJS/Runtime/ScopeObject.h>
 #include <LibJS/Runtime/Value.h>
 
 namespace JS::Bytecode::Op {
@@ -324,10 +325,16 @@ public:
 // NOTE: This instruction is variable-width depending on the number of arguments!
 class Call final : public Instruction {
 public:
-    Call(Register callee, Register this_value, Vector<Register> const& arguments)
+    enum class CallType {
+        Call,
+        Construct,
+    };
+
+    Call(CallType type, Register callee, Register this_value, Vector<Register> const& arguments)
         : Instruction(Type::Call)
         , m_callee(callee)
         , m_this_value(this_value)
+        , m_type(type)
         , m_argument_count(arguments.size())
     {
         for (size_t i = 0; i < m_argument_count; ++i)
@@ -342,15 +349,16 @@ public:
 private:
     Register m_callee;
     Register m_this_value;
+    CallType m_type;
     size_t m_argument_count { 0 };
     Register m_arguments[];
 };
 
-class EnterScope final : public Instruction {
+class NewFunction final : public Instruction {
 public:
-    explicit EnterScope(ScopeNode const& scope_node)
-        : Instruction(Type::EnterScope)
-        , m_scope_node(scope_node)
+    explicit NewFunction(FunctionNode const& function_node)
+        : Instruction(Type::NewFunction)
+        , m_function_node(function_node)
     {
     }
 
@@ -358,7 +366,7 @@ public:
     String to_string(Bytecode::Executable const&) const;
 
 private:
-    ScopeNode const& m_scope_node;
+    FunctionNode const& m_function_node;
 };
 
 class Return final : public Instruction {
@@ -409,6 +417,63 @@ public:
     String to_string(Bytecode::Executable const&) const;
 };
 
+class EnterUnwindContext final : public Instruction {
+public:
+    EnterUnwindContext(Optional<Label> handler_target, Optional<Label> finalizer_target)
+        : Instruction(Type::EnterUnwindContext)
+        , m_handler_target(handler_target)
+        , m_finalizer_target(finalizer_target)
+    {
+    }
+
+    void execute(Bytecode::Interpreter&) const;
+    String to_string(Bytecode::Executable const&) const;
+
+private:
+    Optional<Label> m_handler_target;
+    Optional<Label> m_finalizer_target;
+};
+
+class LeaveUnwindContext final : public Instruction {
+public:
+    LeaveUnwindContext()
+        : Instruction(Type::LeaveUnwindContext)
+    {
+    }
+
+    void execute(Bytecode::Interpreter&) const;
+    String to_string(Bytecode::Executable const&) const;
+};
+
+class ContinuePendingUnwind final : public Instruction {
+public:
+    constexpr static bool IsTerminator = true;
+
+    ContinuePendingUnwind(Label const& resume_target)
+        : Instruction(Type::ContinuePendingUnwind)
+        , m_resume_target(resume_target)
+    {
+    }
+
+    void execute(Bytecode::Interpreter&) const;
+    String to_string(Bytecode::Executable const&) const;
+
+private:
+    Label m_resume_target;
+};
+
+class PushLexicalEnvironment final : public Instruction {
+public:
+    PushLexicalEnvironment(HashMap<u32, Variable> variables)
+        : Instruction(Type::PushLexicalEnvironment)
+        , m_variables(move(variables))
+    {
+    }
+    void execute(Bytecode::Interpreter&) const;
+    String to_string(Bytecode::Executable const&) const;
+
+    HashMap<u32, Variable> m_variables;
+};
 }
 
 namespace JS::Bytecode {

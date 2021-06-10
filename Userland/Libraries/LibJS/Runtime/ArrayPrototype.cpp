@@ -856,6 +856,7 @@ JS_DEFINE_NATIVE_FUNCTION(ArrayPrototype::every)
     return Value(result);
 }
 
+// 23.1.3.28 Array.prototype.splice, https://tc39.es/ecma262#sec-array.prototype.splice
 JS_DEFINE_NATIVE_FUNCTION(ArrayPrototype::splice)
 {
     auto* this_object = vm.this_value(global_object).to_object(global_object);
@@ -898,15 +899,31 @@ JS_DEFINE_NATIVE_FUNCTION(ArrayPrototype::splice)
         return {};
     }
 
-    auto removed_elements = Array::create(global_object);
+    // FIXME: Use ArraySpeciesCreate.
+    auto removed_elements = Array::create(global_object, actual_delete_count);
+    if (vm.exception())
+        return {};
 
     for (size_t i = 0; i < actual_delete_count; ++i) {
-        auto value = this_object->get(actual_start + i);
+        auto from = actual_start + i;
+        bool from_present = this_object->has_property(from);
         if (vm.exception())
             return {};
 
-        removed_elements->indexed_properties().append(value);
+        if (from_present) {
+            auto from_value = this_object->get(actual_start + i);
+            if (vm.exception())
+                return {};
+
+            removed_elements->define_property(i, from_value);
+            if (vm.exception())
+                return {};
+        }
     }
+
+    removed_elements->put(vm.names.length, Value(actual_delete_count));
+    if (vm.exception())
+        return {};
 
     if (insert_count < actual_delete_count) {
         for (size_t i = actual_start; i < initial_length - actual_delete_count; ++i) {

@@ -997,6 +997,7 @@ public:
 
     virtual Value execute(Interpreter&, GlobalObject&) const override;
     virtual void dump(int indent) const override;
+    virtual void generate_bytecode(Bytecode::Generator&) const override;
 
     const NonnullRefPtrVector<VariableDeclarator>& declarations() const { return m_declarations; }
 
@@ -1227,6 +1228,7 @@ public:
 
     virtual void dump(int indent) const override;
     virtual Value execute(Interpreter&, GlobalObject&) const override;
+    virtual void generate_bytecode(Bytecode::Generator&) const override;
 
 private:
     NonnullRefPtr<BlockStatement> m_block;
@@ -1300,6 +1302,7 @@ public:
     virtual Value execute(Interpreter&, GlobalObject&) const override;
 
     const FlyString& target_label() const { return m_target_label; }
+    virtual void generate_bytecode(Bytecode::Generator&) const override;
 
 private:
     FlyString m_target_label;
