@@ -218,8 +218,7 @@ void Call::execute(Bytecode::Interpreter& interpreter) const
 void NewFunction::execute(Bytecode::Interpreter& interpreter) const
 {
     auto& vm = interpreter.vm();
-    auto& global_object = interpreter.global_object();
-    interpreter.accumulator() = ScriptFunction::create(global_object, m_function_node.name(), m_function_node.body(), m_function_node.parameters(), m_function_node.function_length(), vm.current_scope(), m_function_node.is_strict_mode());
+    interpreter.accumulator() = ScriptFunction::create(interpreter.global_object(), m_function_node.name(), m_function_node.body(), m_function_node.parameters(), m_function_node.function_length(), vm.current_scope(), m_function_node.kind(), m_function_node.is_strict_mode(), m_function_node.is_arrow_function());
 }
 
 void Return::execute(Bytecode::Interpreter& interpreter) const
@@ -278,6 +277,38 @@ void PushLexicalEnvironment::execute(Bytecode::Interpreter& interpreter) const
         resolved_variables.set(interpreter.current_executable().get_string(it.key), it.value);
     auto* block_lexical_environment = interpreter.vm().heap().allocate<LexicalEnvironment>(interpreter.global_object(), move(resolved_variables), interpreter.vm().current_scope());
     interpreter.vm().call_frame().scope = block_lexical_environment;
+}
+
+void Yield::execute(Bytecode::Interpreter& interpreter) const
+{
+    auto yielded_value = interpreter.accumulator().value_or(js_undefined());
+    auto object = JS::Object::create_empty(interpreter.global_object());
+    object->put("result", yielded_value);
+    if (m_continuation_label.has_value())
+        object->put("continuation", Value(static_cast<double>(reinterpret_cast<u64>(&m_continuation_label->block()))));
+    else
+        object->put("continuation", Value(0));
+    interpreter.do_return(object);
+}
+
+void GetByValue::execute(Bytecode::Interpreter& interpreter) const
+{
+    if (auto* object = interpreter.reg(m_base).to_object(interpreter.global_object())) {
+        auto property_key = interpreter.accumulator().to_property_key(interpreter.global_object());
+        if (interpreter.vm().exception())
+            return;
+        interpreter.accumulator() = object->get(property_key);
+    }
+}
+
+void PutByValue::execute(Bytecode::Interpreter& interpreter) const
+{
+    if (auto* object = interpreter.reg(m_base).to_object(interpreter.global_object())) {
+        auto property_key = interpreter.reg(m_property).to_property_key(interpreter.global_object());
+        if (interpreter.vm().exception())
+            return;
+        object->put(property_key, interpreter.accumulator());
+    }
 }
 
 String Load::to_string(Bytecode::Executable const&) const
@@ -443,6 +474,23 @@ String PushLexicalEnvironment::to_string(const Bytecode::Executable& executable)
         builder.append("}");
     }
     return builder.to_string();
+}
+
+String Yield::to_string(Bytecode::Executable const&) const
+{
+    if (m_continuation_label.has_value())
+        return String::formatted("Yield continuation:@{}", m_continuation_label->block().name());
+    return String::formatted("Yield return");
+}
+
+String GetByValue::to_string(const Bytecode::Executable&) const
+{
+    return String::formatted("GetByValue base:{}", m_base);
+}
+
+String PutByValue::to_string(const Bytecode::Executable&) const
+{
+    return String::formatted("PutByValue base:{}, property:{}", m_base, m_property);
 }
 
 }

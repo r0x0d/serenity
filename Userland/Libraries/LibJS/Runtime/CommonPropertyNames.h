@@ -69,6 +69,7 @@ namespace JS {
     P(byteOffset)                            \
     P(call)                                  \
     P(callee)                                \
+    P(cause)                                 \
     P(cbrt)                                  \
     P(ceil)                                  \
     P(charAt)                                \
@@ -100,6 +101,7 @@ namespace JS {
     P(entries)                               \
     P(enumerable)                            \
     P(error)                                 \
+    P(errors)                                \
     P(escape)                                \
     P(eval)                                  \
     P(every)                                 \
@@ -293,6 +295,8 @@ struct CommonPropertyNames {
     FlyString catch_ { "catch" };
     FlyString delete_ { "delete" };
     FlyString for_ { "for" };
+    FlyString return_ { "return" };
+    FlyString throw_ { "throw" };
 #define __ENUMERATE(x) FlyString x { #x };
     ENUMERATE_STANDARD_PROPERTY_NAMES(__ENUMERATE)
 #undef __ENUMERATE

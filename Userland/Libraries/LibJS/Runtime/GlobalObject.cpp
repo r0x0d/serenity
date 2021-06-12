@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2020, Andreas Kling <kling@serenityos.org>
- * Copyright (c) 2020, Linus Groh <linusg@serenityos.org>
+ * Copyright (c) 2020-2021, Linus Groh <linusg@serenityos.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -15,6 +15,8 @@
 #include <LibJS/Interpreter.h>
 #include <LibJS/Lexer.h>
 #include <LibJS/Parser.h>
+#include <LibJS/Runtime/AggregateErrorConstructor.h>
+#include <LibJS/Runtime/AggregateErrorPrototype.h>
 #include <LibJS/Runtime/ArrayBufferConstructor.h>
 #include <LibJS/Runtime/ArrayBufferPrototype.h>
 #include <LibJS/Runtime/ArrayConstructor.h>
@@ -94,6 +96,9 @@ void GlobalObject::initialize_global_object()
 
     Object::set_prototype(m_object_prototype);
 
+    // This must be initialized before allocating AggregateErrorPrototype, which uses ErrorPrototype as its prototype.
+    m_error_prototype = heap().allocate<ErrorPrototype>(*this, *this);
+
 #define __JS_ENUMERATE(ClassName, snake_name, PrototypeName, ConstructorName, ArrayType) \
     if (!m_##snake_name##_prototype)                                                     \
         m_##snake_name##_prototype = heap().allocate<PrototypeName>(*this, *this);
@@ -130,6 +135,10 @@ void GlobalObject::initialize_global_object()
     define_property(vm.names.JSON, heap().allocate<JSONObject>(*this, *this), attr);
     define_property(vm.names.Reflect, heap().allocate<ReflectObject>(*this, *this), attr);
 
+    // This must be initialized before allocating AggregateErrorConstructor, which uses ErrorConstructor as its prototype.
+    initialize_constructor(vm.names.Error, m_error_constructor, m_error_prototype);
+
+    add_constructor(vm.names.AggregateError, m_aggregate_error_constructor, m_aggregate_error_prototype);
     add_constructor(vm.names.Array, m_array_constructor, m_array_prototype);
     add_constructor(vm.names.ArrayBuffer, m_array_buffer_constructor, m_array_buffer_prototype);
     add_constructor(vm.names.BigInt, m_bigint_constructor, m_bigint_prototype);
@@ -151,7 +160,7 @@ void GlobalObject::initialize_global_object()
 
 #define __JS_ENUMERATE(ClassName, snake_name, PrototypeName, ConstructorName, ArrayType) \
     add_constructor(vm.names.ClassName, m_##snake_name##_constructor, m_##snake_name##_prototype);
-    JS_ENUMERATE_ERROR_SUBCLASSES
+    JS_ENUMERATE_NATIVE_ERRORS
     JS_ENUMERATE_TYPED_ARRAYS
 #undef __JS_ENUMERATE
 }
@@ -172,7 +181,7 @@ void GlobalObject::visit_edges(Visitor& visitor)
 #define __JS_ENUMERATE(ClassName, snake_name, PrototypeName, ConstructorName, ArrayType) \
     visitor.visit(m_##snake_name##_constructor);                                         \
     visitor.visit(m_##snake_name##_prototype);
-    JS_ENUMERATE_ERROR_SUBCLASSES
+    JS_ENUMERATE_NATIVE_ERRORS
     JS_ENUMERATE_BUILTIN_TYPES
 #undef __JS_ENUMERATE
 

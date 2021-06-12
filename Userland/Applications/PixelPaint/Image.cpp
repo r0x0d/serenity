@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2020-2021, Andreas Kling <kling@serenityos.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -22,7 +22,7 @@
 
 namespace PixelPaint {
 
-RefPtr<Image> Image::create_with_size(Gfx::IntSize const& size)
+RefPtr<Image> Image::try_create_with_size(Gfx::IntSize const& size)
 {
     if (size.is_empty())
         return nullptr;
@@ -52,22 +52,21 @@ void Image::paint_into(GUI::Painter& painter, Gfx::IntRect const& dest_rect)
     }
 }
 
-RefPtr<Image> Image::create_from_bitmap(RefPtr<Gfx::Bitmap> bitmap)
+RefPtr<Image> Image::try_create_from_bitmap(RefPtr<Gfx::Bitmap> bitmap)
 {
-    auto image = create_with_size({ bitmap->width(), bitmap->height() });
-    if (image.is_null())
+    auto image = try_create_with_size({ bitmap->width(), bitmap->height() });
+    if (!image)
         return nullptr;
 
-    auto layer = Layer::create_with_bitmap(*image, *bitmap, "Background");
-    if (layer.is_null())
+    auto layer = Layer::try_create_with_bitmap(*image, *bitmap, "Background");
+    if (!layer)
         return nullptr;
 
     image->add_layer(layer.release_nonnull());
-
     return image;
 }
 
-RefPtr<Image> Image::create_from_pixel_paint_file(String const& file_path)
+RefPtr<Image> Image::try_create_from_pixel_paint_file(String const& file_path)
 {
     auto file = fopen(file_path.characters(), "r");
     fseek(file, 0L, SEEK_END);
@@ -83,13 +82,14 @@ RefPtr<Image> Image::create_from_pixel_paint_file(String const& file_path)
         return nullptr;
 
     auto json = json_or_error.value().as_object();
-    auto image = create_with_size({ json.get("width").to_i32(), json.get("height").to_i32() });
+    auto image = try_create_with_size({ json.get("width").to_i32(), json.get("height").to_i32() });
     json.get("layers").as_array().for_each([&](JsonValue json_layer) {
         auto json_layer_object = json_layer.as_object();
         auto width = json_layer_object.get("width").to_i32();
         auto height = json_layer_object.get("height").to_i32();
         auto name = json_layer_object.get("name").as_string();
-        auto layer = Layer::create_with_size(*image, { width, height }, name);
+        auto layer = Layer::try_create_with_size(*image, { width, height }, name);
+        VERIFY(layer);
         layer->set_location({ json_layer_object.get("locationx").to_i32(), json_layer_object.get("locationy").to_i32() });
         layer->set_opacity_percent(json_layer_object.get("opacity_percent").to_i32());
         layer->set_visible(json_layer_object.get("visible").as_bool());
@@ -105,14 +105,11 @@ RefPtr<Image> Image::create_from_pixel_paint_file(String const& file_path)
     return image;
 }
 
-RefPtr<Image> Image::create_from_file(String const& file_path)
+RefPtr<Image> Image::try_create_from_file(String const& file_path)
 {
-    auto bitmap = Gfx::Bitmap::load_from_file(file_path);
-    if (bitmap) {
-        return create_from_bitmap(bitmap);
-    }
-
-    return create_from_pixel_paint_file(file_path);
+    if (auto bitmap = Gfx::Bitmap::load_from_file(file_path))
+        return try_create_from_bitmap(bitmap);
+    return try_create_from_pixel_paint_file(file_path);
 }
 
 void Image::save(String const& file_path) const
@@ -188,9 +185,15 @@ void Image::add_layer(NonnullRefPtr<Layer> layer)
 
 RefPtr<Image> Image::take_snapshot() const
 {
-    auto snapshot = create_with_size(m_size);
-    for (const auto& layer : m_layers)
-        snapshot->add_layer(*Layer::create_snapshot(*snapshot, layer));
+    auto snapshot = try_create_with_size(m_size);
+    if (!snapshot)
+        return nullptr;
+    for (const auto& layer : m_layers) {
+        auto layer_snapshot = Layer::try_create_snapshot(*snapshot, layer);
+        if (!layer_snapshot)
+            return nullptr;
+        snapshot->add_layer(layer_snapshot.release_nonnull());
+    }
     return snapshot;
 }
 
@@ -199,7 +202,8 @@ void Image::restore_snapshot(Image const& snapshot)
     m_layers.clear();
     select_layer(nullptr);
     for (const auto& snapshot_layer : snapshot.m_layers) {
-        auto layer = Layer::create_snapshot(*this, snapshot_layer);
+        auto layer = Layer::try_create_snapshot(*this, snapshot_layer);
+        VERIFY(layer);
         if (layer->is_selected())
             select_layer(layer.ptr());
         add_layer(*layer);

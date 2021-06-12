@@ -25,28 +25,29 @@
     void name([[maybe_unused]] JS::VM& vm, [[maybe_unused]] JS::GlobalObject& global_object, [[maybe_unused]] JS::Value value)
 
 // NOTE: Proxy is not included here as it doesn't have a prototype - m_proxy_constructor is initialized separately.
-#define JS_ENUMERATE_NATIVE_OBJECTS_EXCLUDING_TEMPLATES                                           \
-    __JS_ENUMERATE(Array, array, ArrayPrototype, ArrayConstructor, void)                          \
-    __JS_ENUMERATE(ArrayBuffer, array_buffer, ArrayBufferPrototype, ArrayBufferConstructor, void) \
-    __JS_ENUMERATE(BigIntObject, bigint, BigIntPrototype, BigIntConstructor, void)                \
-    __JS_ENUMERATE(BooleanObject, boolean, BooleanPrototype, BooleanConstructor, void)            \
-    __JS_ENUMERATE(Date, date, DatePrototype, DateConstructor, void)                              \
-    __JS_ENUMERATE(Error, error, ErrorPrototype, ErrorConstructor, void)                          \
-    __JS_ENUMERATE(Function, function, FunctionPrototype, FunctionConstructor, void)              \
-    __JS_ENUMERATE(NumberObject, number, NumberPrototype, NumberConstructor, void)                \
-    __JS_ENUMERATE(Object, object, ObjectPrototype, ObjectConstructor, void)                      \
-    __JS_ENUMERATE(Promise, promise, PromisePrototype, PromiseConstructor, void)                  \
-    __JS_ENUMERATE(RegExpObject, regexp, RegExpPrototype, RegExpConstructor, void)                \
-    __JS_ENUMERATE(Set, set, SetPrototype, SetConstructor, void)                                  \
-    __JS_ENUMERATE(StringObject, string, StringPrototype, StringConstructor, void)                \
-    __JS_ENUMERATE(SymbolObject, symbol, SymbolPrototype, SymbolConstructor, void)                \
+#define JS_ENUMERATE_NATIVE_OBJECTS_EXCLUDING_TEMPLATES                                                       \
+    __JS_ENUMERATE(AggregateError, aggregate_error, AggregateErrorPrototype, AggregateErrorConstructor, void) \
+    __JS_ENUMERATE(Array, array, ArrayPrototype, ArrayConstructor, void)                                      \
+    __JS_ENUMERATE(ArrayBuffer, array_buffer, ArrayBufferPrototype, ArrayBufferConstructor, void)             \
+    __JS_ENUMERATE(BigIntObject, bigint, BigIntPrototype, BigIntConstructor, void)                            \
+    __JS_ENUMERATE(BooleanObject, boolean, BooleanPrototype, BooleanConstructor, void)                        \
+    __JS_ENUMERATE(Date, date, DatePrototype, DateConstructor, void)                                          \
+    __JS_ENUMERATE(Error, error, ErrorPrototype, ErrorConstructor, void)                                      \
+    __JS_ENUMERATE(Function, function, FunctionPrototype, FunctionConstructor, void)                          \
+    __JS_ENUMERATE(NumberObject, number, NumberPrototype, NumberConstructor, void)                            \
+    __JS_ENUMERATE(Object, object, ObjectPrototype, ObjectConstructor, void)                                  \
+    __JS_ENUMERATE(Promise, promise, PromisePrototype, PromiseConstructor, void)                              \
+    __JS_ENUMERATE(RegExpObject, regexp, RegExpPrototype, RegExpConstructor, void)                            \
+    __JS_ENUMERATE(Set, set, SetPrototype, SetConstructor, void)                                              \
+    __JS_ENUMERATE(StringObject, string, StringPrototype, StringConstructor, void)                            \
+    __JS_ENUMERATE(SymbolObject, symbol, SymbolPrototype, SymbolConstructor, void)                            \
     __JS_ENUMERATE(WeakSet, weak_set, WeakSetPrototype, WeakSetConstructor, void)
 
 #define JS_ENUMERATE_NATIVE_OBJECTS                 \
     JS_ENUMERATE_NATIVE_OBJECTS_EXCLUDING_TEMPLATES \
     __JS_ENUMERATE(TypedArray, typed_array, TypedArrayPrototype, TypedArrayConstructor, void)
 
-#define JS_ENUMERATE_ERROR_SUBCLASSES                                                                                                      \
+#define JS_ENUMERATE_NATIVE_ERRORS                                                                                                         \
     __JS_ENUMERATE(EvalError, eval_error, EvalErrorPrototype, EvalErrorConstructor, void)                                                  \
     __JS_ENUMERATE(InternalError, internal_error, InternalErrorPrototype, InternalErrorConstructor, void)                                  \
     __JS_ENUMERATE(InvalidCharacterError, invalid_character_error, InvalidCharacterErrorPrototype, InvalidCharacterErrorConstructor, void) \
@@ -75,7 +76,7 @@
 
 #define JS_ENUMERATE_BUILTIN_TYPES \
     JS_ENUMERATE_NATIVE_OBJECTS    \
-    JS_ENUMERATE_ERROR_SUBCLASSES  \
+    JS_ENUMERATE_NATIVE_ERRORS     \
     JS_ENUMERATE_TYPED_ARRAYS
 
 #define JS_ENUMERATE_WELL_KNOWN_SYMBOLS                      \
@@ -160,7 +161,7 @@ struct ClampedU8;
     class ConstructorName;                                                               \
     class PrototypeName;
 JS_ENUMERATE_NATIVE_OBJECTS_EXCLUDING_TEMPLATES
-JS_ENUMERATE_ERROR_SUBCLASSES
+JS_ENUMERATE_NATIVE_ERRORS
 JS_ENUMERATE_TYPED_ARRAYS
 #undef __JS_ENUMERATE
 

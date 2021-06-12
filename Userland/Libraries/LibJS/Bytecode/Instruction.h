@@ -35,6 +35,8 @@
     O(SetVariable)                \
     O(PutById)                    \
     O(GetById)                    \
+    O(PutByValue)                 \
+    O(GetByValue)                 \
     O(Jump)                       \
     O(JumpConditional)            \
     O(JumpNullish)                \
@@ -61,7 +63,8 @@
     O(PushLexicalEnvironment)     \
     O(EnterUnwindContext)         \
     O(LeaveUnwindContext)         \
-    O(ContinuePendingUnwind)
+    O(ContinuePendingUnwind)      \
+    O(Yield)
 
 namespace JS::Bytecode {
 

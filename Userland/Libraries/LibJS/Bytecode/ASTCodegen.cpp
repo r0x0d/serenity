@@ -2,10 +2,12 @@
  * Copyright (c) 2021, Andreas Kling <kling@serenityos.org>
  * Copyright (c) 2021, Linus Groh <linusg@serenityos.org>
  * Copyright (c) 2021, Gunnar Beutner <gbeutner@serenityos.org>
+ * Copyright (c) 2021, Marcin Gasperowicz <xnooga@gmail.com>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
+#include <AK/Format.h>
 #include <LibJS/AST.h>
 #include <LibJS/Bytecode/Generator.h>
 #include <LibJS/Bytecode/Instruction.h>
@@ -375,14 +377,18 @@ void AssignmentExpression::generate_bytecode(Bytecode::Generator& generator) con
         generator.emit<Bytecode::Op::Store>(object_reg);
 
         if (expression.is_computed()) {
-            TODO();
+            expression.property().generate_bytecode(generator);
+            auto property_reg = generator.allocate_register();
+            generator.emit<Bytecode::Op::Store>(property_reg);
+            m_rhs->generate_bytecode(generator);
+            generator.emit<Bytecode::Op::PutByValue>(object_reg, property_reg);
         } else {
             VERIFY(is<Identifier>(expression.property()));
             m_rhs->generate_bytecode(generator);
             auto identifier_table_ref = generator.intern_string(static_cast<Identifier const&>(expression.property()).string());
             generator.emit<Bytecode::Op::PutById>(object_reg, identifier_table_ref);
-            return;
         }
+        return;
     }
 
     TODO();
@@ -554,9 +560,33 @@ void ForStatement::generate_bytecode(Bytecode::Generator& generator) const
 void ObjectExpression::generate_bytecode(Bytecode::Generator& generator) const
 {
     generator.emit<Bytecode::Op::NewObject>();
+    if (m_properties.is_empty())
+        return;
 
-    if (!m_properties.is_empty())
-        TODO();
+    auto object_reg = generator.allocate_register();
+    generator.emit<Bytecode::Op::Store>(object_reg);
+
+    for (auto& property : m_properties) {
+        if (property.type() != ObjectProperty::Type::KeyValue)
+            TODO();
+
+        if (is<StringLiteral>(property.key())) {
+            auto& string_literal = static_cast<StringLiteral const&>(property.key());
+            Bytecode::StringTableIndex key_name = generator.intern_string(string_literal.value());
+
+            property.value().generate_bytecode(generator);
+            generator.emit<Bytecode::Op::PutById>(object_reg, key_name);
+        } else {
+            property.key().generate_bytecode(generator);
+            auto property_reg = generator.allocate_register();
+            generator.emit<Bytecode::Op::Store>(property_reg);
+
+            property.value().generate_bytecode(generator);
+            generator.emit<Bytecode::Op::PutByValue>(object_reg, property_reg);
+        }
+    }
+
+    generator.emit<Bytecode::Op::Load>(object_reg);
 }
 
 void ArrayExpression::generate_bytecode(Bytecode::Generator& generator) const
@@ -585,7 +615,11 @@ void MemberExpression::generate_bytecode(Bytecode::Generator& generator) const
     object().generate_bytecode(generator);
 
     if (is_computed()) {
-        TODO();
+        auto object_reg = generator.allocate_register();
+        generator.emit<Bytecode::Op::Store>(object_reg);
+
+        property().generate_bytecode(generator);
+        generator.emit<Bytecode::Op::GetByValue>(object_reg);
     } else {
         VERIFY(is<Identifier>(property()));
         auto identifier_table_ref = generator.intern_string(static_cast<Identifier const&>(property()).string());
@@ -595,6 +629,11 @@ void MemberExpression::generate_bytecode(Bytecode::Generator& generator) const
 
 void FunctionDeclaration::generate_bytecode(Bytecode::Generator&) const
 {
+}
+
+void FunctionExpression::generate_bytecode(Bytecode::Generator& generator) const
+{
+    generator.emit<Bytecode::Op::NewFunction>(*this);
 }
 
 void VariableDeclaration::generate_bytecode(Bytecode::Generator& generator) const
@@ -616,14 +655,35 @@ void VariableDeclaration::generate_bytecode(Bytecode::Generator& generator) cons
 
 void CallExpression::generate_bytecode(Bytecode::Generator& generator) const
 {
-    m_callee->generate_bytecode(generator);
     auto callee_reg = generator.allocate_register();
-    generator.emit<Bytecode::Op::Store>(callee_reg);
-
-    // FIXME: Load the correct 'this' value into 'this_reg'.
     auto this_reg = generator.allocate_register();
     generator.emit<Bytecode::Op::LoadImmediate>(js_undefined());
     generator.emit<Bytecode::Op::Store>(this_reg);
+
+    if (is<NewExpression>(this)) {
+        m_callee->generate_bytecode(generator);
+        generator.emit<Bytecode::Op::Store>(callee_reg);
+    } else if (is<SuperExpression>(*m_callee)) {
+        TODO();
+    } else if (is<MemberExpression>(*m_callee)) {
+        auto& member_expression = static_cast<const MemberExpression&>(*m_callee);
+        if (is<SuperExpression>(member_expression.object())) {
+            TODO();
+        } else {
+            member_expression.object().generate_bytecode(generator);
+            generator.emit<Bytecode::Op::Store>(this_reg);
+            // FIXME: Don't copy this logic here, make MemberExpression generate it.
+            if (!is<Identifier>(member_expression.property()))
+                TODO();
+            auto identifier_table_ref = generator.intern_string(static_cast<Identifier const&>(member_expression.property()).string());
+            generator.emit<Bytecode::Op::GetById>(identifier_table_ref);
+            generator.emit<Bytecode::Op::Store>(callee_reg);
+        }
+    } else {
+        // FIXME: this = global object in sloppy mode.
+        m_callee->generate_bytecode(generator);
+        generator.emit<Bytecode::Op::Store>(callee_reg);
+    }
 
     Vector<Bytecode::Register> argument_registers;
     for (auto& arg : m_arguments) {
@@ -647,7 +707,23 @@ void ReturnStatement::generate_bytecode(Bytecode::Generator& generator) const
 {
     if (m_argument)
         m_argument->generate_bytecode(generator);
-    generator.emit<Bytecode::Op::Return>();
+
+    if (generator.is_in_generator_function())
+        generator.emit<Bytecode::Op::Yield>(nullptr);
+    else
+        generator.emit<Bytecode::Op::Return>();
+}
+
+void YieldExpression::generate_bytecode(Bytecode::Generator& generator) const
+{
+    VERIFY(generator.is_in_generator_function());
+
+    if (m_argument)
+        m_argument->generate_bytecode(generator);
+
+    auto& continuation_block = generator.make_block();
+    generator.emit<Bytecode::Op::Yield>(Bytecode::Label { continuation_block });
+    generator.switch_to_basic_block(continuation_block);
 }
 
 void IfStatement::generate_bytecode(Bytecode::Generator& generator) const
@@ -916,6 +992,62 @@ void TryStatement::generate_bytecode(Bytecode::Generator& generator) const
         generator.emit<Bytecode::Op::Jump>(finalizer_target);
 
     generator.switch_to_basic_block(next_block ? *next_block : saved_block);
+}
+
+void SwitchStatement::generate_bytecode(Bytecode::Generator& generator) const
+{
+    auto discriminant_reg = generator.allocate_register();
+    m_discriminant->generate_bytecode(generator);
+    generator.emit<Bytecode::Op::Store>(discriminant_reg);
+    Vector<Bytecode::BasicBlock&> case_blocks;
+    Bytecode::BasicBlock* default_block { nullptr };
+    Bytecode::BasicBlock* next_test_block = &generator.make_block();
+    generator.emit<Bytecode::Op::Jump>().set_targets(Bytecode::Label { *next_test_block }, {});
+    for (auto& switch_case : m_cases) {
+        auto& case_block = generator.make_block();
+        if (switch_case.test()) {
+            generator.switch_to_basic_block(*next_test_block);
+            switch_case.test()->generate_bytecode(generator);
+            generator.emit<Bytecode::Op::TypedEquals>(discriminant_reg);
+            next_test_block = &generator.make_block();
+            generator.emit<Bytecode::Op::JumpConditional>().set_targets(Bytecode::Label { case_block }, Bytecode::Label { *next_test_block });
+        } else {
+            default_block = &case_block;
+        }
+        case_blocks.append(case_block);
+    }
+    generator.switch_to_basic_block(*next_test_block);
+    auto& end_block = generator.make_block();
+
+    if (default_block != nullptr) {
+        generator.emit<Bytecode::Op::Jump>().set_targets(Bytecode::Label { *default_block }, {});
+    } else {
+        generator.emit<Bytecode::Op::LoadImmediate>(js_undefined());
+        generator.emit<Bytecode::Op::Jump>().set_targets(Bytecode::Label { end_block }, {});
+    }
+    auto current_block = case_blocks.begin();
+    generator.begin_breakable_scope(Bytecode::Label { end_block });
+    for (auto& switch_case : m_cases) {
+        generator.switch_to_basic_block(*current_block);
+
+        generator.emit<Bytecode::Op::LoadImmediate>(js_undefined());
+        for (auto& statement : switch_case.consequent()) {
+            statement.generate_bytecode(generator);
+        }
+        if (!generator.is_current_block_terminated()) {
+            auto next_block = current_block;
+            next_block++;
+            if (next_block.is_end()) {
+                generator.emit<Bytecode::Op::Jump>().set_targets(Bytecode::Label { end_block }, {});
+            } else {
+                generator.emit<Bytecode::Op::Jump>().set_targets(Bytecode::Label { *next_block }, {});
+            }
+        }
+        current_block++;
+    }
+    generator.end_breakable_scope();
+
+    generator.switch_to_basic_block(end_block);
 }
 
 }

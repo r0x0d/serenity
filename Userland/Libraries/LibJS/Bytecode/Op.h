@@ -184,8 +184,6 @@ public:
     void execute(Bytecode::Interpreter&) const;
     String to_string(Bytecode::Executable const&) const;
 
-    size_t length() const { return sizeof(*this) + sizeof(Register) * m_element_count; }
-
 private:
     size_t m_element_count { 0 };
     Register m_elements[];
@@ -266,6 +264,38 @@ public:
 private:
     Register m_base;
     StringTableIndex m_property;
+};
+
+class GetByValue final : public Instruction {
+public:
+    explicit GetByValue(Register base)
+        : Instruction(Type::GetByValue)
+        , m_base(base)
+    {
+    }
+
+    void execute(Bytecode::Interpreter&) const;
+    String to_string(Bytecode::Executable const&) const;
+
+private:
+    Register m_base;
+};
+
+class PutByValue final : public Instruction {
+public:
+    PutByValue(Register base, Register property)
+        : Instruction(Type::PutByValue)
+        , m_base(base)
+        , m_property(property)
+    {
+    }
+
+    void execute(Bytecode::Interpreter&) const;
+    String to_string(Bytecode::Executable const&) const;
+
+private:
+    Register m_base;
+    Register m_property;
 };
 
 class Jump : public Instruction {
@@ -462,6 +492,28 @@ private:
     Label m_resume_target;
 };
 
+class Yield final : public Instruction {
+public:
+    constexpr static bool IsTerminator = true;
+
+    explicit Yield(Label continuation_label)
+        : Instruction(Type::Yield)
+        , m_continuation_label(continuation_label)
+    {
+    }
+
+    explicit Yield(std::nullptr_t)
+        : Instruction(Type::Yield)
+    {
+    }
+
+    void execute(Bytecode::Interpreter&) const;
+    String to_string(Bytecode::Executable const&) const;
+
+private:
+    Optional<Label> m_continuation_label;
+};
+
 class PushLexicalEnvironment final : public Instruction {
 public:
     PushLexicalEnvironment(HashMap<u32, Variable> variables)
@@ -472,6 +524,7 @@ public:
     void execute(Bytecode::Interpreter&) const;
     String to_string(Bytecode::Executable const&) const;
 
+private:
     HashMap<u32, Variable> m_variables;
 };
 }

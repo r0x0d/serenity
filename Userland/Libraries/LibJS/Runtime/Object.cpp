@@ -543,6 +543,40 @@ bool Object::define_property(const PropertyName& property_name, Value value, Pro
     return put_own_property(property_name.to_string_or_symbol(), value, attributes, PutOwnPropertyMode::DefineProperty, throw_exceptions);
 }
 
+bool Object::define_native_accessor(const StringOrSymbol& property_name, AK::Function<Value(VM&, GlobalObject&)> getter, AK::Function<Value(VM&, GlobalObject&)> setter, PropertyAttributes attribute)
+{
+    auto& vm = this->vm();
+    String formatted_property_name;
+    if (property_name.is_string()) {
+        formatted_property_name = property_name.as_string();
+    } else {
+        formatted_property_name = String::formatted("[{}]", property_name.as_symbol()->description());
+    }
+    Function* getter_function = nullptr;
+    if (getter) {
+        auto name = String::formatted("get {}", formatted_property_name);
+        getter_function = NativeFunction::create(global_object(), name, move(getter));
+        getter_function->define_property_without_transition(vm.names.length, Value(0), Attribute::Configurable);
+        if (vm.exception())
+            return {};
+        getter_function->define_property_without_transition(vm.names.name, js_string(vm.heap(), name), Attribute::Configurable);
+        if (vm.exception())
+            return {};
+    }
+    Function* setter_function = nullptr;
+    if (setter) {
+        auto name = String::formatted("set {}", formatted_property_name);
+        setter_function = NativeFunction::create(global_object(), name, move(setter));
+        setter_function->define_property_without_transition(vm.names.length, Value(1), Attribute::Configurable);
+        if (vm.exception())
+            return {};
+        setter_function->define_property_without_transition(vm.names.name, js_string(vm.heap(), name), Attribute::Configurable);
+        if (vm.exception())
+            return {};
+    }
+    return define_accessor(property_name, getter_function, setter_function, attribute);
+}
+
 bool Object::define_accessor(const PropertyName& property_name, Function* getter, Function* setter, PropertyAttributes attributes, bool throw_exceptions)
 {
     VERIFY(property_name.is_valid());
@@ -1013,6 +1047,21 @@ Value Object::ordinary_to_primitive(Value::PreferredType preferred_type) const
     }
     vm.throw_exception<TypeError>(global_object(), ErrorType::Convert, "object", preferred_type == Value::PreferredType::String ? "string" : "number");
     return {};
+}
+
+// 20.5.8.1 InstallErrorCause, https://tc39.es/proposal-error-cause/#sec-errorobjects-install-error-cause
+void Object::install_error_cause(Value options)
+{
+    auto& vm = this->vm();
+    if (!options.is_object())
+        return;
+    auto& options_object = options.as_object();
+    if (!options_object.has_property(vm.names.cause))
+        return;
+    auto cause = options_object.get(vm.names.cause).value_or(js_undefined());
+    if (vm.exception())
+        return;
+    define_property(vm.names.cause, cause, Attribute::Writable | Attribute::Configurable);
 }
 
 Value Object::invoke_internal(const StringOrSymbol& property_name, Optional<MarkedValueList> arguments)
