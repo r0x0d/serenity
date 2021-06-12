@@ -33,6 +33,7 @@ void ObjectConstructor::initialize(GlobalObject& global_object)
     define_native_function(vm.names.is, is, 2, attr);
     define_native_function(vm.names.getOwnPropertyDescriptor, get_own_property_descriptor, 2, attr);
     define_native_function(vm.names.getOwnPropertyNames, get_own_property_names, 1, attr);
+    define_native_function(vm.names.getOwnPropertySymbols, get_own_property_symbols, 1, attr);
     define_native_function(vm.names.getPrototypeOf, get_prototype_of, 1, attr);
     define_native_function(vm.names.setPrototypeOf, set_prototype_of, 2, attr);
     define_native_function(vm.names.isExtensible, is_extensible, 1, attr);
@@ -46,6 +47,7 @@ void ObjectConstructor::initialize(GlobalObject& global_object)
     define_native_function(vm.names.entries, entries, 1, attr);
     define_native_function(vm.names.create, create, 2, attr);
     define_native_function(vm.names.hasOwn, has_own, 2, attr);
+    define_native_function(vm.names.assign, assign, 2, attr);
 }
 
 ObjectConstructor::~ObjectConstructor()
@@ -67,18 +69,22 @@ Value ObjectConstructor::construct(Function&)
 
 JS_DEFINE_NATIVE_FUNCTION(ObjectConstructor::get_own_property_names)
 {
-    if (!vm.argument_count())
-        return {};
     auto* object = vm.argument(0).to_object(global_object);
     if (vm.exception())
         return {};
     return Array::create_from(global_object, object->get_own_properties(PropertyKind::Key, false, GetOwnPropertyReturnType::StringOnly));
 }
 
+JS_DEFINE_NATIVE_FUNCTION(ObjectConstructor::get_own_property_symbols)
+{
+    auto* object = vm.argument(0).to_object(global_object);
+    if (vm.exception())
+        return {};
+    return Array::create_from(global_object, object->get_own_properties(PropertyKind::Key, false, GetOwnPropertyReturnType::SymbolOnly));
+}
+
 JS_DEFINE_NATIVE_FUNCTION(ObjectConstructor::get_prototype_of)
 {
-    if (!vm.argument_count())
-        return {};
     auto* object = vm.argument(0).to_object(global_object);
     if (vm.exception())
         return {};
@@ -87,10 +93,6 @@ JS_DEFINE_NATIVE_FUNCTION(ObjectConstructor::get_prototype_of)
 
 JS_DEFINE_NATIVE_FUNCTION(ObjectConstructor::set_prototype_of)
 {
-    if (vm.argument_count() < 2) {
-        vm.throw_exception<TypeError>(global_object, ErrorType::ObjectSetPrototypeOfTwoArgs);
-        return {};
-    }
     auto* object = vm.argument(0).to_object(global_object);
     if (vm.exception())
         return {};
@@ -246,11 +248,6 @@ JS_DEFINE_NATIVE_FUNCTION(ObjectConstructor::is)
 
 JS_DEFINE_NATIVE_FUNCTION(ObjectConstructor::keys)
 {
-    if (!vm.argument_count()) {
-        vm.throw_exception<TypeError>(global_object, ErrorType::ConvertUndefinedToObject);
-        return {};
-    }
-
     auto* obj_arg = vm.argument(0).to_object(global_object);
     if (vm.exception())
         return {};
@@ -260,10 +257,6 @@ JS_DEFINE_NATIVE_FUNCTION(ObjectConstructor::keys)
 
 JS_DEFINE_NATIVE_FUNCTION(ObjectConstructor::values)
 {
-    if (!vm.argument_count()) {
-        vm.throw_exception<TypeError>(global_object, ErrorType::ConvertUndefinedToObject);
-        return {};
-    }
     auto* obj_arg = vm.argument(0).to_object(global_object);
     if (vm.exception())
         return {};
@@ -273,10 +266,6 @@ JS_DEFINE_NATIVE_FUNCTION(ObjectConstructor::values)
 
 JS_DEFINE_NATIVE_FUNCTION(ObjectConstructor::entries)
 {
-    if (!vm.argument_count()) {
-        vm.throw_exception<TypeError>(global_object, ErrorType::ConvertUndefinedToObject);
-        return {};
-    }
     auto* obj_arg = vm.argument(0).to_object(global_object);
     if (vm.exception())
         return {};
@@ -320,6 +309,39 @@ JS_DEFINE_NATIVE_FUNCTION(ObjectConstructor::has_own)
     if (vm.exception())
         return {};
     return Value(object->has_own_property(property_key));
+}
+
+// 20.1.2.1 Object.assign, https://tc39.es/ecma262/#sec-object.assign
+JS_DEFINE_NATIVE_FUNCTION(ObjectConstructor::assign)
+{
+    auto* to = vm.argument(0).to_object(global_object);
+    if (vm.exception())
+        return {};
+    if (vm.argument_count() == 1)
+        return to;
+    for (size_t i = 1; i < vm.argument_count(); ++i) {
+        auto next_source = vm.argument(i);
+        if (next_source.is_nullish())
+            continue;
+        auto from = next_source.to_object(global_object);
+        VERIFY(!vm.exception());
+        auto keys = from->get_own_properties(PropertyKind::Key);
+        if (vm.exception())
+            return {};
+        for (auto& key : keys) {
+            auto property_name = PropertyName::from_value(global_object, key);
+            auto property_descriptor = from->get_own_property_descriptor(property_name);
+            if (!property_descriptor.has_value() || !property_descriptor->attributes.is_enumerable())
+                continue;
+            auto value = from->get(property_name);
+            if (vm.exception())
+                return {};
+            to->put(property_name, value);
+            if (vm.exception())
+                return {};
+        }
+    }
+    return to;
 }
 
 }

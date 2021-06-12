@@ -56,6 +56,7 @@ namespace JS {
     P(asin)                                  \
     P(asinh)                                 \
     P(assert)                                \
+    P(assign)                                \
     P(at)                                    \
     P(atan)                                  \
     P(atan2)                                 \
@@ -92,6 +93,7 @@ namespace JS {
     P(defineProperties)                      \
     P(defineProperty)                        \
     P(deleteProperty)                        \
+    P(deref)                                 \
     P(description)                           \
     P(done)                                  \
     P(dotAll)                                \
@@ -135,6 +137,7 @@ namespace JS {
     P(getMonth)                              \
     P(getOwnPropertyDescriptor)              \
     P(getOwnPropertyNames)                   \
+    P(getOwnPropertySymbols)                 \
     P(getPrototypeOf)                        \
     P(getSeconds)                            \
     P(getTime)                               \

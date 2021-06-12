@@ -10,7 +10,7 @@
 
 namespace PixelPaint {
 
-RefPtr<Layer> Layer::try_create_with_size(Image& image, Gfx::IntSize const& size, String const& name)
+RefPtr<Layer> Layer::try_create_with_size(Image& image, Gfx::IntSize const& size, String name)
 {
     if (size.is_empty())
         return nullptr;
@@ -18,18 +18,22 @@ RefPtr<Layer> Layer::try_create_with_size(Image& image, Gfx::IntSize const& size
     if (size.width() > 16384 || size.height() > 16384)
         return nullptr;
 
-    return adopt_ref(*new Layer(image, size, name));
+    auto bitmap = Gfx::Bitmap::create(Gfx::BitmapFormat::BGRA8888, size);
+    if (!bitmap)
+        return nullptr;
+
+    return adopt_ref(*new Layer(image, *bitmap, move(name)));
 }
 
-RefPtr<Layer> Layer::try_create_with_bitmap(Image& image, Gfx::Bitmap const& bitmap, String const& name)
+RefPtr<Layer> Layer::try_create_with_bitmap(Image& image, NonnullRefPtr<Gfx::Bitmap> bitmap, String name)
 {
-    if (bitmap.size().is_empty())
+    if (bitmap->size().is_empty())
         return nullptr;
 
-    if (bitmap.size().width() > 16384 || bitmap.size().height() > 16384)
+    if (bitmap->size().width() > 16384 || bitmap->size().height() > 16384)
         return nullptr;
 
-    return adopt_ref(*new Layer(image, bitmap, name));
+    return adopt_ref(*new Layer(image, bitmap, move(name)));
 }
 
 RefPtr<Layer> Layer::try_create_snapshot(Image& image, Layer const& layer)
@@ -49,17 +53,10 @@ RefPtr<Layer> Layer::try_create_snapshot(Image& image, Layer const& layer)
     return snapshot;
 }
 
-Layer::Layer(Image& image, Gfx::IntSize const& size, String const& name)
+Layer::Layer(Image& image, NonnullRefPtr<Gfx::Bitmap> bitmap, String name)
     : m_image(image)
-    , m_name(name)
-{
-    m_bitmap = Gfx::Bitmap::create(Gfx::BitmapFormat::BGRA8888, size);
-}
-
-Layer::Layer(Image& image, Gfx::Bitmap const& bitmap, String const& name)
-    : m_image(image)
-    , m_name(name)
-    , m_bitmap(bitmap)
+    , m_name(move(name))
+    , m_bitmap(move(bitmap))
 {
 }
 
@@ -84,11 +81,11 @@ void Layer::set_opacity_percent(int opacity_percent)
     m_image.layer_did_modify_properties({}, *this);
 }
 
-void Layer::set_name(String const& name)
+void Layer::set_name(String name)
 {
     if (m_name == name)
         return;
-    m_name = name;
+    m_name = move(name);
     m_image.layer_did_modify_properties({}, *this);
 }
 
