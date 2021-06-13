@@ -331,7 +331,7 @@ void VM::assign(const NonnullRefPtr<BindingPattern>& target, Value value, Global
 Value VM::get_variable(const FlyString& name, GlobalObject& global_object)
 {
     if (!m_call_stack.is_empty()) {
-        if (name == names.arguments && !call_frame().callee.is_empty()) {
+        if (name == names.arguments.as_string() && !call_frame().callee.is_empty()) {
             // HACK: Special handling for the name "arguments":
             //       If the name "arguments" is defined in the current scope, for example via
             //       a function parameter, or by a local var declaration, we use that.
@@ -551,13 +551,13 @@ void VM::run_queued_promise_jobs()
     VERIFY(!m_exception);
 }
 
-// 9.4.4 HostEnqueuePromiseJob, https://tc39.es/ecma262/#sec-hostenqueuepromisejob
+// 9.5.4 HostEnqueuePromiseJob ( job, realm ), https://tc39.es/ecma262/#sec-hostenqueuepromisejob
 void VM::enqueue_promise_job(NativeFunction& job)
 {
     m_promise_jobs.append(&job);
 }
 
-// 27.2.1.9 HostPromiseRejectionTracker, https://tc39.es/ecma262/#sec-host-promise-rejection-tracker
+// 27.2.1.9 HostPromiseRejectionTracker ( promise, operation ), https://tc39.es/ecma262/#sec-host-promise-rejection-tracker
 void VM::promise_rejection_tracker(const Promise& promise, Promise::RejectionOperation operation) const
 {
     switch (operation) {

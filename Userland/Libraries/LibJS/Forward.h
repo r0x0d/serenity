@@ -34,6 +34,7 @@
     __JS_ENUMERATE(Date, date, DatePrototype, DateConstructor, void)                                          \
     __JS_ENUMERATE(Error, error, ErrorPrototype, ErrorConstructor, void)                                      \
     __JS_ENUMERATE(Function, function, FunctionPrototype, FunctionConstructor, void)                          \
+    __JS_ENUMERATE(Map, map, MapPrototype, MapConstructor, void)                                              \
     __JS_ENUMERATE(NumberObject, number, NumberPrototype, NumberConstructor, void)                            \
     __JS_ENUMERATE(Object, object, ObjectPrototype, ObjectConstructor, void)                                  \
     __JS_ENUMERATE(Promise, promise, PromisePrototype, PromiseConstructor, void)                              \
@@ -73,6 +74,7 @@
 #define JS_ENUMERATE_ITERATOR_PROTOTYPES          \
     __JS_ENUMERATE(Iterator, iterator)            \
     __JS_ENUMERATE(ArrayIterator, array_iterator) \
+    __JS_ENUMERATE(MapIterator, map_iterator)     \
     __JS_ENUMERATE(SetIterator, set_iterator)     \
     __JS_ENUMERATE(StringIterator, string_iterator)
 

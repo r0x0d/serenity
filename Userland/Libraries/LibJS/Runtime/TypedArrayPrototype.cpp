@@ -21,11 +21,10 @@ void TypedArrayPrototype::initialize(GlobalObject& object)
     Object::initialize(object);
     u8 attr = Attribute::Writable | Attribute::Configurable;
 
-    // FIXME: This should be an accessor property
-    define_native_property(vm.names.length, length_getter, nullptr, Attribute::Configurable);
-    define_native_property(vm.names.buffer, buffer_getter, nullptr, Attribute::Configurable);
-    define_native_property(vm.names.byteLength, byte_length_getter, nullptr, Attribute::Configurable);
-    define_native_property(vm.names.byteOffset, byte_offset_getter, nullptr, Attribute::Configurable);
+    define_native_accessor(vm.names.length, length_getter, nullptr, Attribute::Configurable);
+    define_native_accessor(vm.names.buffer, buffer_getter, nullptr, Attribute::Configurable);
+    define_native_accessor(vm.names.byteLength, byte_length_getter, nullptr, Attribute::Configurable);
+    define_native_accessor(vm.names.byteOffset, byte_offset_getter, nullptr, Attribute::Configurable);
     define_native_function(vm.names.at, at, 1, attr);
 }
 
@@ -45,6 +44,7 @@ static TypedArrayBase* typed_array_from(VM& vm, GlobalObject& global_object)
     return static_cast<TypedArrayBase*>(this_object);
 }
 
+// 23.2.3.18 get %TypedArray%.prototype.length, https://tc39.es/ecma262/#sec-get-%typedarray%.prototype.length
 JS_DEFINE_NATIVE_GETTER(TypedArrayPrototype::length_getter)
 {
     auto typed_array = typed_array_from(vm, global_object);
@@ -57,6 +57,7 @@ JS_DEFINE_NATIVE_GETTER(TypedArrayPrototype::length_getter)
     return Value(typed_array->array_length());
 }
 
+// 4.1 %TypedArray%.prototype.at ( index ), https://tc39.es/proposal-relative-indexing-method/#sec-%typedarray%.prototype.at
 JS_DEFINE_NATIVE_FUNCTION(TypedArrayPrototype::at)
 {
     auto typed_array = typed_array_from(vm, global_object);
@@ -80,8 +81,8 @@ JS_DEFINE_NATIVE_FUNCTION(TypedArrayPrototype::at)
     return typed_array->get(index.value());
 }
 
-// https://tc39.es/ecma262/#sec-get-%typedarray%.prototype.buffer
-JS_DEFINE_NATIVE_FUNCTION(TypedArrayPrototype::buffer_getter)
+// 23.2.3.1 get %TypedArray%.prototype.buffer, https://tc39.es/ecma262/#sec-get-%typedarray%.prototype.buffer
+JS_DEFINE_NATIVE_GETTER(TypedArrayPrototype::buffer_getter)
 {
     auto typed_array = typed_array_from(vm, global_object);
     if (!typed_array)
@@ -91,8 +92,8 @@ JS_DEFINE_NATIVE_FUNCTION(TypedArrayPrototype::buffer_getter)
     return Value(array_buffer);
 }
 
-// https://tc39.es/ecma262/#sec-get-%typedarray%.prototype.bytelength
-JS_DEFINE_NATIVE_FUNCTION(TypedArrayPrototype::byte_length_getter)
+// 23.2.3.2 get %TypedArray%.prototype.byteLength, https://tc39.es/ecma262/#sec-get-%typedarray%.prototype.bytelength
+JS_DEFINE_NATIVE_GETTER(TypedArrayPrototype::byte_length_getter)
 {
     auto typed_array = typed_array_from(vm, global_object);
     if (!typed_array)
@@ -104,8 +105,8 @@ JS_DEFINE_NATIVE_FUNCTION(TypedArrayPrototype::byte_length_getter)
     return Value(typed_array->byte_length());
 }
 
-// https://tc39.es/ecma262/#sec-get-%typedarray%.prototype.byteoffset
-JS_DEFINE_NATIVE_FUNCTION(TypedArrayPrototype::byte_offset_getter)
+// 23.2.3.3 get %TypedArray%.prototype.byteOffset, https://tc39.es/ecma262/#sec-get-%typedarray%.prototype.byteoffset
+JS_DEFINE_NATIVE_GETTER(TypedArrayPrototype::byte_offset_getter)
 {
     auto typed_array = typed_array_from(vm, global_object);
     if (!typed_array)
