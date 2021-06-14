@@ -160,6 +160,21 @@ int main(int argc, char** argv)
     }));
 
     auto& edit_menu = menubar->add_menu("&Edit");
+
+    auto copy_action = GUI::CommonActions::make_copy_action([&](auto&) {
+        VERIFY(image_editor.image());
+        if (!image_editor.active_layer()) {
+            dbgln("Cannot copy with no active layer selected");
+            return;
+        }
+        auto bitmap = image_editor.active_layer()->try_copy_bitmap(image_editor.selection());
+        if (!bitmap) {
+            dbgln("try_copy() from Layer failed");
+            return;
+        }
+        GUI::Clipboard::the().set_bitmap(*bitmap);
+    });
+
     auto paste_action = GUI::CommonActions::make_paste_action([&](auto&) {
         VERIFY(image_editor.image());
         auto bitmap = GUI::Clipboard::the().bitmap();
@@ -168,13 +183,16 @@ int main(int argc, char** argv)
 
         auto layer = PixelPaint::Layer::try_create_with_bitmap(*image_editor.image(), *bitmap, "Pasted layer");
         VERIFY(layer);
-        image_editor.image()->add_layer(layer.release_nonnull());
+        image_editor.image()->add_layer(*layer);
+        image_editor.set_active_layer(layer);
+        image_editor.selection().clear();
     });
     GUI::Clipboard::the().on_change = [&](auto& mime_type) {
         paste_action->set_enabled(mime_type == "image/x-serenityos");
     };
     paste_action->set_enabled(GUI::Clipboard::the().mime_type() == "image/x-serenityos");
 
+    edit_menu.add_action(copy_action);
     edit_menu.add_action(paste_action);
 
     auto undo_action = GUI::CommonActions::make_undo_action([&](auto&) {
@@ -188,6 +206,34 @@ int main(int argc, char** argv)
         image_editor.redo();
     });
     edit_menu.add_action(redo_action);
+
+    edit_menu.add_separator();
+    edit_menu.add_action(GUI::CommonActions::make_select_all_action([&](auto&) {
+        VERIFY(image_editor.image());
+        if (!image_editor.active_layer())
+            return;
+        image_editor.selection().set(image_editor.active_layer()->relative_rect());
+    }));
+    edit_menu.add_action(GUI::Action::create(
+        "Clear &Selection", { Mod_Ctrl | Mod_Shift, Key_A }, [&](auto&) {
+            image_editor.selection().clear();
+        },
+        window));
+
+    edit_menu.add_separator();
+    edit_menu.add_action(GUI::Action::create(
+        "&Swap Colors", { Mod_None, Key_X }, [&](auto&) {
+            auto old_primary_color = image_editor.primary_color();
+            image_editor.set_primary_color(image_editor.secondary_color());
+            image_editor.set_secondary_color(old_primary_color);
+        },
+        window));
+    edit_menu.add_action(GUI::Action::create(
+        "&Default Colors", { Mod_None, Key_D }, [&](auto&) {
+            image_editor.set_primary_color(Color::Black);
+            image_editor.set_secondary_color(Color::White);
+        },
+        window));
 
     auto& view_menu = menubar->add_menu("&View");
 
@@ -375,6 +421,7 @@ int main(int argc, char** argv)
     toolbar.add_action(open_image_action);
     toolbar.add_action(save_image_as_action);
     toolbar.add_separator();
+    toolbar.add_action(copy_action);
     toolbar.add_action(paste_action);
     toolbar.add_action(undo_action);
     toolbar.add_action(redo_action);

@@ -82,6 +82,7 @@ namespace JS {
     P(console)                               \
     P(construct)                             \
     P(constructor)                           \
+    P(copyWithin)                            \
     P(cos)                                   \
     P(cosh)                                  \
     P(count)                                 \
@@ -118,6 +119,7 @@ namespace JS {
     P(fixed)                                 \
     P(flags)                                 \
     P(flat)                                  \
+    P(flatMap)                               \
     P(floor)                                 \
     P(fontcolor)                             \
     P(fontsize)                              \
@@ -128,10 +130,17 @@ namespace JS {
     P(fround)                                \
     P(gc)                                    \
     P(get)                                   \
+    P(getBigInt64)                           \
+    P(getBigUint64)                          \
     P(getDate)                               \
     P(getDay)                                \
+    P(getFloat32)                            \
+    P(getFloat64)                            \
     P(getFullYear)                           \
     P(getHours)                              \
+    P(getInt8)                               \
+    P(getInt16)                              \
+    P(getInt32)                              \
     P(getMilliseconds)                       \
     P(getMinutes)                            \
     P(getMonth)                              \
@@ -142,6 +151,9 @@ namespace JS {
     P(getSeconds)                            \
     P(getTime)                               \
     P(getTimezoneOffset)                     \
+    P(getUint8)                              \
+    P(getUint16)                             \
+    P(getUint32)                             \
     P(getUTCDate)                            \
     P(getUTCDay)                             \
     P(getUTCFullYear)                        \
@@ -224,15 +236,25 @@ namespace JS {
     P(round)                                 \
     P(seal)                                  \
     P(set)                                   \
+    P(setBigInt64)                           \
+    P(setBigUint64)                          \
     P(setDate)                               \
+    P(setFloat32)                            \
+    P(setFloat64)                            \
     P(setFullYear)                           \
     P(setHours)                              \
+    P(setInt8)                               \
+    P(setInt16)                              \
+    P(setInt32)                              \
     P(setMilliseconds)                       \
     P(setMinutes)                            \
     P(setMonth)                              \
     P(setPrototypeOf)                        \
     P(setSeconds)                            \
     P(setTime)                               \
+    P(setUint8)                              \
+    P(setUint16)                             \
+    P(setUint32)                             \
     P(setUTCDate)                            \
     P(setUTCFullYear)                        \
     P(setUTCHours)                           \

@@ -668,6 +668,8 @@ Reference Expression::to_reference(Interpreter&, GlobalObject&) const
 
 Reference Identifier::to_reference(Interpreter& interpreter, GlobalObject&) const
 {
+    if (m_argument_index.has_value())
+        return Reference(Reference::CallFrameArgument, m_argument_index.value(), string());
     return interpreter.vm().get_reference(string());
 }
 
@@ -1301,6 +1303,9 @@ Value Identifier::execute(Interpreter& interpreter, GlobalObject& global_object)
 {
     InterpreterNodeScope node_scope { interpreter, *this };
 
+    if (m_argument_index.has_value())
+        return interpreter.vm().argument(m_argument_index.value());
+
     auto value = interpreter.vm().get_variable(string(), global_object);
     if (value.is_empty()) {
         if (!interpreter.exception())
@@ -1313,7 +1318,10 @@ Value Identifier::execute(Interpreter& interpreter, GlobalObject& global_object)
 void Identifier::dump(int indent) const
 {
     print_indent(indent);
-    outln("Identifier \"{}\"", m_string);
+    if (m_argument_index.has_value())
+        outln("Identifier \"{}\" (argument #{})", m_string, m_argument_index.value());
+    else
+        outln("Identifier \"{}\"", m_string);
 }
 
 void SpreadExpression::dump(int indent) const
@@ -1830,6 +1838,16 @@ Value NumericLiteral::execute(Interpreter& interpreter, GlobalObject&) const
 Value BigIntLiteral::execute(Interpreter& interpreter, GlobalObject&) const
 {
     InterpreterNodeScope node_scope { interpreter, *this };
+    Crypto::SignedBigInteger integer;
+    if (m_value[0] == '0' && m_value.length() >= 3) {
+        if (m_value[1] == 'x' || m_value[1] == 'X') {
+            return js_bigint(interpreter.heap(), Crypto::SignedBigInteger::from_base16(m_value.substring(2, m_value.length() - 3)));
+        } else if (m_value[1] == 'o' || m_value[1] == 'O') {
+            return js_bigint(interpreter.heap(), Crypto::SignedBigInteger::from_base8(m_value.substring(2, m_value.length() - 3)));
+        } else if (m_value[1] == 'b' || m_value[1] == 'B') {
+            return js_bigint(interpreter.heap(), Crypto::SignedBigInteger::from_base2(m_value.substring(2, m_value.length() - 3)));
+        }
+    }
     return js_bigint(interpreter.heap(), Crypto::SignedBigInteger::from_base10(m_value.substring(0, m_value.length() - 1)));
 }
 
