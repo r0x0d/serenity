@@ -240,7 +240,7 @@ Gfx::WindowTheme::WindowState WindowFrame::window_state_for_theme() const
     if (m_flash_timer && m_flash_timer->is_active())
         return m_flash_counter & 1 ? Gfx::WindowTheme::WindowState::Active : Gfx::WindowTheme::WindowState::Inactive;
 
-    if (&m_window == wm.m_highlight_window)
+    if (&m_window == wm.highlight_window())
         return Gfx::WindowTheme::WindowState::Highlighted;
     if (&m_window == wm.m_move_window)
         return Gfx::WindowTheme::WindowState::Moving;
@@ -591,95 +591,134 @@ void WindowFrame::layout_buttons()
         m_buttons[i].set_relative_rect(button_rects[i]);
 }
 
-bool WindowFrame::hit_test(const Gfx::IntPoint& point) const
+Optional<HitTestResult> WindowFrame::hit_test(Gfx::IntPoint const& position) const
 {
     if (m_window.is_frameless())
-        return false;
+        return {};
     auto frame_rect = rect();
-    if (!frame_rect.contains(point))
-        return false;
+    if (!frame_rect.contains(position))
+        return {};
     auto window_rect = m_window.rect();
-    if (window_rect.contains(point))
-        return false;
+    if (window_rect.contains(position))
+        return {};
+
+    auto window_relative_position = position.translated(-render_rect().location());
+    HitTestResult result {
+        .window = m_window,
+        .screen_position = position,
+        .window_relative_position = window_relative_position,
+        .is_frame_hit = true,
+    };
 
     u8 alpha_threshold = Gfx::WindowTheme::current().frame_alpha_hit_threshold(window_state_for_theme()) * 255;
     if (alpha_threshold == 0)
-        return true;
+        return result;
     u8 alpha = 0xff;
-    auto relative_point = point.translated(-render_rect().location());
-    if (point.y() < window_rect.y()) {
+
+    if (position.y() < window_rect.y()) {
         if (m_top_bottom) {
-            auto scaled_relative_point = relative_point * m_top_bottom->scale();
+            auto scaled_relative_point = window_relative_position * m_top_bottom->scale();
             if (m_top_bottom->rect().contains(scaled_relative_point))
                 alpha = m_top_bottom->get_pixel(scaled_relative_point).alpha();
         }
-    } else if (point.y() > window_rect.bottom()) {
+    } else if (position.y() > window_rect.bottom()) {
         if (m_top_bottom) {
-            Gfx::IntPoint scaled_relative_point { relative_point.x() * m_top_bottom->scale(), m_bottom_y * m_top_bottom->scale() + point.y() - window_rect.bottom() - 1 };
+            Gfx::IntPoint scaled_relative_point { window_relative_position.x() * m_top_bottom->scale(), m_bottom_y * m_top_bottom->scale() + position.y() - window_rect.bottom() - 1 };
             if (m_top_bottom->rect().contains(scaled_relative_point))
                 alpha = m_top_bottom->get_pixel(scaled_relative_point).alpha();
         }
-    } else if (point.x() < window_rect.x()) {
+    } else if (position.x() < window_rect.x()) {
         if (m_left_right) {
-            Gfx::IntPoint scaled_relative_point { relative_point.x() * m_left_right->scale(), (relative_point.y() - m_bottom_y) * m_left_right->scale() };
+            Gfx::IntPoint scaled_relative_point { window_relative_position.x() * m_left_right->scale(), (window_relative_position.y() - m_bottom_y) * m_left_right->scale() };
             if (m_left_right->rect().contains(scaled_relative_point))
                 alpha = m_left_right->get_pixel(scaled_relative_point).alpha();
         }
-    } else if (point.x() > window_rect.right()) {
+    } else if (position.x() > window_rect.right()) {
         if (m_left_right) {
-            Gfx::IntPoint scaled_relative_point { m_right_x * m_left_right->scale() + point.x() - window_rect.right() - 1, (relative_point.y() - m_bottom_y) * m_left_right->scale() };
+            Gfx::IntPoint scaled_relative_point { m_right_x * m_left_right->scale() + position.x() - window_rect.right() - 1, (window_relative_position.y() - m_bottom_y) * m_left_right->scale() };
             if (m_left_right->rect().contains(scaled_relative_point))
                 alpha = m_left_right->get_pixel(scaled_relative_point).alpha();
         }
     } else {
-        return false;
+        return {};
     }
-    return alpha >= alpha_threshold;
+    if (alpha >= alpha_threshold)
+        return result;
+    return {};
 }
 
-void WindowFrame::on_mouse_event(const MouseEvent& event)
+bool WindowFrame::handle_titlebar_icon_mouse_event(MouseEvent const& event)
+{
+    auto& wm = WindowManager::the();
+
+    if (event.type() == Event::MouseDown && (event.button() == MouseButton::Left || event.button() == MouseButton::Right)) {
+        // Manually start a potential double click. Since we're opening
+        // a menu, we will only receive the MouseDown event, so we
+        // need to record that fact. If the user subsequently clicks
+        // on the same area, the menu will get closed, and we will
+        // receive a MouseUp event, but because windows have changed
+        // we don't get a MouseDoubleClick event. We can however record
+        // this click, and when we receive the MouseUp event check if
+        // it would have been considered a double click, if it weren't
+        // for the fact that we opened and closed a window in the meanwhile
+        wm.start_menu_doubleclick(m_window, event);
+
+        m_window.popup_window_menu(titlebar_rect().bottom_left().translated(rect().location()), WindowMenuDefaultAction::Close);
+        return true;
+    } else if (event.type() == Event::MouseUp && event.button() == MouseButton::Left) {
+        // Since the MouseDown event opened a menu, another MouseUp
+        // from the second click outside the menu wouldn't be considered
+        // a double click, so let's manually check if it would otherwise
+        // have been be considered to be one
+        if (wm.is_menu_doubleclick(m_window, event)) {
+            // It is a double click, so perform activate the default item
+            m_window.window_menu_activate_default();
+        }
+        return true;
+    }
+    return false;
+}
+
+void WindowFrame::handle_titlebar_mouse_event(MouseEvent const& event)
+{
+    auto& wm = WindowManager::the();
+
+    if (titlebar_icon_rect().contains(event.position())) {
+        if (handle_titlebar_icon_mouse_event(event))
+            return;
+    }
+
+    for (auto& button : m_buttons) {
+        if (button.relative_rect().contains(event.position()))
+            return button.on_mouse_event(event.translated(-button.relative_rect().location()));
+    }
+
+    if (event.type() == Event::MouseDown) {
+        if ((m_window.type() == WindowType::Normal || m_window.type() == WindowType::ToolWindow) && event.button() == MouseButton::Right) {
+            auto default_action = m_window.is_maximized() ? WindowMenuDefaultAction::Restore : WindowMenuDefaultAction::Maximize;
+            m_window.popup_window_menu(event.position().translated(rect().location()), default_action);
+            return;
+        }
+        if (m_window.is_movable() && event.button() == MouseButton::Left)
+            wm.start_window_move(m_window, event.translated(rect().location()));
+    }
+}
+
+void WindowFrame::handle_mouse_event(MouseEvent const& event)
 {
     VERIFY(!m_window.is_fullscreen());
 
-    auto& wm = WindowManager::the();
     if (m_window.type() != WindowType::Normal && m_window.type() != WindowType::ToolWindow && m_window.type() != WindowType::Notification)
         return;
 
+    auto& wm = WindowManager::the();
     if (m_window.type() == WindowType::Normal || m_window.type() == WindowType::ToolWindow) {
         if (event.type() == Event::MouseDown)
             wm.move_to_front_and_make_active(m_window);
-
-        if (m_window.blocking_modal_window())
-            return;
-
-        if (titlebar_icon_rect().contains(event.position())) {
-            if (event.type() == Event::MouseDown && (event.button() == MouseButton::Left || event.button() == MouseButton::Right)) {
-                // Manually start a potential double click. Since we're opening
-                // a menu, we will only receive the MouseDown event, so we
-                // need to record that fact. If the user subsequently clicks
-                // on the same area, the menu will get closed, and we will
-                // receive a MouseUp event, but because windows have changed
-                // we don't get a MouseDoubleClick event. We can however record
-                // this click, and when we receive the MouseUp event check if
-                // it would have been considered a double click, if it weren't
-                // for the fact that we opened and closed a window in the meanwhile
-                wm.start_menu_doubleclick(m_window, event);
-
-                m_window.popup_window_menu(titlebar_rect().bottom_left().translated(rect().location()), WindowMenuDefaultAction::Close);
-                return;
-            } else if (event.type() == Event::MouseUp && event.button() == MouseButton::Left) {
-                // Since the MouseDown event opened a menu, another MouseUp
-                // from the second click outside the menu wouldn't be considered
-                // a double click, so let's manually check if it would otherwise
-                // have been be considered to be one
-                if (wm.is_menu_doubleclick(m_window, event)) {
-                    // It is a double click, so perform activate the default item
-                    m_window.window_menu_activate_default();
-                }
-                return;
-            }
-        }
     }
+
+    if (m_window.blocking_modal_window())
+        return;
 
     // This is slightly hackish, but expand the title bar rect by two pixels downwards,
     // so that mouse events between the title bar and window contents don't act like
@@ -688,35 +727,26 @@ void WindowFrame::on_mouse_event(const MouseEvent& event)
     adjusted_titlebar_rect.set_height(adjusted_titlebar_rect.height() + 2);
 
     if (adjusted_titlebar_rect.contains(event.position())) {
-        wm.clear_resize_candidate();
-
-        if (event.type() == Event::MouseDown)
-            wm.move_to_front_and_make_active(m_window);
-
-        for (auto& button : m_buttons) {
-            if (button.relative_rect().contains(event.position()))
-                return button.on_mouse_event(event.translated(-button.relative_rect().location()));
-        }
-        if (event.type() == Event::MouseDown) {
-            if ((m_window.type() == WindowType::Normal || m_window.type() == WindowType::ToolWindow) && event.button() == MouseButton::Right) {
-                auto default_action = m_window.is_maximized() ? WindowMenuDefaultAction::Restore : WindowMenuDefaultAction::Maximize;
-                m_window.popup_window_menu(event.position().translated(rect().location()), default_action);
-                return;
-            }
-            if (m_window.is_movable() && event.button() == MouseButton::Left)
-                wm.start_window_move(m_window, event.translated(rect().location()));
-        }
+        handle_titlebar_mouse_event(event);
         return;
     }
 
-    auto menubar_rect = this->menubar_rect();
-    if (menubar_rect.contains(event.position())) {
-        wm.clear_resize_candidate();
+    if (menubar_rect().contains(event.position())) {
         handle_menubar_mouse_event(event);
         return;
     }
 
-    if (m_window.is_resizable() && event.type() == Event::MouseMove && event.buttons() == 0) {
+    handle_border_mouse_event(event);
+}
+
+void WindowFrame::handle_border_mouse_event(const MouseEvent& event)
+{
+    if (!m_window.is_resizable())
+        return;
+
+    auto& wm = WindowManager::the();
+
+    if (event.type() == Event::MouseMove && event.buttons() == 0) {
         constexpr ResizeDirection direction_for_hot_area[3][3] = {
             { ResizeDirection::UpLeft, ResizeDirection::Up, ResizeDirection::UpRight },
             { ResizeDirection::Left, ResizeDirection::None, ResizeDirection::Right },
@@ -733,7 +763,7 @@ void WindowFrame::on_mouse_event(const MouseEvent& event)
         return;
     }
 
-    if (m_window.is_resizable() && event.type() == Event::MouseDown && event.button() == MouseButton::Left)
+    if (event.type() == Event::MouseDown && event.button() == MouseButton::Left)
         wm.start_window_resize(m_window, event.translated(rect().location()));
 }
 
