@@ -50,7 +50,7 @@ ScriptFunction* ScriptFunction::create(GlobalObject& global_object, const FlyStr
 }
 
 ScriptFunction::ScriptFunction(GlobalObject& global_object, const FlyString& name, const Statement& body, Vector<FunctionNode::Parameter> parameters, i32 m_function_length, ScopeObject* parent_scope, Object& prototype, FunctionKind kind, bool is_strict, bool is_arrow_function)
-    : Function(prototype, is_arrow_function ? vm().this_value(global_object) : Value(), {})
+    : Function(is_arrow_function ? vm().this_value(global_object) : Value(), {}, prototype)
     , m_name(name)
     , m_body(body)
     , m_parameters(move(parameters))
@@ -100,7 +100,7 @@ LexicalEnvironment* ScriptFunction::create_environment()
         parameter.binding.visit(
             [&](const FlyString& name) { variables.set(name, { js_undefined(), DeclarationKind::Var }); },
             [&](const NonnullRefPtr<BindingPattern>& binding) {
-                binding->for_each_assigned_name([&](const auto& name) {
+                binding->for_each_bound_name([&](const auto& name) {
                     variables.set(name, { js_undefined(), DeclarationKind::Var });
                 });
             });
@@ -114,7 +114,7 @@ LexicalEnvironment* ScriptFunction::create_environment()
                         variables.set(id->string(), { js_undefined(), declaration.declaration_kind() });
                     },
                     [&](const NonnullRefPtr<BindingPattern>& binding) {
-                        binding->for_each_assigned_name([&](const auto& name) {
+                        binding->for_each_bound_name([&](const auto& name) {
                             variables.set(name, { js_undefined(), declaration.declaration_kind() });
                         });
                     });

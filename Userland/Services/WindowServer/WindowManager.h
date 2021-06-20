@@ -21,6 +21,7 @@
 #include <WindowServer/Event.h>
 #include <WindowServer/MenuManager.h>
 #include <WindowServer/Menubar.h>
+#include <WindowServer/ScreenLayout.h>
 #include <WindowServer/WMClientConnection.h>
 #include <WindowServer/WindowSwitcher.h>
 #include <WindowServer/WindowType.h>
@@ -79,7 +80,7 @@ public:
     void notify_progress_changed(Window&);
     void notify_modified_changed(Window&);
 
-    Gfx::IntRect maximized_window_rect(Window const&) const;
+    Gfx::IntRect maximized_window_rect(Window const&, bool relative_to_window_screen = false) const;
 
     ClientConnection const* dnd_client() const { return m_dnd_client.ptr(); }
     String const& dnd_text() const { return m_dnd_text; }
@@ -105,8 +106,8 @@ public:
 
     void move_to_front_and_make_active(Window&);
 
-    Gfx::IntRect desktop_rect() const;
-    Gfx::IntRect arena_rect_for_type(WindowType) const;
+    Gfx::IntRect desktop_rect(Screen&) const;
+    Gfx::IntRect arena_rect_for_type(Screen&, WindowType) const;
 
     Cursor const& active_cursor() const;
     Cursor const& hidden_cursor() const { return *m_hidden_cursor; }
@@ -129,9 +130,9 @@ public:
     Gfx::Font const& font() const;
     Gfx::Font const& window_title_font() const;
 
-    bool set_resolution(int width, int height, int scale);
-    Gfx::IntSize resolution() const;
-    int scale_factor() const;
+    bool set_screen_layout(ScreenLayout&&, bool, String&);
+    ScreenLayout get_screen_layout() const;
+    bool save_screen_layout(String&);
 
     void set_acceleration_factor(double);
     void set_scroll_step_size(unsigned);
@@ -223,8 +224,7 @@ public:
 
     Gfx::IntPoint get_recommended_window_position(Gfx::IntPoint const& desired);
 
-    int compositor_icon_scale() const;
-    void reload_icon_bitmaps_after_scale_change(bool allow_hidpi_icons = true);
+    void reload_icon_bitmaps_after_scale_change();
 
     void reevaluate_hovered_window(Window* = nullptr);
     Window* hovered_window() const { return m_hovered_window.ptr(); }
@@ -232,7 +232,7 @@ public:
     WindowStack& window_stack() { return m_window_stack; }
 
 private:
-    NonnullRefPtr<Cursor> get_cursor(String const& name);
+    RefPtr<Cursor> get_cursor(String const& name);
 
     void process_mouse_event(MouseEvent&);
     void process_event_for_doubleclick(Window& window, MouseEvent& event);
@@ -256,7 +256,6 @@ private:
 
     void do_move_to_front(Window&, bool, bool);
 
-    bool m_allow_hidpi_icons { true };
     RefPtr<Cursor> m_hidden_cursor;
     RefPtr<Cursor> m_arrow_cursor;
     RefPtr<Cursor> m_hand_cursor;
