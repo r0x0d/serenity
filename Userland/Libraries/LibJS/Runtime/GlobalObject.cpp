@@ -40,6 +40,7 @@
 #include <LibJS/Runtime/GeneratorFunctionConstructor.h>
 #include <LibJS/Runtime/GeneratorFunctionPrototype.h>
 #include <LibJS/Runtime/GeneratorObjectPrototype.h>
+#include <LibJS/Runtime/GlobalEnvironmentRecord.h>
 #include <LibJS/Runtime/GlobalObject.h>
 #include <LibJS/Runtime/IteratorPrototype.h>
 #include <LibJS/Runtime/JSONObject.h>
@@ -82,7 +83,7 @@
 namespace JS {
 
 GlobalObject::GlobalObject()
-    : ScopeObject(GlobalObjectTag::Tag)
+    : Object(GlobalObjectTag::Tag)
     , m_console(make<Console>(*this))
 {
 }
@@ -97,6 +98,8 @@ void GlobalObject::initialize_global_object()
     m_empty_object_shape = heap().allocate_without_global_object<Shape>(*this);
     m_object_prototype = heap().allocate_without_global_object<ObjectPrototype>(*this);
     m_function_prototype = heap().allocate_without_global_object<FunctionPrototype>(*this);
+
+    m_environment_record = heap().allocate_without_global_object<GlobalEnvironmentRecord>(*this);
 
     m_new_object_shape = vm.heap().allocate_without_global_object<Shape>(*this);
     m_new_object_shape->set_prototype_without_transition(m_object_prototype);
@@ -207,6 +210,7 @@ void GlobalObject::visit_edges(Visitor& visitor)
     visitor.visit(m_new_script_function_prototype_object_shape);
     visitor.visit(m_proxy_constructor);
     visitor.visit(m_generator_object_prototype);
+    visitor.visit(m_environment_record);
 
 #define __JS_ENUMERATE(ClassName, snake_name, PrototypeName, ConstructorName, ArrayType) \
     visitor.visit(m_##snake_name##_constructor);                                         \
@@ -328,34 +332,6 @@ JS_DEFINE_NATIVE_FUNCTION(GlobalObject::parse_int)
     return Value(sign * number);
 }
 
-Optional<Variable> GlobalObject::get_from_scope(const FlyString& name) const
-{
-    auto value = get(name);
-    if (value.is_empty())
-        return {};
-    return Variable { value, DeclarationKind::Var };
-}
-
-void GlobalObject::put_to_scope(const FlyString& name, Variable variable)
-{
-    put(name, variable.value);
-}
-
-bool GlobalObject::delete_from_scope(FlyString const& name)
-{
-    return delete_property(name);
-}
-
-bool GlobalObject::has_this_binding() const
-{
-    return true;
-}
-
-Value GlobalObject::get_this_binding(GlobalObject&) const
-{
-    return Value(this);
-}
-
 // 19.2.1 eval ( x ), https://tc39.es/ecma262/#sec-eval-x
 JS_DEFINE_NATIVE_FUNCTION(GlobalObject::eval)
 {
@@ -372,7 +348,7 @@ JS_DEFINE_NATIVE_FUNCTION(GlobalObject::eval)
     }
 
     auto& caller_frame = vm.call_stack().at(vm.call_stack().size() - 2);
-    TemporaryChange scope_change(vm.call_frame().scope, caller_frame->scope);
+    TemporaryChange scope_change(vm.call_frame().lexical_environment, caller_frame->lexical_environment);
 
     auto& interpreter = vm.interpreter();
     return interpreter.execute_statement(global_object, program).value_or(js_undefined());

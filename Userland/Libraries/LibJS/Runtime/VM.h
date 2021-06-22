@@ -49,7 +49,8 @@ struct CallFrame {
     Value this_value;
     Vector<Value> arguments;
     Array* arguments_object { nullptr };
-    ScopeObject* scope { nullptr };
+    EnvironmentRecord* lexical_environment { nullptr };
+    EnvironmentRecord* variable_environment { nullptr };
     bool is_strict_mode { false };
 };
 
@@ -72,6 +73,7 @@ public:
     void clear_exception() { m_exception = nullptr; }
 
     void dump_backtrace() const;
+    void dump_environment_record_chain() const;
 
     class InterpreterExecutionScope {
     public:
@@ -121,8 +123,11 @@ public:
     const Vector<CallFrame*>& call_stack() const { return m_call_stack; }
     Vector<CallFrame*>& call_stack() { return m_call_stack; }
 
-    const ScopeObject* current_scope() const { return call_frame().scope; }
-    ScopeObject* current_scope() { return call_frame().scope; }
+    EnvironmentRecord const* lexical_environment() const { return call_frame().lexical_environment; }
+    EnvironmentRecord* lexical_environment() { return call_frame().lexical_environment; }
+
+    EnvironmentRecord const* variable_environment() const { return call_frame().variable_environment; }
+    EnvironmentRecord* variable_environment() { return call_frame().variable_environment; }
 
     bool in_strict_mode() const;
 
@@ -191,11 +196,11 @@ public:
     FlyString unwind_until_label() const { return m_unwind_until_label; }
 
     Value get_variable(const FlyString& name, GlobalObject&);
-    void set_variable(const FlyString& name, Value, GlobalObject&, bool first_assignment = false, ScopeObject* specific_scope = nullptr);
+    void set_variable(const FlyString& name, Value, GlobalObject&, bool first_assignment = false, EnvironmentRecord* specific_scope = nullptr);
     bool delete_variable(FlyString const& name);
-    void assign(const Variant<NonnullRefPtr<Identifier>, NonnullRefPtr<BindingPattern>>& target, Value, GlobalObject&, bool first_assignment = false, ScopeObject* specific_scope = nullptr);
-    void assign(const FlyString& target, Value, GlobalObject&, bool first_assignment = false, ScopeObject* specific_scope = nullptr);
-    void assign(const NonnullRefPtr<BindingPattern>& target, Value, GlobalObject&, bool first_assignment = false, ScopeObject* specific_scope = nullptr);
+    void assign(const Variant<NonnullRefPtr<Identifier>, NonnullRefPtr<BindingPattern>>& target, Value, GlobalObject&, bool first_assignment = false, EnvironmentRecord* specific_scope = nullptr);
+    void assign(const FlyString& target, Value, GlobalObject&, bool first_assignment = false, EnvironmentRecord* specific_scope = nullptr);
+    void assign(const NonnullRefPtr<BindingPattern>& target, Value, GlobalObject&, bool first_assignment = false, EnvironmentRecord* specific_scope = nullptr);
 
     Reference get_reference(const FlyString& name);
 
@@ -221,9 +226,7 @@ public:
 
     String join_arguments(size_t start_index = 0) const;
 
-    Value resolve_this_binding(GlobalObject&) const;
-    const ScopeObject* find_this_scope() const;
-    Value get_new_target() const;
+    Value get_new_target();
 
     template<typename... Args>
     [[nodiscard]] ALWAYS_INLINE Value call(Function& function, Value this_value, Args... args)
@@ -239,7 +242,7 @@ public:
 
     CommonPropertyNames names;
 
-    Shape& scope_object_shape() { return *m_scope_object_shape; }
+    Shape& environment_record_shape() { return *m_environment_record_shape; }
 
     void run_queued_promise_jobs();
     void enqueue_promise_job(NativeFunction&);
@@ -285,7 +288,7 @@ private:
     JS_ENUMERATE_WELL_KNOWN_SYMBOLS
 #undef __JS_ENUMERATE
 
-    Shape* m_scope_object_shape { nullptr };
+    Shape* m_environment_record_shape { nullptr };
 
     bool m_underscore_is_last_value { false };
 

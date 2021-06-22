@@ -12,11 +12,11 @@
 #include <LibJS/Bytecode/Op.h>
 #include <LibJS/Runtime/Array.h>
 #include <LibJS/Runtime/BigInt.h>
+#include <LibJS/Runtime/DeclarativeEnvironmentRecord.h>
+#include <LibJS/Runtime/EnvironmentRecord.h>
 #include <LibJS/Runtime/GlobalObject.h>
 #include <LibJS/Runtime/IteratorOperations.h>
-#include <LibJS/Runtime/LexicalEnvironment.h>
 #include <LibJS/Runtime/RegExpObject.h>
-#include <LibJS/Runtime/ScopeObject.h>
 #include <LibJS/Runtime/ScriptFunction.h>
 #include <LibJS/Runtime/Value.h>
 
@@ -312,7 +312,7 @@ void Call::execute_impl(Bytecode::Interpreter& interpreter) const
 void NewFunction::execute_impl(Bytecode::Interpreter& interpreter) const
 {
     auto& vm = interpreter.vm();
-    interpreter.accumulator() = ScriptFunction::create(interpreter.global_object(), m_function_node.name(), m_function_node.body(), m_function_node.parameters(), m_function_node.function_length(), vm.current_scope(), m_function_node.kind(), m_function_node.is_strict_mode(), m_function_node.is_arrow_function());
+    interpreter.accumulator() = ScriptFunction::create(interpreter.global_object(), m_function_node.name(), m_function_node.body(), m_function_node.parameters(), m_function_node.function_length(), vm.lexical_environment(), m_function_node.kind(), m_function_node.is_strict_mode(), m_function_node.is_arrow_function());
 }
 
 void Return::execute_impl(Bytecode::Interpreter& interpreter) const
@@ -381,13 +381,14 @@ void ContinuePendingUnwind::replace_references_impl(BasicBlock const& from, Basi
         m_resume_target = Label { to };
 }
 
-void PushLexicalEnvironment::execute_impl(Bytecode::Interpreter& interpreter) const
+void PushDeclarativeEnvironmentRecord::execute_impl(Bytecode::Interpreter& interpreter) const
 {
     HashMap<FlyString, Variable> resolved_variables;
     for (auto& it : m_variables)
         resolved_variables.set(interpreter.current_executable().get_string(it.key), it.value);
-    auto* block_lexical_environment = interpreter.vm().heap().allocate<LexicalEnvironment>(interpreter.global_object(), move(resolved_variables), interpreter.vm().current_scope());
-    interpreter.vm().call_frame().scope = block_lexical_environment;
+    auto* environment_record = interpreter.vm().heap().allocate<DeclarativeEnvironmentRecord>(interpreter.global_object(), move(resolved_variables), interpreter.vm().lexical_environment());
+    interpreter.vm().call_frame().lexical_environment = environment_record;
+    interpreter.vm().call_frame().variable_environment = environment_record;
 }
 
 void Yield::execute_impl(Bytecode::Interpreter& interpreter) const
@@ -639,10 +640,10 @@ String ContinuePendingUnwind::to_string_impl(Bytecode::Executable const&) const
     return String::formatted("ContinuePendingUnwind resume:{}", m_resume_target);
 }
 
-String PushLexicalEnvironment::to_string_impl(const Bytecode::Executable& executable) const
+String PushDeclarativeEnvironmentRecord::to_string_impl(const Bytecode::Executable& executable) const
 {
     StringBuilder builder;
-    builder.append("PushLexicalEnvironment");
+    builder.append("PushDeclarativeEnvironmentRecord");
     if (!m_variables.is_empty()) {
         builder.append(" {");
         Vector<String> names;

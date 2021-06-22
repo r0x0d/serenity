@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2020-2021, Linus Groh <linusg@serenityos.org>
+ * Copyright (c) 2021, Andreas Kling <kling@serenityos.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -8,10 +9,13 @@
 #include <AK/Result.h>
 #include <LibJS/Runtime/AbstractOperations.h>
 #include <LibJS/Runtime/BoundFunction.h>
+#include <LibJS/Runtime/DeclarativeEnvironmentRecord.h>
 #include <LibJS/Runtime/ErrorTypes.h>
 #include <LibJS/Runtime/Function.h>
+#include <LibJS/Runtime/FunctionEnvironmentRecord.h>
 #include <LibJS/Runtime/GlobalObject.h>
 #include <LibJS/Runtime/Object.h>
+#include <LibJS/Runtime/ObjectEnvironmentRecord.h>
 #include <LibJS/Runtime/PropertyName.h>
 #include <LibJS/Runtime/ProxyObject.h>
 
@@ -154,6 +158,44 @@ Object* get_prototype_from_constructor(GlobalObject& global_object, Function con
         prototype = (realm->*intrinsic_default_prototype)();
     }
     return &prototype.as_object();
+}
+
+// 9.1.2.2 NewDeclarativeEnvironment ( E ), https://tc39.es/ecma262/#sec-newdeclarativeenvironment
+DeclarativeEnvironmentRecord* new_declarative_environment(EnvironmentRecord& environment_record)
+{
+    auto& global_object = environment_record.global_object();
+    return global_object.heap().allocate<DeclarativeEnvironmentRecord>(global_object, &environment_record);
+}
+
+// 9.1.2.3 NewObjectEnvironment ( O, W, E ), https://tc39.es/ecma262/#sec-newobjectenvironment
+ObjectEnvironmentRecord* new_object_environment(Object& object, bool is_with_environment, EnvironmentRecord* environment_record)
+{
+    auto& global_object = object.global_object();
+    if (!is_with_environment) {
+        TODO();
+    }
+    return global_object.heap().allocate<ObjectEnvironmentRecord>(global_object, object, environment_record);
+}
+
+// 9.4.3 GetThisEnvironment ( ), https://tc39.es/ecma262/#sec-getthisenvironment
+EnvironmentRecord& get_this_environment(VM& vm)
+{
+    // FIXME: Should be the *lexical* environment.
+    for (auto* env = vm.lexical_environment(); env; env = env->outer_environment()) {
+        if (env->has_this_binding())
+            return *env;
+    }
+    VERIFY_NOT_REACHED();
+}
+
+// 13.3.7.2 GetSuperConstructor ( ), https://tc39.es/ecma262/#sec-getsuperconstructor
+Object* get_super_constructor(VM& vm)
+{
+    auto& env = get_this_environment(vm);
+    VERIFY(is<FunctionEnvironmentRecord>(env));
+    auto& active_function = static_cast<FunctionEnvironmentRecord&>(env).function_object();
+    auto* super_constructor = active_function.prototype();
+    return super_constructor;
 }
 
 }
