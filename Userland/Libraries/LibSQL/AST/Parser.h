@@ -8,11 +8,11 @@
 
 #include <AK/String.h>
 #include <AK/StringView.h>
-#include <LibSQL/AST.h>
-#include <LibSQL/Lexer.h>
-#include <LibSQL/Token.h>
+#include <LibSQL/AST/AST.h>
+#include <LibSQL/AST/Lexer.h>
+#include <LibSQL/AST/Token.h>
 
-namespace SQL {
+namespace SQL::AST {
 
 namespace Limits {
 // https://www.sqlite.org/limits.html
@@ -21,14 +21,9 @@ constexpr size_t maximum_subquery_depth = 100;
 }
 
 class Parser {
-    struct Position {
-        size_t line { 0 };
-        size_t column { 0 };
-    };
-
     struct Error {
         String message;
-        Position position;
+        SourcePosition position;
 
         String to_string() const
         {
@@ -126,7 +121,7 @@ private:
     void expected(StringView what);
     void syntax_error(String message);
 
-    Position position() const;
+    SourcePosition position() const;
 
     ParserState m_parser_state;
 };

@@ -8,7 +8,7 @@
 #include <AK/ScopeGuard.h>
 #include <AK/TypeCasts.h>
 
-namespace SQL {
+namespace SQL::AST {
 
 Parser::Parser(Lexer lexer)
     : m_parser_state(move(lexer))
@@ -1075,12 +1075,9 @@ void Parser::syntax_error(String message)
     m_parser_state.m_errors.append({ move(message), position() });
 }
 
-Parser::Position Parser::position() const
+SourcePosition Parser::position() const
 {
-    return {
-        m_parser_state.m_token.line_number(),
-        m_parser_state.m_token.line_column()
-    };
+    return m_parser_state.m_token.start_position();
 }
 
 Parser::ParserState::ParserState(Lexer lexer)

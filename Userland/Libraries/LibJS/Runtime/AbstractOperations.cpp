@@ -175,10 +175,7 @@ DeclarativeEnvironmentRecord* new_declarative_environment(EnvironmentRecord& env
 ObjectEnvironmentRecord* new_object_environment(Object& object, bool is_with_environment, EnvironmentRecord* environment_record)
 {
     auto& global_object = object.global_object();
-    if (!is_with_environment) {
-        TODO();
-    }
-    return global_object.heap().allocate<ObjectEnvironmentRecord>(global_object, object, environment_record);
+    return global_object.heap().allocate<ObjectEnvironmentRecord>(global_object, object, is_with_environment ? ObjectEnvironmentRecord::IsWithEnvironment::Yes : ObjectEnvironmentRecord::IsWithEnvironment::No, environment_record);
 }
 
 // 9.4.3 GetThisEnvironment ( ), https://tc39.es/ecma262/#sec-getthisenvironment
@@ -196,8 +193,7 @@ EnvironmentRecord& get_this_environment(VM& vm)
 Object* get_super_constructor(VM& vm)
 {
     auto& env = get_this_environment(vm);
-    VERIFY(is<FunctionEnvironmentRecord>(env));
-    auto& active_function = static_cast<FunctionEnvironmentRecord&>(env).function_object();
+    auto& active_function = verify_cast<FunctionEnvironmentRecord>(env).function_object();
     auto* super_constructor = active_function.prototype();
     return super_constructor;
 }
@@ -224,7 +220,7 @@ Value perform_eval(Value x, GlobalObject& caller_realm, CallerMode strict_caller
     if (direct == EvalMode::Direct)
         return interpreter.execute_statement(caller_realm, program).value_or(js_undefined());
 
-    TemporaryChange scope_change(vm.call_frame().lexical_environment, static_cast<EnvironmentRecord*>(&caller_realm.environment_record()));
+    TemporaryChange scope_change(vm.running_execution_context().lexical_environment, static_cast<EnvironmentRecord*>(&caller_realm.environment_record()));
     return interpreter.execute_statement(caller_realm, program).value_or(js_undefined());
 }
 

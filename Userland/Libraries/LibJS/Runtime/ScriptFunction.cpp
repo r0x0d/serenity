@@ -50,13 +50,13 @@ ScriptFunction* ScriptFunction::create(GlobalObject& global_object, const FlyStr
     return global_object.heap().allocate<ScriptFunction>(global_object, global_object, name, body, move(parameters), m_function_length, parent_scope, *prototype, kind, is_strict, is_arrow_function);
 }
 
-ScriptFunction::ScriptFunction(GlobalObject& global_object, const FlyString& name, const Statement& body, Vector<FunctionNode::Parameter> parameters, i32 m_function_length, EnvironmentRecord* parent_scope, Object& prototype, FunctionKind kind, bool is_strict, bool is_arrow_function)
+ScriptFunction::ScriptFunction(GlobalObject& global_object, const FlyString& name, const Statement& body, Vector<FunctionNode::Parameter> parameters, i32 function_length, EnvironmentRecord* parent_scope, Object& prototype, FunctionKind kind, bool is_strict, bool is_arrow_function)
     : Function(is_arrow_function ? vm().this_value(global_object) : Value(), {}, prototype)
     , m_name(name)
     , m_body(body)
     , m_parameters(move(parameters))
     , m_parent_scope(parent_scope)
-    , m_function_length(m_function_length)
+    , m_function_length(function_length)
     , m_kind(kind)
     , m_is_strict(is_strict)
     , m_is_arrow_function(is_arrow_function)
@@ -140,7 +140,7 @@ Value ScriptFunction::execute_function_body()
     auto* bytecode_interpreter = Bytecode::Interpreter::current();
 
     auto prepare_arguments = [&] {
-        auto& call_frame_args = vm.call_frame().arguments;
+        auto& execution_context_arguments = vm.running_execution_context().arguments;
         for (size_t i = 0; i < m_parameters.size(); ++i) {
             auto& parameter = m_parameters[i];
             parameter.binding.visit(
@@ -148,11 +148,11 @@ Value ScriptFunction::execute_function_body()
                     Value argument_value;
                     if (parameter.is_rest) {
                         auto* array = Array::create(global_object());
-                        for (size_t rest_index = i; rest_index < call_frame_args.size(); ++rest_index)
-                            array->indexed_properties().append(call_frame_args[rest_index]);
+                        for (size_t rest_index = i; rest_index < execution_context_arguments.size(); ++rest_index)
+                            array->indexed_properties().append(execution_context_arguments[rest_index]);
                         argument_value = move(array);
-                    } else if (i < call_frame_args.size() && !call_frame_args[i].is_undefined()) {
-                        argument_value = call_frame_args[i];
+                    } else if (i < execution_context_arguments.size() && !execution_context_arguments[i].is_undefined()) {
+                        argument_value = execution_context_arguments[i];
                     } else if (parameter.default_value) {
                         // FIXME: Support default arguments in the bytecode world!
                         if (!bytecode_interpreter)
@@ -163,9 +163,9 @@ Value ScriptFunction::execute_function_body()
                         argument_value = js_undefined();
                     }
 
-                    if (i >= call_frame_args.size())
-                        call_frame_args.resize(i + 1);
-                    call_frame_args[i] = argument_value;
+                    if (i >= execution_context_arguments.size())
+                        execution_context_arguments.resize(i + 1);
+                    execution_context_arguments[i] = argument_value;
                     vm.assign(param, argument_value, global_object(), true, vm.lexical_environment());
                 });
 
@@ -191,7 +191,7 @@ Value ScriptFunction::execute_function_body()
         if (m_kind != FunctionKind::Generator)
             return result;
 
-        return GeneratorObject::create(global_object(), result, this, vm.call_frame().lexical_environment, bytecode_interpreter->snapshot_frame());
+        return GeneratorObject::create(global_object(), result, this, vm.running_execution_context().lexical_environment, bytecode_interpreter->snapshot_frame());
     } else {
         VERIFY(m_kind != FunctionKind::Generator);
         OwnPtr<Interpreter> local_interpreter;

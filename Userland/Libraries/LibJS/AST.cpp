@@ -43,7 +43,7 @@ public:
         : m_interpreter(interpreter)
         , m_chain_node { nullptr, node }
     {
-        m_interpreter.vm().call_frame().current_node = &node;
+        m_interpreter.vm().running_execution_context().current_node = &node;
         m_interpreter.push_ast_node(m_chain_node);
     }
 
@@ -225,7 +225,7 @@ Value CallExpression::execute(Interpreter& interpreter, GlobalObject& global_obj
         return perform_eval(script_value, global_object, vm.in_strict_mode() ? CallerMode::Strict : CallerMode::NonStrict, EvalMode::Direct);
     }
 
-    vm.call_frame().current_node = interpreter.current_node();
+    vm.running_execution_context().current_node = interpreter.current_node();
     Object* new_object = nullptr;
     Value result;
     if (is<NewExpression>(*this)) {
@@ -244,8 +244,7 @@ Value CallExpression::execute(Interpreter& interpreter, GlobalObject& global_obj
             return {};
 
         auto& this_er = get_this_environment(interpreter.vm());
-        VERIFY(is<FunctionEnvironmentRecord>(this_er));
-        static_cast<FunctionEnvironmentRecord&>(this_er).bind_this_value(global_object, result);
+        verify_cast<FunctionEnvironmentRecord>(this_er).bind_this_value(global_object, result);
     } else {
         result = vm.call(function, this_value, move(arguments));
     }
@@ -308,8 +307,8 @@ Value WithStatement::execute(Interpreter& interpreter, GlobalObject& global_obje
 
     VERIFY(object);
 
-    auto* object_environment_record = new_object_environment(*object, true, interpreter.vm().call_frame().lexical_environment);
-    TemporaryChange<EnvironmentRecord*> scope_change(interpreter.vm().call_frame().lexical_environment, object_environment_record);
+    auto* object_environment_record = new_object_environment(*object, true, interpreter.vm().running_execution_context().lexical_environment);
+    TemporaryChange<EnvironmentRecord*> scope_change(interpreter.vm().running_execution_context().lexical_environment, object_environment_record);
     return interpreter.execute_statement(global_object, m_body).value_or(js_undefined());
 }
 
@@ -1776,10 +1775,9 @@ void MemberExpression::dump(int indent) const
 
 PropertyName MemberExpression::computed_property_name(Interpreter& interpreter, GlobalObject& global_object) const
 {
-    if (!is_computed()) {
-        VERIFY(is<Identifier>(*m_property));
-        return static_cast<Identifier const&>(*m_property).string();
-    }
+    if (!is_computed())
+        return verify_cast<Identifier>(*m_property).string();
+
     auto value = m_property->execute(interpreter, global_object);
     if (interpreter.exception())
         return {};
@@ -1794,8 +1792,7 @@ String MemberExpression::to_string_approximation() const
         object_string = static_cast<Identifier const&>(*m_object).string();
     if (is_computed())
         return String::formatted("{}[<computed>]", object_string);
-    VERIFY(is<Identifier>(*m_property));
-    return String::formatted("{}.{}", object_string, static_cast<Identifier const&>(*m_property).string());
+    return String::formatted("{}.{}", object_string, verify_cast<Identifier>(*m_property).string());
 }
 
 Value MemberExpression::execute(Interpreter& interpreter, GlobalObject& global_object) const
@@ -2049,8 +2046,8 @@ Value TryStatement::execute(Interpreter& interpreter, GlobalObject& global_objec
 
             HashMap<FlyString, Variable> parameters;
             parameters.set(m_handler->parameter(), Variable { exception->value(), DeclarationKind::Var });
-            auto* catch_scope = interpreter.heap().allocate<DeclarativeEnvironmentRecord>(global_object, move(parameters), interpreter.vm().call_frame().lexical_environment);
-            TemporaryChange<EnvironmentRecord*> scope_change(interpreter.vm().call_frame().lexical_environment, catch_scope);
+            auto* catch_scope = interpreter.heap().allocate<DeclarativeEnvironmentRecord>(global_object, move(parameters), interpreter.vm().running_execution_context().lexical_environment);
+            TemporaryChange<EnvironmentRecord*> scope_change(interpreter.vm().running_execution_context().lexical_environment, catch_scope);
             result = interpreter.execute_statement(global_object, m_handler->body());
         }
     }
