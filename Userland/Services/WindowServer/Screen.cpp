@@ -268,7 +268,7 @@ void ScreenInput::on_receive_mouse_data(const MousePacket& packet)
         m_cursor_location.translate_by(packet.x * m_acceleration_factor, packet.y * m_acceleration_factor);
         dbgln_if(WSSCREEN_DEBUG, "Screen: New Relative mouse point @ {}", m_cursor_location);
     } else {
-        m_cursor_location = { packet.x * current_screen.physical_width() / 0xffff, packet.y * current_screen.physical_height() / 0xffff };
+        m_cursor_location = { packet.x * current_screen.width() / 0xffff, packet.y * current_screen.height() / 0xffff };
         dbgln_if(WSSCREEN_DEBUG, "Screen: New Absolute mouse point @ {}", m_cursor_location);
     }
 
@@ -316,4 +316,14 @@ void ScreenInput::on_receive_keyboard_data(::KeyEvent kernel_event)
     Core::EventLoop::current().post_event(WindowManager::the(), move(message));
 }
 
+void Screen::flush_display(const Gfx::IntRect& flush_region)
+{
+    FBRect rect {
+        .x = static_cast<unsigned>(flush_region.x()) * scale_factor(),
+        .y = static_cast<unsigned>(flush_region.y()) * scale_factor(),
+        .width = static_cast<unsigned>(flush_region.width()) * scale_factor(),
+        .height = static_cast<unsigned>(flush_region.height() * scale_factor())
+    };
+    fb_flush_buffer(m_framebuffer_fd, &rect);
+}
 }
