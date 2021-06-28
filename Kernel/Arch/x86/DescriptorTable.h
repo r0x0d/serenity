@@ -28,8 +28,9 @@ static_assert(GDT_SELECTOR_CODE0 + 24 == GDT_SELECTOR_DATA3); // SS3 = CS0 + 32
 #else
 #    define GDT_SELECTOR_CODE0 0x08
 #    define GDT_SELECTOR_CODE3 0x10
-#    define GDT_SELECTOR_TSS 0x18
-#    define GDT_SELECTOR_TSS_PART2 0x20
+#    define GDT_SELECTOR_DATA3 0x18
+#    define GDT_SELECTOR_TSS 0x20
+#    define GDT_SELECTOR_TSS_PART2 0x28
 #endif
 
 namespace Kernel {
@@ -116,9 +117,15 @@ struct [[gnu::packed]] IDTEntry
     u16 offset_1; // offset bits 0..15
     u16 selector; // a code segment selector in GDT or LDT
 
-    u8 zero; // unused, set to 0 (maybe used on amd64)
+#if ARCH(I386)
+    u8 zero; // unused, set to 0
+#else
     struct {
-        // FIXME: Is the order correct?
+        u8 interrupt_stack_table : 3;
+        u8 zero : 5; // unused, set to 0
+    };
+#endif
+    struct {
         u8 gate_type : 4;
         u8 storage_segment : 1;
         u8 descriptor_privilege_level : 2;
@@ -126,7 +133,6 @@ struct [[gnu::packed]] IDTEntry
     } type_attr;  // type and attributes
     u16 offset_2; // offset bits 16..31
 #if !ARCH(I386)
-// we may need to switch those around?
     u32 offset_3;
     u32 zeros;
 #endif
@@ -135,6 +141,9 @@ struct [[gnu::packed]] IDTEntry
     IDTEntry(FlatPtr callback, u16 selector_, IDTEntryType type, u8 storage_segment, u8 privilege_level)
         : offset_1 { (u16)((FlatPtr)callback & 0xFFFF) }
         , selector { selector_ }
+#if !ARCH(I386)
+        , interrupt_stack_table { 0 }
+#endif
         , zero { 0 }
         , type_attr {
             .gate_type = (u8)type,
@@ -150,7 +159,7 @@ struct [[gnu::packed]] IDTEntry
     {
     }
 
-    u32 off()
+    FlatPtr off()
     {
 #if ARCH(I386)
         return (u32)offset_2 << 16 & (u32)offset_1;
@@ -164,5 +173,7 @@ struct [[gnu::packed]] IDTEntry
     }
 };
 // clang-format on
+
+static_assert(sizeof(IDTEntry) == 2 * sizeof(void*));
 
 }

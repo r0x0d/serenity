@@ -14,7 +14,7 @@
 namespace JS {
 
 WeakSetConstructor::WeakSetConstructor(GlobalObject& global_object)
-    : NativeFunction(vm().names.WeakSet, *global_object.function_prototype())
+    : NativeFunction(vm().names.WeakSet.as_string(), *global_object.function_prototype())
 {
 }
 
@@ -42,7 +42,7 @@ Value WeakSetConstructor::call()
 }
 
 // 24.4.1.1 WeakSet ( [ iterable ] ), https://tc39.es/ecma262/#sec-weakset-iterable
-Value WeakSetConstructor::construct(Function& new_target)
+Value WeakSetConstructor::construct(FunctionObject& new_target)
 {
     auto& vm = this->vm();
     auto& global_object = this->global_object();

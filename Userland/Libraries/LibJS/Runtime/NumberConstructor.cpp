@@ -24,7 +24,7 @@ constexpr const double MIN_SAFE_INTEGER_VALUE { -(__builtin_pow(2, 53) - 1) };
 namespace JS {
 
 NumberConstructor::NumberConstructor(GlobalObject& global_object)
-    : NativeFunction(vm().names.Number, *global_object.function_prototype())
+    : NativeFunction(vm().names.Number.as_string(), *global_object.function_prototype())
 {
 }
 
@@ -95,7 +95,7 @@ Value NumberConstructor::call()
 }
 
 // 21.1.1.1 Number ( value ), https://tc39.es/ecma262/#sec-number-constructor-number-value
-Value NumberConstructor::construct(Function& new_target)
+Value NumberConstructor::construct(FunctionObject& new_target)
 {
     auto& vm = this->vm();
     auto& global_object = this->global_object();

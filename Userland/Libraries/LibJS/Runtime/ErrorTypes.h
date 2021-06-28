@@ -138,6 +138,7 @@
     M(ReferenceNullishSetProperty, "Cannot set property '{}' of {}")                                                                    \
     M(ReferencePrimitiveSetProperty, "Cannot set property '{}' of {} '{}'")                                                             \
     M(ReferenceUnresolvable, "Unresolvable reference")                                                                                  \
+    M(ReflectArgumentMustBeAConstructor, "First argument of Reflect.{}() must be a constructor")                                        \
     M(ReflectArgumentMustBeAFunction, "First argument of Reflect.{}() must be a function")                                              \
     M(ReflectArgumentMustBeAnObject, "First argument of Reflect.{}() must be an object")                                                \
     M(ReflectBadNewTarget, "Optional third argument of Reflect.construct() must be a constructor")                                      \
@@ -145,15 +146,17 @@
     M(RegExpCompileError, "RegExp compile error: {}")                                                                                   \
     M(RegExpObjectBadFlag, "Invalid RegExp flag '{}'")                                                                                  \
     M(RegExpObjectRepeatedFlag, "Repeated RegExp flag '{}'")                                                                            \
+    M(RestrictedFunctionPropertiesAccess, "Restricted function properties like 'callee', 'caller' and 'arguments' may "                 \
+                                          "not be accessed in strict mode")                                                             \
     M(SpeciesConstructorDidNotCreate, "Species constructor did not create {}")                                                          \
     M(SpeciesConstructorReturned, "Species constructor returned {}")                                                                    \
     M(StringMatchAllNonGlobalRegExp, "RegExp argument is non-global")                                                                   \
-    M(StringRawCannotConvert, "Cannot convert property 'raw' to object from {}")                                                        \
     M(StringRepeatCountMustBe, "repeat count must be a {} number")                                                                      \
     M(ThisHasNotBeenInitialized, "|this| has not been initialized")                                                                     \
     M(ThisIsAlreadyInitialized, "|this| is already initialized")                                                                        \
     M(ToObjectNullOrUndefined, "ToObject on null or undefined")                                                                         \
     M(ToPrimitiveReturnedObject, "Can't convert {} to primitive with hint \"{}\", its @@toPrimitive method returned an object")         \
+    M(TypedArrayContentTypeMismatch, "Can't create {} from {}")                                                                         \
     M(TypedArrayInvalidBufferLength, "Invalid buffer length for {}: must be a multiple of {}, got {}")                                  \
     M(TypedArrayInvalidByteOffset, "Invalid byte offset for {}: must be a multiple of {}, got {}")                                      \
     M(TypedArrayOutOfRangeByteOffset, "Typed array byte offset {} is out of range for buffer with length {}")                           \

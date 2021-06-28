@@ -8,7 +8,7 @@
 #include <LibJS/Runtime/AbstractOperations.h>
 #include <LibJS/Runtime/Array.h>
 #include <LibJS/Runtime/Error.h>
-#include <LibJS/Runtime/Function.h>
+#include <LibJS/Runtime/FunctionObject.h>
 #include <LibJS/Runtime/GlobalObject.h>
 #include <LibJS/Runtime/NativeFunction.h>
 #include <LibJS/Runtime/ReflectObject.h>
@@ -24,17 +24,6 @@ static Object* get_target_object_from(GlobalObject& global_object, const String&
         return nullptr;
     }
     return static_cast<Object*>(&target.as_object());
-}
-
-static Function* get_target_function_from(GlobalObject& global_object, const String& name)
-{
-    auto& vm = global_object.vm();
-    auto target = vm.argument(0);
-    if (!target.is_function()) {
-        vm.throw_exception<TypeError>(global_object, ErrorType::ReflectArgumentMustBeAFunction, name);
-        return nullptr;
-    }
-    return &target.as_function();
 }
 
 ReflectObject::ReflectObject(GlobalObject& global_object)
@@ -72,36 +61,43 @@ ReflectObject::~ReflectObject()
 // 28.1.1 Reflect.apply ( target, thisArgument, argumentsList ), https://tc39.es/ecma262/#sec-reflect.apply
 JS_DEFINE_NATIVE_FUNCTION(ReflectObject::apply)
 {
-    auto* target = get_target_function_from(global_object, "apply");
-    if (!target)
+    auto target = vm.argument(0);
+    if (!target.is_function()) {
+        vm.throw_exception<TypeError>(global_object, ErrorType::ReflectArgumentMustBeAFunction, vm.names.apply);
         return {};
+    }
+
     auto this_arg = vm.argument(1);
     auto arguments = create_list_from_array_like(global_object, vm.argument(2));
     if (vm.exception())
         return {};
-    return vm.call(*target, this_arg, move(arguments));
+    return vm.call(target.as_function(), this_arg, move(arguments));
 }
 
 // 28.1.2 Reflect.construct ( target, argumentsList [ , newTarget ] ), https://tc39.es/ecma262/#sec-reflect.construct
 JS_DEFINE_NATIVE_FUNCTION(ReflectObject::construct)
 {
-    auto* target = get_target_function_from(global_object, "construct");
-    if (!target)
+    auto target = vm.argument(0);
+    if (!target.is_constructor()) {
+        vm.throw_exception<TypeError>(global_object, ErrorType::ReflectArgumentMustBeAConstructor, vm.names.construct);
         return {};
-    auto arguments = create_list_from_array_like(global_object, vm.argument(1));
-    if (vm.exception())
-        return {};
-    auto* new_target = target;
+    }
+
+    auto* new_target = &target.as_function();
     if (vm.argument_count() > 2) {
         auto new_target_value = vm.argument(2);
-        if (!new_target_value.is_function()
-            || (is<NativeFunction>(new_target_value.as_object()) && !static_cast<NativeFunction&>(new_target_value.as_object()).has_constructor())) {
+        if (!new_target_value.is_constructor()) {
             vm.throw_exception<TypeError>(global_object, ErrorType::ReflectBadNewTarget);
             return {};
         }
         new_target = &new_target_value.as_function();
     }
-    return vm.construct(*target, *new_target, move(arguments));
+
+    auto arguments = create_list_from_array_like(global_object, vm.argument(1));
+    if (vm.exception())
+        return {};
+
+    return vm.construct(target.as_function(), *new_target, move(arguments));
 }
 
 // 28.1.3 Reflect.defineProperty ( target, propertyKey, attributes ), https://tc39.es/ecma262/#sec-reflect.defineproperty

@@ -28,8 +28,8 @@ public:                               \
 struct PropertyDescriptor {
     PropertyAttributes attributes;
     Value value;
-    Function* getter { nullptr };
-    Function* setter { nullptr };
+    FunctionObject* getter { nullptr };
+    FunctionObject* setter { nullptr };
 
     static PropertyDescriptor from_dictionary(VM&, const Object&);
 
@@ -91,11 +91,11 @@ public:
     virtual bool define_property(const StringOrSymbol& property_name, const Object& descriptor, bool throw_exceptions = true);
     bool define_property(const PropertyName&, Value value, PropertyAttributes attributes = default_attributes, bool throw_exceptions = true);
     bool define_property_without_transition(const PropertyName&, Value value, PropertyAttributes attributes = default_attributes, bool throw_exceptions = true);
-    bool define_accessor(const PropertyName&, Function* getter, Function* setter, PropertyAttributes attributes = default_attributes, bool throw_exceptions = true);
+    bool define_accessor(const PropertyName&, FunctionObject* getter, FunctionObject* setter, PropertyAttributes attributes = default_attributes, bool throw_exceptions = true);
 
-    bool define_native_function(PropertyName const&, AK::Function<Value(VM&, GlobalObject&)>, i32 length = 0, PropertyAttributes attributes = default_attributes);
-    bool define_native_property(PropertyName const&, AK::Function<Value(VM&, GlobalObject&)> getter, AK::Function<void(VM&, GlobalObject&, Value)> setter, PropertyAttributes attributes = default_attributes);
-    bool define_native_accessor(PropertyName const&, AK::Function<Value(VM&, GlobalObject&)> getter, AK::Function<Value(VM&, GlobalObject&)> setter, PropertyAttributes attributes = default_attributes);
+    bool define_native_function(PropertyName const&, Function<Value(VM&, GlobalObject&)>, i32 length = 0, PropertyAttributes attributes = default_attributes);
+    bool define_native_property(PropertyName const&, Function<Value(VM&, GlobalObject&)> getter, Function<void(VM&, GlobalObject&, Value)> setter, PropertyAttributes attributes = default_attributes);
+    bool define_native_accessor(PropertyName const&, Function<Value(VM&, GlobalObject&)> getter, Function<Value(VM&, GlobalObject&)> setter, PropertyAttributes attributes = default_attributes);
 
     void define_properties(Value properties);
 
@@ -108,6 +108,7 @@ public:
     virtual bool is_global_object() const { return false; }
     virtual bool is_proxy_object() const { return false; }
     virtual bool is_native_function() const { return false; }
+    virtual bool is_ordinary_function_object() const { return false; }
 
     // B.3.7 The [[IsHTMLDDA]] Internal Slot, https://tc39.es/ecma262/#sec-IsHTMLDDA-internal-slot
     virtual bool is_htmldda() const { return false; }

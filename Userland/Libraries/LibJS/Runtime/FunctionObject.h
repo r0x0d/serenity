@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2020-2021, Andreas Kling <kling@serenityos.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -11,7 +11,7 @@
 
 namespace JS {
 
-class Function : public Object {
+class FunctionObject : public Object {
     JS_OBJECT(Function, Object);
 
 public:
@@ -20,13 +20,13 @@ public:
         Derived,
     };
 
-    virtual ~Function();
+    virtual ~FunctionObject();
     virtual void initialize(GlobalObject&) override { }
 
     virtual Value call() = 0;
-    virtual Value construct(Function& new_target) = 0;
+    virtual Value construct(FunctionObject& new_target) = 0;
     virtual const FlyString& name() const = 0;
-    virtual FunctionEnvironmentRecord* create_environment_record(Function&) = 0;
+    virtual FunctionEnvironmentRecord* create_environment_record(FunctionObject&) = 0;
 
     BoundFunction* bind(Value bound_this_value, Vector<Value> arguments);
 
@@ -57,11 +57,16 @@ public:
     ThisMode this_mode() const { return m_this_mode; }
     void set_this_mode(ThisMode this_mode) { m_this_mode = this_mode; }
 
+    // This is for IsSimpleParameterList (static semantics)
+    bool has_simple_parameter_list() const { return m_has_simple_parameter_list; }
+
 protected:
     virtual void visit_edges(Visitor&) override;
 
-    explicit Function(Object& prototype);
-    Function(Value bound_this, Vector<Value> bound_arguments, Object& prototype);
+    explicit FunctionObject(Object& prototype);
+    FunctionObject(Value bound_this, Vector<Value> bound_arguments, Object& prototype);
+
+    void set_has_simple_parameter_list(bool b) { m_has_simple_parameter_list = b; }
 
 private:
     virtual bool is_function() const override { return true; }
@@ -70,6 +75,7 @@ private:
     Value m_home_object;
     ConstructorKind m_constructor_kind = ConstructorKind::Base;
     ThisMode m_this_mode { ThisMode::Global };
+    bool m_has_simple_parameter_list { false };
 };
 
 }

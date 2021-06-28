@@ -13,7 +13,7 @@
 namespace JS {
 
 FinalizationRegistryConstructor::FinalizationRegistryConstructor(GlobalObject& global_object)
-    : NativeFunction(vm().names.FinalizationRegistry, *global_object.function_prototype())
+    : NativeFunction(vm().names.FinalizationRegistry.as_string(), *global_object.function_prototype())
 {
 }
 
@@ -41,7 +41,7 @@ Value FinalizationRegistryConstructor::call()
 }
 
 // 26.2.1.1 FinalizationRegistry ( cleanupCallback ), https://tc39.es/ecma262/#sec-finalization-registry-cleanup-callback
-Value FinalizationRegistryConstructor::construct(Function& new_target)
+Value FinalizationRegistryConstructor::construct(FunctionObject& new_target)
 {
     auto& vm = this->vm();
     auto& global_object = this->global_object();

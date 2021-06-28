@@ -277,10 +277,8 @@ set(KERNEL_SOURCES
     ${KERNEL_SOURCES}
     ${CMAKE_CURRENT_SOURCE_DIR}/Arch/x86/${KERNEL_ARCH}/ASM_wrapper.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Arch/x86/${KERNEL_ARCH}/Boot/boot.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/Arch/x86/${KERNEL_ARCH}/CPU.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Arch/x86/${KERNEL_ARCH}/InterruptEntry.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Arch/x86/${KERNEL_ARCH}/Processor.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/Arch/x86/${KERNEL_ARCH}/SafeMem.cpp
 )
 
 set(KERNEL_SOURCES
@@ -291,6 +289,7 @@ set(KERNEL_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Arch/x86/common/Interrupts.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Arch/x86/common/Processor.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Arch/x86/common/ProcessorInfo.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Arch/x86/common/SafeMem.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Arch/x86/common/TrapFrame.cpp
 )
 
@@ -357,7 +356,7 @@ if (NOT ${CMAKE_HOST_SYSTEM_NAME} MATCHES SerenityOS)
 endif()
 
 if ("${SERENITY_ARCH}" STREQUAL "x86_64")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mcmodel=large -fno-pic -mno-red-zone -z max-page-size=0x1000")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mcmodel=large -fno-pic -mno-red-zone")
 else()
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pie -fPIE")
 endif()

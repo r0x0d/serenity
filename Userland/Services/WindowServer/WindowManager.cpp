@@ -376,6 +376,17 @@ void WindowManager::tell_wms_super_key_pressed()
     });
 }
 
+void WindowManager::tell_wms_super_space_key_pressed()
+{
+    for_each_window_manager([](WMClientConnection& conn) {
+        if (conn.window_id() < 0)
+            return IterationDecision::Continue;
+
+        conn.async_super_space_key_pressed(conn.window_id());
+        return IterationDecision::Continue;
+    });
+}
+
 static bool window_type_has_title(WindowType type)
 {
     return type == WindowType::Normal || type == WindowType::ToolWindow;
@@ -650,14 +661,18 @@ bool WindowManager::process_ongoing_window_resize(MouseEvent const& event)
     if (event.type() == Event::MouseUp && event.button() == m_resizing_mouse_button) {
         dbgln_if(RESIZE_DEBUG, "[WM] Finish resizing Window({})", m_resize_window);
 
-        auto max_rect = maximized_window_rect(*m_resize_window);
-        if (event.y() > max_rect.bottom()) {
-            dbgln_if(RESIZE_DEBUG, "Should Maximize vertically");
-            m_resize_window->set_vertically_maximized();
-            m_resize_window = nullptr;
-            m_geometry_overlay = nullptr;
-            m_resizing_mouse_button = MouseButton::None;
-            return true;
+        const int vertical_maximize_deadzone = 5;
+        auto& cursor_screen = ScreenInput::the().cursor_location_screen();
+        if (&cursor_screen == &Screen::closest_to_rect(m_resize_window->rect())) {
+            auto desktop_rect = this->desktop_rect(cursor_screen);
+            if (event.y() >= desktop_rect.bottom() - vertical_maximize_deadzone + 1 || event.y() <= desktop_rect.top() + vertical_maximize_deadzone - 1) {
+                dbgln_if(RESIZE_DEBUG, "Should Maximize vertically");
+                m_resize_window->set_vertically_maximized();
+                m_resize_window = nullptr;
+                m_geometry_overlay = nullptr;
+                m_resizing_mouse_button = MouseButton::None;
+                return true;
+            }
         }
 
         Core::EventLoop::current().post_event(*m_resize_window, make<ResizeEvent>(m_resize_window->rect()));
@@ -715,6 +730,7 @@ bool WindowManager::process_ongoing_window_resize(MouseEvent const& event)
     // First, size the new rect.
     new_rect.set_width(new_rect.width() + change_w);
     new_rect.set_height(new_rect.height() + change_h);
+
     m_resize_window->apply_minimum_size(new_rect);
 
     if (!m_resize_window->size_increment().is_null()) {
@@ -762,6 +778,14 @@ bool WindowManager::process_ongoing_window_resize(MouseEvent const& event)
     if (m_resize_window->rect() == new_rect)
         return true;
 
+    if (m_resize_window->tiled() != WindowTileType::None) {
+        // Check if we should be un-tiling the window. This should happen when one side touching
+        // the screen border changes. We need to un-tile because while it is tiled, rendering is
+        // constrained to the screen where it's tiled on, and if one of these sides move we should
+        // no longer constrain rendering to that screen. Changing the sides not touching a screen
+        // border however is fine as long as the screen contains the entire window.
+        m_resize_window->check_untile_due_to_resize(new_rect);
+    }
     dbgln_if(RESIZE_DEBUG, "[WM] Resizing, original: {}, now: {}", m_resize_window_original_rect, new_rect);
 
     m_resize_window->set_rect(new_rect);
@@ -1236,6 +1260,11 @@ void WindowManager::process_key_event(KeyEvent& event)
         m_previous_event_was_super_keydown = false;
         if (!m_dnd_client && !m_active_input_tracking_window && event.type() == Event::KeyUp && event.key() == Key_Super) {
             tell_wms_super_key_pressed();
+            return;
+        }
+
+        if (event.type() == Event::KeyDown && event.key() == Key_Space) {
+            tell_wms_super_space_key_pressed();
             return;
         }
     }

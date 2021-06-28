@@ -22,6 +22,7 @@ namespace JS {
     P(Boolean)                               \
     P(E)                                     \
     P(EPSILON)                               \
+    P(Function)                              \
     P(Infinity)                              \
     P(JSON)                                  \
     P(LN10)                                  \
@@ -75,6 +76,7 @@ namespace JS {
     P(byteOffset)                            \
     P(call)                                  \
     P(callee)                                \
+    P(caller)                                \
     P(cause)                                 \
     P(cbrt)                                  \
     P(ceil)                                  \

@@ -11,7 +11,7 @@
 namespace JS {
 
 SymbolConstructor::SymbolConstructor(GlobalObject& global_object)
-    : NativeFunction(vm().names.Symbol, *global_object.function_prototype())
+    : NativeFunction(vm().names.Symbol.as_string(), *global_object.function_prototype())
 {
 }
 
@@ -48,7 +48,7 @@ Value SymbolConstructor::call()
 }
 
 // 20.4.1.1 Symbol ( [ description ] ), https://tc39.es/ecma262/#sec-symbol-description
-Value SymbolConstructor::construct(Function&)
+Value SymbolConstructor::construct(FunctionObject&)
 {
     vm().throw_exception<TypeError>(global_object(), ErrorType::NotAConstructor, "Symbol");
     return {};

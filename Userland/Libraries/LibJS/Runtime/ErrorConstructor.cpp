@@ -12,7 +12,7 @@
 namespace JS {
 
 ErrorConstructor::ErrorConstructor(GlobalObject& global_object)
-    : NativeFunction(vm().names.Error, *global_object.function_prototype())
+    : NativeFunction(vm().names.Error.as_string(), *global_object.function_prototype())
 {
 }
 
@@ -34,7 +34,7 @@ Value ErrorConstructor::call()
 }
 
 // 20.5.1.1 Error ( message ), https://tc39.es/ecma262/#sec-error-message
-Value ErrorConstructor::construct(Function& new_target)
+Value ErrorConstructor::construct(FunctionObject& new_target)
 {
     auto& vm = this->vm();
     auto& global_object = this->global_object();
@@ -86,7 +86,7 @@ Value ErrorConstructor::construct(Function& new_target)
     }                                                                                    \
                                                                                          \
     /* 20.5.6.1.1 NativeError ( message ), https://tc39.es/ecma262/#sec-nativeerror */   \
-    Value ConstructorName::construct(Function& new_target)                               \
+    Value ConstructorName::construct(FunctionObject& new_target)                         \
     {                                                                                    \
         auto& vm = this->vm();                                                           \
         auto& global_object = this->global_object();                                     \

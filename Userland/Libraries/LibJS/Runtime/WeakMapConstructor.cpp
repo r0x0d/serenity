@@ -14,7 +14,7 @@
 namespace JS {
 
 WeakMapConstructor::WeakMapConstructor(GlobalObject& global_object)
-    : NativeFunction(vm().names.WeakMap, *global_object.function_prototype())
+    : NativeFunction(vm().names.WeakMap.as_string(), *global_object.function_prototype())
 {
 }
 
@@ -42,7 +42,7 @@ Value WeakMapConstructor::call()
 }
 
 // 24.3.1.1 WeakMap ( [ iterable ] ), https://tc39.es/ecma262/#sec-weakmap-iterable
-Value WeakMapConstructor::construct(Function& new_target)
+Value WeakMapConstructor::construct(FunctionObject& new_target)
 {
     auto& vm = this->vm();
     auto& global_object = this->global_object();

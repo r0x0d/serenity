@@ -29,7 +29,7 @@ static ProxyObject* proxy_create(GlobalObject& global_object, Value target, Valu
 }
 
 ProxyConstructor::ProxyConstructor(GlobalObject& global_object)
-    : NativeFunction(vm().names.Proxy, *global_object.function_prototype())
+    : NativeFunction(vm().names.Proxy.as_string(), *global_object.function_prototype())
 {
 }
 
@@ -55,7 +55,7 @@ Value ProxyConstructor::call()
 }
 
 // 28.2.1.1 Proxy ( target, handler ), https://tc39.es/ecma262/#sec-proxy-target-handler
-Value ProxyConstructor::construct(Function&)
+Value ProxyConstructor::construct(FunctionObject&)
 {
     auto& vm = this->vm();
     return proxy_create(global_object(), vm.argument(0), vm.argument(1));

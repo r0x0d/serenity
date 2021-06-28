@@ -12,7 +12,7 @@
 namespace JS {
 
 BooleanConstructor::BooleanConstructor(GlobalObject& global_object)
-    : NativeFunction(vm().names.Boolean, *global_object.function_prototype())
+    : NativeFunction(vm().names.Boolean.as_string(), *global_object.function_prototype())
 {
 }
 
@@ -41,7 +41,7 @@ Value BooleanConstructor::call()
 }
 
 // 20.3.1.1 Boolean ( value ), https://tc39.es/ecma262/#sec-boolean-constructor-boolean-value
-Value BooleanConstructor::construct(Function& new_target)
+Value BooleanConstructor::construct(FunctionObject& new_target)
 {
     auto& vm = this->vm();
     auto& global_object = this->global_object();

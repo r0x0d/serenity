@@ -181,12 +181,11 @@ RefPtr<Process> Process::create_kernel_process(RefPtr<Thread>& first_thread, Str
     if (!first_thread || !process)
         return {};
 #if ARCH(I386)
-    first_thread->tss().eip = (FlatPtr)entry;
-    first_thread->tss().esp = FlatPtr(entry_data); // entry function argument is expected to be in tss.esp
+    first_thread->regs().eip = (FlatPtr)entry;
+    first_thread->regs().esp = FlatPtr(entry_data); // entry function argument is expected to be in regs.esp
 #else
-    (void)entry;
-    (void)entry_data;
-    PANIC("Process::create_kernel_process() not implemented");
+    first_thread->regs().rip = (FlatPtr)entry;
+    first_thread->regs().rdi = FlatPtr(entry_data); // entry function argument is expected to be in regs.rdi
 #endif
 
     if (process->pid() != 0) {
@@ -333,7 +332,7 @@ void create_signal_trampoline()
     g_signal_trampoline_region->remap();
 }
 
-void Process::crash(int signal, u32 eip, bool out_of_memory)
+void Process::crash(int signal, FlatPtr ip, bool out_of_memory)
 {
     VERIFY(!is_dead());
     VERIFY(Process::current() == this);
@@ -341,11 +340,11 @@ void Process::crash(int signal, u32 eip, bool out_of_memory)
     if (out_of_memory) {
         dbgln("\033[31;1mOut of memory\033[m, killing: {}", *this);
     } else {
-        if (eip >= 0xc0000000 && g_kernel_symbols_available) {
-            auto* symbol = symbolicate_kernel_address(eip);
-            dbgln("\033[31;1m{:p}  {} +{}\033[0m\n", eip, (symbol ? demangle(symbol->name) : "(k?)"), (symbol ? eip - symbol->address : 0));
+        if (ip >= KERNEL_BASE && g_kernel_symbols_available) {
+            auto* symbol = symbolicate_kernel_address(ip);
+            dbgln("\033[31;1m{:p}  {} +{}\033[0m\n", ip, (symbol ? demangle(symbol->name) : "(k?)"), (symbol ? ip - symbol->address : 0));
         } else {
-            dbgln("\033[31;1m{:p}  (?)\033[0m\n", eip);
+            dbgln("\033[31;1m{:p}  (?)\033[0m\n", ip);
         }
         dump_backtrace();
     }
@@ -645,14 +644,13 @@ RefPtr<Thread> Process::create_kernel_thread(void (*entry)(void*), void* entry_d
     if (!joinable)
         thread->detach();
 
+    auto& regs = thread->regs();
 #if ARCH(I386)
-    auto& tss = thread->tss();
-    tss.eip = (FlatPtr)entry;
-    tss.esp = FlatPtr(entry_data); // entry function argument is expected to be in tss.esp
+    regs.eip = (FlatPtr)entry;
+    regs.esp = FlatPtr(entry_data); // entry function argument is expected to be in regs.rsp
 #else
-    (void)entry;
-    (void)entry_data;
-    PANIC("Process::create_kernel_thread() not implemented");
+    regs.rip = (FlatPtr)entry;
+    regs.rsp = FlatPtr(entry_data); // entry function argument is expected to be in regs.rsp
 #endif
 
     ScopedSpinLock lock(g_scheduler_lock);

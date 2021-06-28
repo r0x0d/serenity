@@ -15,7 +15,7 @@
 namespace JS {
 
 BigIntConstructor::BigIntConstructor(GlobalObject& global_object)
-    : NativeFunction(vm().names.BigInt, *global_object.function_prototype())
+    : NativeFunction(vm().names.BigInt.as_string(), *global_object.function_prototype())
 {
 }
 
@@ -59,7 +59,7 @@ Value BigIntConstructor::call()
 }
 
 // 21.2.1.1 BigInt ( value ), https://tc39.es/ecma262/#sec-bigint-constructor-number-value
-Value BigIntConstructor::construct(Function&)
+Value BigIntConstructor::construct(FunctionObject&)
 {
     vm().throw_exception<TypeError>(global_object(), ErrorType::NotAConstructor, "BigInt");
     return {};

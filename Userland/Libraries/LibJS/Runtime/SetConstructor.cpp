@@ -14,7 +14,7 @@
 namespace JS {
 
 SetConstructor::SetConstructor(GlobalObject& global_object)
-    : NativeFunction(vm().names.Set, *global_object.function_prototype())
+    : NativeFunction(vm().names.Set.as_string(), *global_object.function_prototype())
 {
 }
 
@@ -44,7 +44,7 @@ Value SetConstructor::call()
 }
 
 // 24.2.1.1 Set ( [ iterable ] ), https://tc39.es/ecma262/#sec-set-iterable
-Value SetConstructor::construct(Function& new_target)
+Value SetConstructor::construct(FunctionObject& new_target)
 {
     auto& vm = this->vm();
     auto& global_object = this->global_object();

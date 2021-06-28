@@ -1,10 +1,11 @@
 /*
- * Copyright (c) 2018-2020, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2018-2021, Andreas Kling <kling@serenityos.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
 #include "Compositor.h"
+#include "Animation.h"
 #include "ClientConnection.h"
 #include "Event.h"
 #include "EventLoop.h"
@@ -527,17 +528,16 @@ void Compositor::compose()
     m_invalidated_window = false;
     m_invalidated_cursor = false;
 
-    bool did_render_animation = false;
     Screen::for_each([&](auto& screen) {
         auto& screen_data = m_screen_data[screen.index()];
-        did_render_animation |= render_animation_frame(screen, screen_data.m_flush_special_rects);
+        update_animations(screen, screen_data.m_flush_special_rects);
         return IterationDecision::Continue;
     });
 
     if (need_to_draw_cursor) {
         auto& screen_data = m_screen_data[cursor_screen.index()];
         screen_data.draw_cursor(cursor_screen, cursor_rect);
-        screen_data.m_flush_rects.add(cursor_rect);
+        screen_data.m_flush_rects.add(cursor_rect.intersected(cursor_screen.rect()));
         if (previous_cursor_screen && cursor_rect != previous_cursor_rect)
             m_screen_data[previous_cursor_screen->index()].m_flush_rects.add(previous_cursor_rect);
     }
@@ -546,9 +546,6 @@ void Compositor::compose()
         flush(screen);
         return IterationDecision::Continue;
     });
-
-    if (did_render_animation)
-        step_animations();
 }
 
 void Compositor::flush(Screen& screen)
@@ -563,18 +560,17 @@ void Compositor::flush(Screen& screen)
         screen_data.flip_buffers(screen);
 
     auto screen_rect = screen.rect();
-    auto do_flush = [&](const Gfx::IntRect& a_rect) {
-        auto rect = Gfx::IntRect::intersection(a_rect, screen_rect);
-        if (rect.is_empty())
-            return;
+    bool device_can_flush_buffers = screen.can_device_flush_buffers();
+    auto do_flush = [&](Gfx::IntRect rect) {
+        VERIFY(screen_rect.contains(rect));
         rect.translate_by(-screen_rect.location());
 
         // Almost everything in Compositor is in logical coordinates, with the painters having
         // a scale applied. But this routine accesses the backbuffer pixels directly, so it
         // must work in physical coordinates.
-        rect = rect * screen.scale_factor();
-        Gfx::RGBA32* front_ptr = screen_data.m_front_bitmap->scanline(rect.y()) + rect.x();
-        Gfx::RGBA32* back_ptr = screen_data.m_back_bitmap->scanline(rect.y()) + rect.x();
+        auto scaled_rect = rect * screen.scale_factor();
+        Gfx::RGBA32* front_ptr = screen_data.m_front_bitmap->scanline(scaled_rect.y()) + scaled_rect.x();
+        Gfx::RGBA32* back_ptr = screen_data.m_back_bitmap->scanline(scaled_rect.y()) + scaled_rect.x();
         size_t pitch = screen_data.m_back_bitmap->pitch();
 
         // NOTE: The meaning of a flush depends on whether we can flip buffers or not.
@@ -597,12 +593,13 @@ void Compositor::flush(Screen& screen)
             from_ptr = back_ptr;
         }
 
-        for (int y = 0; y < rect.height(); ++y) {
-            fast_u32_copy(to_ptr, from_ptr, rect.width());
+        for (int y = 0; y < scaled_rect.height(); ++y) {
+            fast_u32_copy(to_ptr, from_ptr, scaled_rect.width());
             from_ptr = (const Gfx::RGBA32*)((const u8*)from_ptr + pitch);
             to_ptr = (Gfx::RGBA32*)((u8*)to_ptr + pitch);
         }
-        screen.flush_display(a_rect.intersected(screen.rect()));
+        if (device_can_flush_buffers)
+            screen.queue_flush_display_rect(rect);
     };
     for (auto& rect : screen_data.m_flush_rects.rects())
         do_flush(rect);
@@ -610,6 +607,8 @@ void Compositor::flush(Screen& screen)
         do_flush(rect);
     for (auto& rect : screen_data.m_flush_special_rects.rects())
         do_flush(rect);
+    if (device_can_flush_buffers)
+        screen.flush_display();
 }
 
 void Compositor::invalidate_screen()
@@ -705,60 +704,6 @@ void Compositor::ScreenData::flip_buffers(Screen& screen)
     swap(m_front_painter, m_back_painter);
     screen.set_buffer(m_buffers_are_flipped ? 0 : 1);
     m_buffers_are_flipped = !m_buffers_are_flipped;
-}
-
-static const int minimize_animation_steps = 10;
-
-bool Compositor::render_animation_frame(Screen& screen, Gfx::DisjointRectSet& flush_rects)
-{
-    bool did_render_any = false;
-    auto& painter = *m_screen_data[screen.index()].m_back_painter;
-    Gfx::PainterStateSaver saver(painter);
-    painter.set_draw_op(Gfx::Painter::DrawOp::Invert);
-
-    WindowManager::the().window_stack().for_each_window([&](Window& window) {
-        if (window.in_minimize_animation()) {
-            int animation_index = window.minimize_animation_index();
-
-            auto from_rect = window.is_minimized() ? window.frame().rect() : window.taskbar_rect();
-            auto to_rect = window.is_minimized() ? window.taskbar_rect() : window.frame().rect();
-
-            float x_delta_per_step = (float)(from_rect.x() - to_rect.x()) / minimize_animation_steps;
-            float y_delta_per_step = (float)(from_rect.y() - to_rect.y()) / minimize_animation_steps;
-            float width_delta_per_step = (float)(from_rect.width() - to_rect.width()) / minimize_animation_steps;
-            float height_delta_per_step = (float)(from_rect.height() - to_rect.height()) / minimize_animation_steps;
-
-            Gfx::IntRect rect {
-                from_rect.x() - (int)(x_delta_per_step * animation_index),
-                from_rect.y() - (int)(y_delta_per_step * animation_index),
-                from_rect.width() - (int)(width_delta_per_step * animation_index),
-                from_rect.height() - (int)(height_delta_per_step * animation_index)
-            };
-
-            dbgln_if(MINIMIZE_ANIMATION_DEBUG, "Minimize animation from {} to {} frame# {} {} on screen #{}", from_rect, to_rect, animation_index, rect, screen.index());
-
-            painter.draw_rect(rect, Color::Transparent); // Color doesn't matter, we draw inverted
-            flush_rects.add(rect);
-            invalidate_screen(rect);
-
-            did_render_any = true;
-        }
-        return IterationDecision::Continue;
-    });
-
-    return did_render_any;
-}
-
-void Compositor::step_animations()
-{
-    WindowManager::the().window_stack().for_each_window([&](Window& window) {
-        if (window.in_minimize_animation()) {
-            window.step_minimize_animation();
-            if (window.minimize_animation_index() >= minimize_animation_steps)
-                window.end_minimize_animation();
-        }
-        return IterationDecision::Continue;
-    });
 }
 
 void Compositor::screen_resolution_changed()
@@ -1256,6 +1201,26 @@ void Compositor::recompute_occlusions()
         VERIFY(!w.transparency_wallpaper_rects().intersects(m_opaque_wallpaper_rects));
         return IterationDecision::Continue;
     });
+}
+
+void Compositor::register_animation(Badge<Animation>, Animation& animation)
+{
+    auto result = m_animations.set(&animation);
+    VERIFY(result == AK::HashSetResult::InsertedNewEntry);
+}
+
+void Compositor::unregister_animation(Badge<Animation>, Animation& animation)
+{
+    bool was_removed = m_animations.remove(&animation);
+    VERIFY(was_removed);
+}
+
+void Compositor::update_animations(Screen& screen, Gfx::DisjointRectSet& flush_rects)
+{
+    auto& painter = *m_screen_data[screen.index()].m_back_painter;
+    for (RefPtr<Animation> animation : m_animations) {
+        animation->update({}, painter, screen, flush_rects);
+    }
 }
 
 }

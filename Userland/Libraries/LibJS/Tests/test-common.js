@@ -51,7 +51,14 @@ class ExpectationError extends Error {
         return true;
     };
 
-    const valueToString = value => Object.prototype.toString.call(value);
+    const valueToString = value => {
+        try {
+            return String(value);
+        } catch {
+            // e.g for objects without a prototype, the above throws.
+            return Object.prototype.toString.call(value);
+        }
+    };
 
     class Expector {
         constructor(target, inverted) {
@@ -203,7 +210,9 @@ class ExpectationError extends Error {
                 this.__expect(
                     this.target === false,
                     () =>
-                        `toBeTrue: expected target to be false, got _${valueToString(this.target)}_`
+                        `toBeFalse: expected target to be false, got _${valueToString(
+                            this.target
+                        )}_`
                 );
             });
         }

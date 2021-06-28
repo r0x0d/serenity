@@ -45,7 +45,7 @@ Result<NonnullRefPtr<DynamicLoader>, DlErrorMessage> DynamicLoader::try_create(i
 
     VERIFY(stat.st_size >= 0);
     auto size = static_cast<size_t>(stat.st_size);
-    if (size < sizeof(Elf32_Ehdr))
+    if (size < sizeof(ElfW(Ehdr)))
         return DlErrorMessage { String::formatted("File {} has invalid ELF header", filename) };
 
     String file_mmap_name = String::formatted("ELF_DYN: {}", filename);
@@ -70,6 +70,8 @@ DynamicLoader::DynamicLoader(int fd, String filename, void* data, size_t size)
     m_valid = validate();
     if (m_valid)
         m_tls_size_of_current_object = calculate_tls_size();
+    else
+        dbgln("Image validation failed for file {}", m_filename);
 }
 
 DynamicLoader::~DynamicLoader()
@@ -117,7 +119,7 @@ bool DynamicLoader::validate()
     if (!m_elf_image.is_valid())
         return false;
 
-    auto* elf_header = (Elf32_Ehdr*)m_file_data;
+    auto* elf_header = (ElfW(Ehdr)*)m_file_data;
     if (!validate_elf_header(*elf_header, m_file_size))
         return false;
     if (!validate_program_headers(*elf_header, m_file_size, (u8*)m_file_data, m_file_size, &m_program_interpreter))

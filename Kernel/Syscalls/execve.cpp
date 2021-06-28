@@ -69,49 +69,50 @@ static bool validate_stack_size(const Vector<String>& arguments, const Vector<St
     return true;
 }
 
-static KResultOr<FlatPtr> make_userspace_stack_for_main_thread(Region& region, Vector<String> arguments, Vector<String> environment, Vector<ELF::AuxiliaryValue> auxiliary_values)
+static KResultOr<FlatPtr> make_userspace_context_for_main_thread([[maybe_unused]] ThreadRegisters& regs, Region& region, Vector<String> arguments,
+    Vector<String> environment, Vector<ELF::AuxiliaryValue> auxiliary_values)
 {
-    FlatPtr new_esp = region.range().end().get();
+    FlatPtr new_sp = region.range().end().get();
 
     // Add some bits of randomness to the user stack pointer.
-    new_esp -= round_up_to_power_of_two(get_fast_random<u32>() % 4096, 16);
+    new_sp -= round_up_to_power_of_two(get_fast_random<u32>() % 4096, 16);
 
-    auto push_on_new_stack = [&new_esp](u32 value) {
-        new_esp -= 4;
-        Userspace<u32*> stack_ptr = new_esp;
+    auto push_on_new_stack = [&new_sp](FlatPtr value) {
+        new_sp -= sizeof(FlatPtr);
+        Userspace<FlatPtr*> stack_ptr = new_sp;
         return copy_to_user(stack_ptr, &value);
     };
 
-    auto push_aux_value_on_new_stack = [&new_esp](auxv_t value) {
-        new_esp -= sizeof(auxv_t);
-        Userspace<auxv_t*> stack_ptr = new_esp;
+    auto push_aux_value_on_new_stack = [&new_sp](auxv_t value) {
+        new_sp -= sizeof(auxv_t);
+        Userspace<auxv_t*> stack_ptr = new_sp;
         return copy_to_user(stack_ptr, &value);
     };
 
-    auto push_string_on_new_stack = [&new_esp](const String& string) {
-        new_esp -= round_up_to_power_of_two(string.length() + 1, 4);
-        Userspace<u32*> stack_ptr = new_esp;
+    auto push_string_on_new_stack = [&new_sp](const String& string) {
+        new_sp -= round_up_to_power_of_two(string.length() + 1, sizeof(FlatPtr));
+        Userspace<FlatPtr*> stack_ptr = new_sp;
         return copy_to_user(stack_ptr, string.characters(), string.length() + 1);
     };
 
     Vector<FlatPtr> argv_entries;
     for (auto& argument : arguments) {
         push_string_on_new_stack(argument);
-        if (!argv_entries.try_append(new_esp))
+        if (!argv_entries.try_append(new_sp))
             return ENOMEM;
     }
 
     Vector<FlatPtr> env_entries;
     for (auto& variable : environment) {
         push_string_on_new_stack(variable);
-        if (!env_entries.try_append(new_esp))
+        if (!env_entries.try_append(new_sp))
             return ENOMEM;
     }
 
     for (auto& value : auxiliary_values) {
         if (!value.optional_string.is_empty()) {
             push_string_on_new_stack(value.optional_string);
-            value.auxv.a_un.a_ptr = (void*)new_esp;
+            value.auxv.a_un.a_ptr = (void*)new_sp;
         }
     }
 
@@ -123,28 +124,35 @@ static KResultOr<FlatPtr> make_userspace_stack_for_main_thread(Region& region, V
     push_on_new_stack(0);
     for (ssize_t i = env_entries.size() - 1; i >= 0; --i)
         push_on_new_stack(env_entries[i]);
-    FlatPtr envp = new_esp;
+    FlatPtr envp = new_sp;
 
     push_on_new_stack(0);
     for (ssize_t i = argv_entries.size() - 1; i >= 0; --i)
         push_on_new_stack(argv_entries[i]);
-    FlatPtr argv = new_esp;
+    FlatPtr argv = new_sp;
 
     // NOTE: The stack needs to be 16-byte aligned.
-    new_esp -= new_esp % 16;
+    new_sp -= new_sp % 16;
+
+#if ARCH(I386)
     // GCC assumes that the return address has been pushed to the stack when it enters the function,
     // so we need to reserve an extra pointer's worth of bytes below this to make GCC's stack alignment
     // calculations work
-    new_esp -= sizeof(void*);
+    new_sp -= sizeof(void*);
 
-    push_on_new_stack((FlatPtr)envp);
-    push_on_new_stack((FlatPtr)argv);
-    push_on_new_stack((FlatPtr)argv_entries.size());
-    push_on_new_stack(0);
+    push_on_new_stack(envp);
+    push_on_new_stack(argv);
+    push_on_new_stack(argv_entries.size());
+#else
+    regs.rdi = argv;
+    regs.rsi = argv_entries.size();
+    regs.rdx = envp;
+#endif
+    push_on_new_stack(0); // return address
 
-    VERIFY((new_esp + sizeof(void*)) % 16 == 0);
+    VERIFY((new_sp + sizeof(void*)) % 16 == 0);
 
-    return new_esp;
+    return new_sp;
 }
 
 struct RequiredLoadRange {
@@ -187,7 +195,7 @@ static KResultOr<RequiredLoadRange> get_required_load_range(FileDescription& pro
     return range;
 };
 
-static KResultOr<FlatPtr> get_load_offset(const Elf32_Ehdr& main_program_header, FileDescription& main_program_description, FileDescription* interpreter_description)
+static KResultOr<FlatPtr> get_load_offset(const ElfW(Ehdr) & main_program_header, FileDescription& main_program_description, FileDescription* interpreter_description)
 {
     constexpr FlatPtr load_range_start = 0x08000000;
     constexpr FlatPtr load_range_size = 65536 * PAGE_SIZE; // 2**16 * PAGE_SIZE = 256MB
@@ -431,7 +439,8 @@ static KResultOr<LoadResult> load_elf_object(NonnullOwnPtr<Space> new_space, Fil
     };
 }
 
-KResultOr<LoadResult> Process::load(NonnullRefPtr<FileDescription> main_program_description, RefPtr<FileDescription> interpreter_description, const Elf32_Ehdr& main_program_header)
+KResultOr<LoadResult> Process::load(NonnullRefPtr<FileDescription> main_program_description,
+    RefPtr<FileDescription> interpreter_description, const ElfW(Ehdr) & main_program_header)
 {
     auto new_space = Space::create(*this, nullptr);
     if (!new_space)
@@ -471,7 +480,8 @@ KResultOr<LoadResult> Process::load(NonnullRefPtr<FileDescription> main_program_
     return interpreter_load_result;
 }
 
-KResult Process::do_exec(NonnullRefPtr<FileDescription> main_program_description, Vector<String> arguments, Vector<String> environment, RefPtr<FileDescription> interpreter_description, Thread*& new_main_thread, u32& prev_flags, const Elf32_Ehdr& main_program_header)
+KResult Process::do_exec(NonnullRefPtr<FileDescription> main_program_description, Vector<String> arguments, Vector<String> environment,
+    RefPtr<FileDescription> interpreter_description, Thread*& new_main_thread, u32& prev_flags, const ElfW(Ehdr) & main_program_header)
 {
     VERIFY(is_user_process());
     VERIFY(!Processor::current().in_critical());
@@ -594,10 +604,10 @@ KResult Process::do_exec(NonnullRefPtr<FileDescription> main_program_description
 
     // NOTE: We create the new stack before disabling interrupts since it will zero-fault
     //       and we don't want to deal with faults after this point.
-    auto make_stack_result = make_userspace_stack_for_main_thread(*load_result.stack_region.unsafe_ptr(), move(arguments), move(environment), move(auxv));
+    auto make_stack_result = make_userspace_context_for_main_thread(new_main_thread->regs(), *load_result.stack_region.unsafe_ptr(), move(arguments), move(environment), move(auxv));
     if (make_stack_result.is_error())
         return make_stack_result.error();
-    u32 new_userspace_esp = make_stack_result.value();
+    FlatPtr new_userspace_sp = make_stack_result.value();
 
     if (wait_for_tracer_at_next_execve()) {
         // Make sure we release the ptrace lock here or the tracer will block forever.
@@ -636,22 +646,21 @@ KResult Process::do_exec(NonnullRefPtr<FileDescription> main_program_description
     }
     new_main_thread->reset_fpu_state();
 
+    auto& regs = new_main_thread->m_regs;
 #if ARCH(I386)
-    auto& tss = new_main_thread->m_tss;
-    tss.cs = GDT_SELECTOR_CODE3 | 3;
-    tss.ds = GDT_SELECTOR_DATA3 | 3;
-    tss.es = GDT_SELECTOR_DATA3 | 3;
-    tss.ss = GDT_SELECTOR_DATA3 | 3;
-    tss.fs = GDT_SELECTOR_DATA3 | 3;
-    tss.gs = GDT_SELECTOR_TLS | 3;
-    tss.eip = load_result.entry_eip;
-    tss.esp = new_userspace_esp;
-    tss.cr3 = space().page_directory().cr3();
-    tss.ss2 = pid().value();
+    regs.cs = GDT_SELECTOR_CODE3 | 3;
+    regs.ds = GDT_SELECTOR_DATA3 | 3;
+    regs.es = GDT_SELECTOR_DATA3 | 3;
+    regs.ss = GDT_SELECTOR_DATA3 | 3;
+    regs.fs = GDT_SELECTOR_DATA3 | 3;
+    regs.gs = GDT_SELECTOR_TLS | 3;
+    regs.eip = load_result.entry_eip;
+    regs.esp = new_userspace_sp;
 #else
-    (void)new_userspace_esp;
-    PANIC("Process::do_exec() not implemented");
+    regs.rip = load_result.entry_eip;
+    regs.rsp = new_userspace_sp;
 #endif
+    regs.cr3 = space().page_directory().cr3();
 
     {
         TemporaryChange profiling_disabler(m_profiling, was_profiling);
@@ -741,7 +750,7 @@ static KResultOr<Vector<String>> find_shebang_interpreter_for_executable(const c
     return ENOEXEC;
 }
 
-KResultOr<RefPtr<FileDescription>> Process::find_elf_interpreter_for_executable(const String& path, const Elf32_Ehdr& main_program_header, int nread, size_t file_size)
+KResultOr<RefPtr<FileDescription>> Process::find_elf_interpreter_for_executable(const String& path, const ElfW(Ehdr) & main_program_header, int nread, size_t file_size)
 {
     // Not using KResultOr here because we'll want to do the same thing in userspace in the RTLD
     String interpreter_path;
@@ -764,7 +773,7 @@ KResultOr<RefPtr<FileDescription>> Process::find_elf_interpreter_for_executable(
 
         // Validate the program interpreter as a valid elf binary.
         // If your program interpreter is a #! file or something, it's time to stop playing games :)
-        if (interp_metadata.size < (int)sizeof(Elf32_Ehdr))
+        if (interp_metadata.size < (int)sizeof(ElfW(Ehdr)))
             return ENOEXEC;
 
         char first_page[PAGE_SIZE] = {};
@@ -774,10 +783,10 @@ KResultOr<RefPtr<FileDescription>> Process::find_elf_interpreter_for_executable(
             return ENOEXEC;
         nread = nread_or_error.value();
 
-        if (nread < (int)sizeof(Elf32_Ehdr))
+        if (nread < (int)sizeof(ElfW(Ehdr)))
             return ENOEXEC;
 
-        auto elf_header = (Elf32_Ehdr*)first_page;
+        auto elf_header = (ElfW(Ehdr)*)first_page;
         if (!ELF::validate_elf_header(*elf_header, interp_metadata.size)) {
             dbgln("exec({}): Interpreter ({}) has invalid ELF header", path, interpreter_description->absolute_path());
             return ENOEXEC;
@@ -863,9 +872,9 @@ KResult Process::exec(String path, Vector<String> arguments, Vector<String> envi
 
     // #2) ELF32 for i386
 
-    if (nread_or_error.value() < (int)sizeof(Elf32_Ehdr))
+    if (nread_or_error.value() < (int)sizeof(ElfW(Ehdr)))
         return ENOEXEC;
-    auto main_program_header = (Elf32_Ehdr*)first_page;
+    auto main_program_header = (ElfW(Ehdr)*)first_page;
 
     if (!ELF::validate_elf_header(*main_program_header, metadata.size)) {
         dbgln("exec({}): File has invalid ELF header", path);
@@ -910,7 +919,7 @@ KResult Process::exec(String path, Vector<String> arguments, Vector<String> envi
     return KSuccess;
 }
 
-KResultOr<int> Process::sys$execve(Userspace<const Syscall::SC_execve_params*> user_params)
+KResultOr<FlatPtr> Process::sys$execve(Userspace<const Syscall::SC_execve_params*> user_params)
 {
     REQUIRE_PROMISE(exec);
 

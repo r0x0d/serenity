@@ -28,7 +28,7 @@ public:
     Shape* empty_object_shape() { return m_empty_object_shape; }
 
     Shape* new_object_shape() { return m_new_object_shape; }
-    Shape* new_script_function_prototype_object_shape() { return m_new_script_function_prototype_object_shape; }
+    Shape* new_ordinary_function_prototype_object_shape() { return m_new_ordinary_function_prototype_object_shape; }
 
     // Not included in JS_ENUMERATE_NATIVE_OBJECTS due to missing distinct prototype
     ProxyConstructor* proxy_constructor() { return m_proxy_constructor; }
@@ -36,7 +36,9 @@ public:
     // Not included in JS_ENUMERATE_NATIVE_OBJECTS due to missing distinct constructor
     GeneratorObjectPrototype* generator_object_prototype() { return m_generator_object_prototype; }
 
-    Function* eval_function() const { return m_eval_function; }
+    FunctionObject* eval_function() const { return m_eval_function; }
+
+    FunctionObject* throw_type_error_function() const { return m_throw_type_error_function; }
 
 #define __JS_ENUMERATE(ClassName, snake_name, PrototypeName, ConstructorName, ArrayType) \
     ConstructorName* snake_name##_constructor() { return m_##snake_name##_constructor; } \
@@ -77,7 +79,7 @@ private:
 
     Shape* m_empty_object_shape { nullptr };
     Shape* m_new_object_shape { nullptr };
-    Shape* m_new_script_function_prototype_object_shape { nullptr };
+    Shape* m_new_ordinary_function_prototype_object_shape { nullptr };
 
     // Not included in JS_ENUMERATE_NATIVE_OBJECTS due to missing distinct prototype
     ProxyConstructor* m_proxy_constructor { nullptr };
@@ -98,7 +100,8 @@ private:
     JS_ENUMERATE_ITERATOR_PROTOTYPES
 #undef __JS_ENUMERATE
 
-    Function* m_eval_function;
+    FunctionObject* m_eval_function;
+    FunctionObject* m_throw_type_error_function;
 };
 
 template<typename ConstructorType>

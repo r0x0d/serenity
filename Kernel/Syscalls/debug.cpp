@@ -11,27 +11,35 @@
 
 namespace Kernel {
 
-KResultOr<int> Process::sys$dump_backtrace()
+KResultOr<FlatPtr> Process::sys$dump_backtrace()
 {
     dump_backtrace();
     return 0;
 }
 
-KResultOr<int> Process::sys$dbgputch(u8 ch)
+KResultOr<FlatPtr> Process::sys$dbgputch(u8 ch)
 {
     dbgputch(ch);
     return 0;
 }
 
-KResultOr<size_t> Process::sys$dbgputstr(Userspace<const u8*> characters, size_t size)
+KResultOr<FlatPtr> Process::sys$dbgputstr(Userspace<const u8*> characters, size_t size)
 {
     if (size == 0)
         return 0;
 
+    if (size <= 1024) {
+        char buffer[1024];
+        if (!copy_from_user(buffer, characters, size))
+            return EFAULT;
+        dbgputstr(buffer, size);
+        return size;
+    }
+
     auto result = try_copy_kstring_from_user(reinterpret_cast<char const*>(characters.unsafe_userspace_ptr()), size);
     if (result.is_error())
         return result.error();
-    dbgputstr(reinterpret_cast<const char*>(result.value()->characters()), size);
+    dbgputstr(result.value()->characters(), size);
     return size;
 }
 
