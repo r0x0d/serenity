@@ -17,6 +17,7 @@
 #include <AK/WeakPtr.h>
 #include <AK/Weakable.h>
 #include <Kernel/API/Syscall.h>
+#include <Kernel/FileSystem/FileDescription.h>
 #include <Kernel/FileSystem/InodeMetadata.h>
 #include <Kernel/Forward.h>
 #include <Kernel/FutexQueue.h>
@@ -129,6 +130,7 @@ class Process
 
     friend class Thread;
     friend class CoreDump;
+    friend class ProcFSProcessFileDescriptions;
 
     // Helper class to temporarily unprotect a process's protected data so you can write to it.
     class ProtectedDataMutationScope {
@@ -169,6 +171,7 @@ public:
 
     static RefPtr<Process> create_kernel_process(RefPtr<Thread>& first_thread, String&& name, void (*entry)(void*), void* entry_data = nullptr, u32 affinity = THREAD_AFFINITY_DEFAULT);
     static RefPtr<Process> create_user_process(RefPtr<Thread>& first_thread, const String& path, uid_t, gid_t, ProcessID ppid, int& error, Vector<String>&& arguments = Vector<String>(), Vector<String>&& environment = Vector<String>(), TTY* = nullptr);
+    static void register_new(Process&);
     ~Process();
 
     static Vector<ProcessID> all_pids();
@@ -224,9 +227,6 @@ public:
     mode_t umask() const { return m_umask; }
 
     bool in_group(gid_t) const;
-
-    RefPtr<FileDescription> file_description(int fd) const;
-    int fd_flags(int fd) const;
 
     // Breakable iteration functions
     template<IteratorFunction<Process&> Callback>
@@ -440,12 +440,6 @@ public:
     const Vector<String>& arguments() const { return m_arguments; };
     const Vector<String>& environment() const { return m_environment; };
 
-    int number_of_open_file_descriptors() const;
-    int max_open_file_descriptors() const
-    {
-        return m_max_open_file_descriptors;
-    }
-
     KResult exec(String path, Vector<String> arguments, Vector<String> environment, int recusion_depth = 0);
 
     KResultOr<LoadResult> load(NonnullRefPtr<FileDescription> main_program_description, RefPtr<FileDescription> interpreter_description, const ElfW(Ehdr) & main_program_header);
@@ -538,8 +532,6 @@ private:
 
     KResultOr<RefPtr<FileDescription>> find_elf_interpreter_for_executable(const String& path, const ElfW(Ehdr) & elf_header, int nread, size_t file_size);
 
-    int alloc_fd(int first_candidate_fd = 0);
-
     KResult do_kill(Process&, int signal);
     KResult do_killpg(ProcessGroupID pgrp, int signal);
     KResult do_killall(int signal);
@@ -583,26 +575,90 @@ private:
 
     OwnPtr<ThreadTracer> m_tracer;
 
-    static constexpr int m_max_open_file_descriptors { FD_SETSIZE };
-
+public:
     class FileDescriptionAndFlags {
+        friend class FileDescriptionRegistrar;
+
     public:
         operator bool() const { return !!m_description; }
 
+        bool is_valid() const { return !m_description.is_null(); }
+
         FileDescription* description() { return m_description; }
         const FileDescription* description() const { return m_description; }
-
+        InodeIndex global_procfs_inode_index() const { return m_global_procfs_inode_index; }
         u32 flags() const { return m_flags; }
         void set_flags(u32 flags) { m_flags = flags; }
 
         void clear();
         void set(NonnullRefPtr<FileDescription>&&, u32 flags = 0);
+        void refresh_inode_index();
 
     private:
         RefPtr<FileDescription> m_description;
         u32 m_flags { 0 };
+
+        // Note: This is needed so when we generate inodes for ProcFS, we know that
+        // we assigned a global Inode index to it so we can use it later
+        InodeIndex m_global_procfs_inode_index;
     };
-    Vector<FileDescriptionAndFlags> m_fds;
+
+    class FileDescriptions {
+        friend class Process;
+
+    public:
+        ALWAYS_INLINE const FileDescriptionAndFlags& operator[](size_t i) const { return at(i); }
+        ALWAYS_INLINE FileDescriptionAndFlags& operator[](size_t i) { return at(i); }
+
+        FileDescriptions& operator=(const Kernel::Process::FileDescriptions& other)
+        {
+            ScopedSpinLock lock(m_fds_lock);
+            ScopedSpinLock lock_other(other.m_fds_lock);
+            m_fds_metadatas = other.m_fds_metadatas;
+            for (auto& file_description_metadata : m_fds_metadatas) {
+                file_description_metadata.refresh_inode_index();
+            }
+            return *this;
+        }
+
+        const FileDescriptionAndFlags& at(size_t i) const;
+        FileDescriptionAndFlags& at(size_t i);
+
+        void enumerate(Function<void(const FileDescriptionAndFlags&)>) const;
+        void change_each(Function<void(FileDescriptionAndFlags&)>);
+
+        int allocate(int first_candidate_fd = 0);
+        size_t open_count() const;
+
+        bool try_resize(size_t size) { return m_fds_metadatas.try_resize(size); }
+
+        size_t max_open() const
+        {
+            return m_max_open_file_descriptors;
+        }
+
+        void clear()
+        {
+            ScopedSpinLock lock(m_fds_lock);
+            m_fds_metadatas.clear();
+        }
+
+        // FIXME: Consider to remove this somehow
+        RefPtr<FileDescription> file_description(int fd) const;
+        int fd_flags(int fd) const;
+
+    private:
+        FileDescriptions() = default;
+        static constexpr size_t m_max_open_file_descriptors { FD_SETSIZE };
+        mutable SpinLock<u8> m_fds_lock;
+        Vector<FileDescriptionAndFlags> m_fds_metadatas;
+    };
+
+    FileDescriptions& fds() { return m_fds; }
+    const FileDescriptions& fds() const { return m_fds; }
+
+private:
+    FileDescriptions m_fds;
 
     mutable RecursiveSpinLock m_thread_list_lock;
 

@@ -10,6 +10,7 @@
 #include <Kernel/FileSystem/Ext2FileSystem.h>
 #include <Kernel/FileSystem/Plan9FileSystem.h>
 #include <Kernel/FileSystem/ProcFS.h>
+#include <Kernel/FileSystem/SysFS.h>
 #include <Kernel/FileSystem/TmpFS.h>
 #include <Kernel/FileSystem/VirtualFileSystem.h>
 #include <Kernel/Process.h>
@@ -35,7 +36,7 @@ KResultOr<FlatPtr> Process::sys$mount(Userspace<const Syscall::SC_mount_params*>
     if (fs_type.is_null())
         return EFAULT;
 
-    auto description = file_description(source_fd);
+    auto description = fds().file_description(source_fd);
     if (!description.is_null())
         dbgln("mount {}: source fd {} @ {}", fs_type, source_fd, target);
     else
@@ -89,6 +90,8 @@ KResultOr<FlatPtr> Process::sys$mount(Userspace<const Syscall::SC_mount_params*>
         fs = DevPtsFS::create();
     } else if (fs_type == "dev" || fs_type == "DevFS") {
         fs = DevFS::create();
+    } else if (fs_type == "sys" || fs_type == "SysFS") {
+        fs = SysFS::create();
     } else if (fs_type == "tmp" || fs_type == "TmpFS") {
         fs = TmpFS::create();
     } else {

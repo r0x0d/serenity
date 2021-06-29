@@ -144,8 +144,8 @@ static KResultOr<FlatPtr> make_userspace_context_for_main_thread([[maybe_unused]
     push_on_new_stack(argv);
     push_on_new_stack(argv_entries.size());
 #else
-    regs.rdi = argv;
-    regs.rsi = argv_entries.size();
+    regs.rdi = argv_entries.size();
+    regs.rsi = argv;
     regs.rdx = envp;
 #endif
     push_on_new_stack(0); // return address
@@ -573,15 +573,14 @@ KResult Process::do_exec(NonnullRefPtr<FileDescription> main_program_description
 
     clear_futex_queues_on_exec();
 
-    for (size_t i = 0; i < m_fds.size(); ++i) {
-        auto& description_and_flags = m_fds[i];
-        if (description_and_flags.description() && description_and_flags.flags() & FD_CLOEXEC)
-            description_and_flags = {};
-    }
+    fds().change_each([&](auto& file_description_metadata) {
+        if (file_description_metadata.is_valid() && file_description_metadata.flags() & FD_CLOEXEC)
+            file_description_metadata = {};
+    });
 
     int main_program_fd = -1;
     if (interpreter_description) {
-        main_program_fd = alloc_fd();
+        main_program_fd = m_fds.allocate();
         VERIFY(main_program_fd >= 0);
         auto seek_result = main_program_description->seek(0, SEEK_SET);
         VERIFY(!seek_result.is_error());

@@ -30,7 +30,6 @@ set(KERNEL_SOURCES
     CommandLine.cpp
     ConsoleDevice.cpp
     CoreDump.cpp
-    DMI.cpp
     Devices/AsyncDeviceRequest.cpp
     Devices/BlockDevice.cpp
     Devices/CharacterDevice.cpp
@@ -59,6 +58,7 @@ set(KERNEL_SOURCES
     Devices/HID/PS2KeyboardDevice.cpp
     Devices/HID/PS2MouseDevice.cpp
     Devices/HID/VMWareMouseDevice.cpp
+    GlobalProcessExposed.cpp
     Graphics/Console/GenericFramebufferConsole.cpp
     Graphics/Console/ContiguousFramebufferConsole.cpp
     Graphics/Console/TextModeConsole.cpp
@@ -107,6 +107,7 @@ set(KERNEL_SOURCES
     FileSystem/InodeWatcher.cpp
     FileSystem/Plan9FileSystem.cpp
     FileSystem/ProcFS.cpp
+    FileSystem/SysFS.cpp
     FileSystem/TmpFS.cpp
     FileSystem/VirtualFileSystem.cpp
     FutexQueue.cpp
@@ -148,6 +149,8 @@ set(KERNEL_SOURCES
     Panic.cpp
     PerformanceEventBuffer.cpp
     Process.cpp
+    ProcessExposed.cpp
+    ProcessSpecificExposed.cpp
     ProcessGroup.cpp
     RTC.cpp
     Random.cpp
@@ -225,6 +228,7 @@ set(KERNEL_SOURCES
     Syscalls/waitid.cpp
     Syscalls/inode_watcher.cpp
     Syscalls/write.cpp
+    SystemExposed.cpp
     TTY/ConsoleManagement.cpp
     TTY/MasterPTY.cpp
     TTY/PTYMultiplexer.cpp
@@ -297,7 +301,6 @@ set(AK_SOURCES
     ../AK/FlyString.cpp
     ../AK/GenericLexer.cpp
     ../AK/Hex.cpp
-    ../AK/JsonParser.cpp
     ../AK/JsonValue.cpp
     ../AK/LexicalPath.cpp
     ../AK/String.cpp

@@ -24,6 +24,7 @@
 #include <Kernel/PerformanceEventBuffer.h>
 #include <Kernel/PerformanceManager.h>
 #include <Kernel/Process.h>
+#include <Kernel/ProcessExposed.h>
 #include <Kernel/RTC.h>
 #include <Kernel/Sections.h>
 #include <Kernel/StdLib.h>
@@ -129,6 +130,15 @@ void Process::kill_all_threads()
     });
 }
 
+void Process::register_new(Process& process)
+{
+    // Note: this is essentially the same like process->ref()
+    RefPtr<Process> new_process = process;
+    ScopedSpinLock lock(g_processes_lock);
+    g_processes->prepend(process);
+    ProcFSComponentsRegistrar::the().register_new_process(process);
+}
+
 RefPtr<Process> Process::create_user_process(RefPtr<Thread>& first_thread, const String& path, uid_t uid, gid_t gid, ProcessID parent_pid, int& error, Vector<String>&& arguments, Vector<String>&& environment, TTY* tty)
 {
     auto parts = path.split('/');
@@ -149,7 +159,7 @@ RefPtr<Process> Process::create_user_process(RefPtr<Thread>& first_thread, const
     auto process = Process::create(first_thread, parts.take_last(), uid, gid, parent_pid, false, move(cwd), nullptr, tty);
     if (!first_thread)
         return {};
-    if (!process->m_fds.try_resize(m_max_open_file_descriptors)) {
+    if (!process->m_fds.try_resize(process->m_fds.max_open())) {
         first_thread = nullptr;
         return {};
     }
@@ -166,11 +176,7 @@ RefPtr<Process> Process::create_user_process(RefPtr<Thread>& first_thread, const
         return {};
     }
 
-    {
-        process->ref();
-        ScopedSpinLock lock(g_processes_lock);
-        g_processes->prepend(*process);
-    }
+    register_new(*process);
     error = 0;
     return process;
 }
@@ -189,9 +195,7 @@ RefPtr<Process> Process::create_kernel_process(RefPtr<Thread>& first_thread, Str
 #endif
 
     if (process->pid() != 0) {
-        process->ref();
-        ScopedSpinLock lock(g_processes_lock);
-        g_processes->prepend(*process);
+        register_new(*process);
     }
 
     ScopedSpinLock lock(g_scheduler_lock);
@@ -308,9 +312,25 @@ void signal_trampoline_dummy()
         "asm_signal_trampoline_end:\n"
         ".att_syntax" ::"i"(Syscall::SC_sigreturn));
 #elif ARCH(X86_64)
-    asm("asm_signal_trampoline:\n"
-        "cli;hlt\n"
-        "asm_signal_trampoline_end:\n");
+    // The trampoline preserves the current rax, pushes the signal code and
+    // then calls the signal handler. We do this because, when interrupting a
+    // blocking syscall, that syscall may return some special error code in eax;
+    // This error code would likely be overwritten by the signal handler, so it's
+    // necessary to preserve it here.
+    asm(
+        ".intel_syntax noprefix\n"
+        "asm_signal_trampoline:\n"
+        "push rbp\n"
+        "mov rbp, rsp\n"
+        "push rax\n"          // we have to store rax 'cause it might be the return value from a syscall
+        "sub rsp, 8\n"        // align the stack to 16 bytes
+        "mov rdi, [rbp+24]\n" // push the signal code
+        "call [rbp+16]\n"     // call the signal handler
+        "add rsp, 8\n"
+        "mov rax, %P0\n"
+        "int 0x82\n" // sigreturn syscall
+        "asm_signal_trampoline_end:\n"
+        ".att_syntax" ::"i"(Syscall::SC_sigreturn));
 #endif
 }
 
@@ -373,38 +393,68 @@ RefPtr<Process> Process::from_pid(ProcessID pid)
     return {};
 }
 
-RefPtr<FileDescription> Process::file_description(int fd) const
+const Process::FileDescriptionAndFlags& Process::FileDescriptions::at(size_t i) const
 {
+    ScopedSpinLock lock(m_fds_lock);
+    return m_fds_metadatas[i];
+}
+Process::FileDescriptionAndFlags& Process::FileDescriptions::at(size_t i)
+{
+    ScopedSpinLock lock(m_fds_lock);
+    return m_fds_metadatas[i];
+}
+
+RefPtr<FileDescription> Process::FileDescriptions::file_description(int fd) const
+{
+    ScopedSpinLock lock(m_fds_lock);
     if (fd < 0)
         return nullptr;
-    if (static_cast<size_t>(fd) < m_fds.size())
-        return m_fds[fd].description();
+    if (static_cast<size_t>(fd) < m_fds_metadatas.size())
+        return m_fds_metadatas[fd].description();
     return nullptr;
 }
 
-int Process::fd_flags(int fd) const
+int Process::FileDescriptions::fd_flags(int fd) const
 {
+    ScopedSpinLock lock(m_fds_lock);
     if (fd < 0)
         return -1;
-    if (static_cast<size_t>(fd) < m_fds.size())
-        return m_fds[fd].flags();
+    if (static_cast<size_t>(fd) < m_fds_metadatas.size())
+        return m_fds_metadatas[fd].flags();
     return -1;
 }
 
-int Process::number_of_open_file_descriptors() const
+void Process::FileDescriptions::enumerate(Function<void(const FileDescriptionAndFlags&)> callback) const
 {
-    int count = 0;
-    for (auto& description : m_fds) {
-        if (description)
-            ++count;
+    ScopedSpinLock lock(m_fds_lock);
+    for (auto& file_description_metadata : m_fds_metadatas) {
+        callback(file_description_metadata);
     }
+}
+
+void Process::FileDescriptions::change_each(Function<void(FileDescriptionAndFlags&)> callback)
+{
+    ScopedSpinLock lock(m_fds_lock);
+    for (auto& file_description_metadata : m_fds_metadatas) {
+        callback(file_description_metadata);
+    }
+}
+
+size_t Process::FileDescriptions::open_count() const
+{
+    size_t count = 0;
+    enumerate([&](auto& file_description_metadata) {
+        if (file_description_metadata.is_valid())
+            ++count;
+    });
     return count;
 }
 
-int Process::alloc_fd(int first_candidate_fd)
+int Process::FileDescriptions::allocate(int first_candidate_fd)
 {
-    for (int i = first_candidate_fd; i < (int)m_max_open_file_descriptors; ++i) {
-        if (!m_fds[i])
+    ScopedSpinLock lock(m_fds_lock);
+    for (size_t i = first_candidate_fd; i < max_open(); ++i) {
+        if (!m_fds_metadatas[i])
             return i;
     }
     return -EMFILE;
@@ -518,6 +568,12 @@ void Process::finalize()
     m_root_directory_relative_to_global_root = nullptr;
     m_arguments.clear();
     m_environment.clear();
+
+    // Note: We need to remove the references from the ProcFS registrar
+    // If we don't do it here, we can't drop the object later, and we can't
+    // do this from the destructor because the state of the object doesn't
+    // allow us to take references anymore.
+    ProcFSComponentsRegistrar::the().unregister_process(*this);
 
     m_dead = true;
 
@@ -660,14 +716,24 @@ RefPtr<Thread> Process::create_kernel_thread(void (*entry)(void*), void* entry_d
 
 void Process::FileDescriptionAndFlags::clear()
 {
+    // FIXME: Verify Process::m_fds_lock is locked!
     m_description = nullptr;
     m_flags = 0;
+    m_global_procfs_inode_index = 0;
+}
+
+void Process::FileDescriptionAndFlags::refresh_inode_index()
+{
+    // FIXME: Verify Process::m_fds_lock is locked!
+    m_global_procfs_inode_index = ProcFSComponentsRegistrar::the().allocate_inode_index();
 }
 
 void Process::FileDescriptionAndFlags::set(NonnullRefPtr<FileDescription>&& description, u32 flags)
 {
+    // FIXME: Verify Process::m_fds_lock is locked!
     m_description = move(description);
     m_flags = flags;
+    m_global_procfs_inode_index = ProcFSComponentsRegistrar::the().allocate_inode_index();
 }
 
 Custody& Process::root_directory()
