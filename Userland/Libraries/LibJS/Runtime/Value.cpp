@@ -449,7 +449,7 @@ Object* Value::to_object(GlobalObject& global_object) const
     case Type::Double:
         return NumberObject::create(global_object, as_double());
     case Type::String:
-        return StringObject::create(global_object, *m_value.as_string);
+        return StringObject::create(global_object, *m_value.as_string, *global_object.string_prototype());
     case Type::Symbol:
         return SymbolObject::create(global_object, *m_value.as_symbol);
     case Type::BigInt:
@@ -993,7 +993,7 @@ Value left_shift(GlobalObject& global_object, Value lhs, Value rhs)
             return lhs_numeric;
         // Ok, so this performs toNumber() again but that "can't" throw
         auto lhs_i32 = lhs_numeric.to_i32(global_object);
-        auto rhs_u32 = rhs_numeric.to_u32(global_object);
+        auto rhs_u32 = rhs_numeric.to_u32(global_object) % 32;
         return Value(lhs_i32 << rhs_u32);
     }
     if (both_bigint(lhs_numeric, rhs_numeric)) {

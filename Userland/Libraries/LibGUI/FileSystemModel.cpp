@@ -189,28 +189,29 @@ ModelIndex FileSystemModel::index(String path, int column) const
 
 FileSystemModel::Node const* FileSystemModel::node_for_path(String const& path) const
 {
-    LexicalPath lexical_path;
-    if (path == m_root_path) {
-        lexical_path = LexicalPath { "/" };
-    } else if (!m_root_path.is_empty() && path.starts_with(m_root_path)) {
-        lexical_path = LexicalPath { LexicalPath::relative_path(path, m_root_path) };
-    } else {
-        lexical_path = LexicalPath { move(path) };
-    }
+    String resolved_path;
+    if (path == m_root_path)
+        resolved_path = "/";
+    else if (!m_root_path.is_empty() && path.starts_with(m_root_path))
+        resolved_path = LexicalPath::relative_path(path, m_root_path);
+    else
+        resolved_path = path;
+    LexicalPath lexical_path(resolved_path);
 
     const Node* node = m_root->m_parent_of_root ? &m_root->children.first() : m_root;
     if (lexical_path.string() == "/")
         return node;
 
-    for (size_t i = 0; i < lexical_path.parts().size(); ++i) {
-        auto& part = lexical_path.parts()[i];
+    auto& parts = lexical_path.parts_view();
+    for (size_t i = 0; i < parts.size(); ++i) {
+        auto& part = parts[i];
         bool found = false;
         for (auto& child : node->children) {
             if (child.name == part) {
                 const_cast<Node&>(child).reify_if_needed();
                 node = &child;
                 found = true;
-                if (i == lexical_path.parts().size() - 1)
+                if (i == parts.size() - 1)
                     return node;
                 break;
             }
@@ -653,7 +654,7 @@ void FileSystemModel::set_data(const ModelIndex& index, const Variant& data)
 {
     VERIFY(is_editable(index));
     Node& node = const_cast<Node&>(this->node(index));
-    auto dirname = LexicalPath(node.full_path()).dirname();
+    auto dirname = LexicalPath::dirname(node.full_path());
     auto new_full_path = String::formatted("{}/{}", dirname, data.to_string());
     int rc = rename(node.full_path().characters(), new_full_path.characters());
     if (rc < 0) {

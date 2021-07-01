@@ -63,11 +63,16 @@ public:
     }
     void set_subtitle(String text)
     {
+        if (text.is_empty()) {
+            if (m_subtitle)
+                m_subtitle->remove_from_parent();
+            m_subtitle = nullptr;
+            return;
+        }
         if (!m_subtitle) {
             m_subtitle = m_label_container->add<GUI::Label>();
             m_subtitle->set_text_alignment(Gfx::TextAlignment::CenterLeft);
         }
-
         m_subtitle->set_text(move(text));
     }
     void set_is_highlighted(bool value)
@@ -201,7 +206,7 @@ int main(int argc, char** argv)
 
     auto mark_selected_item = [&]() {
         for (size_t i = 0; i < app_state.visible_result_count; ++i) {
-            auto& row = dynamic_cast<Assistant::ResultRow&>(results_container.child_widgets()[i]);
+            auto& row = static_cast<Assistant::ResultRow&>(results_container.child_widgets()[i]);
             row.set_is_highlighted(i == app_state.selected_index);
         }
     };
