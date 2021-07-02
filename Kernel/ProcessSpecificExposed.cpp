@@ -83,24 +83,29 @@ private:
         , m_process_folder(parent_folder)
     {
     }
-    RefPtr<ProcFSProcessFolder> m_process_folder;
+    WeakPtr<ProcFSProcessFolder> m_process_folder;
     mutable Lock m_lock;
 };
 
 KResultOr<size_t> ProcFSProcessStacks::entries_count() const
 {
     Locker locker(m_lock);
-    auto process = m_process_folder->m_associated_process;
-    return process->thread_count();
+    auto parent_folder = m_process_folder.strong_ref();
+    if (parent_folder.is_null())
+        return KResult(EINVAL);
+    return parent_folder->m_associated_process->thread_count();
 }
 
 KResult ProcFSProcessStacks::traverse_as_directory(unsigned fsid, Function<bool(const FS::DirectoryEntryView&)> callback) const
 {
     Locker locker(m_lock);
+    auto parent_folder = m_process_folder.strong_ref();
+    if (parent_folder.is_null())
+        return KResult(EINVAL);
     callback({ ".", { fsid, component_index() }, 0 });
-    callback({ "..", { fsid, m_parent_folder->component_index() }, 0 });
+    callback({ "..", { fsid, parent_folder->component_index() }, 0 });
 
-    auto process = m_process_folder->m_associated_process;
+    auto process = parent_folder->m_associated_process;
     process->for_each_thread([&](const Thread& thread) {
         int tid = thread.tid().value();
         InodeIdentifier identifier = { fsid, thread.global_procfs_inode_index() };
@@ -112,13 +117,16 @@ KResult ProcFSProcessStacks::traverse_as_directory(unsigned fsid, Function<bool(
 RefPtr<ProcFSExposedComponent> ProcFSProcessStacks::lookup(StringView name)
 {
     Locker locker(m_lock);
-    auto process = m_process_folder->m_associated_process;
+    auto parent_folder = m_process_folder.strong_ref();
+    if (parent_folder.is_null())
+        return nullptr;
+    auto process = parent_folder->m_associated_process;
     RefPtr<ProcFSThreadStack> procfd_stack;
     // FIXME: Try to exit the loop earlier
     process->for_each_thread([&](const Thread& thread) {
         int tid = thread.tid().value();
         if (name == String::number(tid)) {
-            procfd_stack = ProcFSThreadStack::create(*m_process_folder, *this, thread);
+            procfd_stack = ProcFSThreadStack::create(*parent_folder, *this, thread);
         }
     });
     return procfd_stack;
@@ -177,24 +185,30 @@ private:
         , m_process_folder(parent_folder)
     {
     }
-    RefPtr<ProcFSProcessFolder> m_process_folder;
+    WeakPtr<ProcFSProcessFolder> m_process_folder;
     mutable Lock m_lock;
 };
 
 KResultOr<size_t> ProcFSProcessFileDescriptions::entries_count() const
 {
     Locker locker(m_lock);
-    return m_process_folder->m_associated_process->fds().open_count();
+    auto parent_folder = m_process_folder.strong_ref();
+    if (parent_folder.is_null())
+        return KResult(EINVAL);
+    return parent_folder->m_associated_process->fds().open_count();
 }
 KResult ProcFSProcessFileDescriptions::traverse_as_directory(unsigned fsid, Function<bool(const FS::DirectoryEntryView&)> callback) const
 {
     Locker locker(m_lock);
+    auto parent_folder = m_process_folder.strong_ref();
+    if (parent_folder.is_null())
+        return KResult(EINVAL);
     callback({ ".", { fsid, component_index() }, 0 });
-    callback({ "..", { fsid, m_parent_folder->component_index() }, 0 });
+    callback({ "..", { fsid, parent_folder->component_index() }, 0 });
 
-    auto process = m_process_folder->m_associated_process;
+    auto process = parent_folder->m_associated_process;
     size_t count = 0;
-    m_process_folder->m_associated_process->fds().enumerate([&](auto& file_description_metadata) {
+    process->fds().enumerate([&](auto& file_description_metadata) {
         if (!file_description_metadata.is_valid()) {
             count++;
             return;
@@ -208,11 +222,14 @@ KResult ProcFSProcessFileDescriptions::traverse_as_directory(unsigned fsid, Func
 RefPtr<ProcFSExposedComponent> ProcFSProcessFileDescriptions::lookup(StringView name)
 {
     Locker locker(m_lock);
-    auto process = m_process_folder->m_associated_process;
+    auto parent_folder = m_process_folder.strong_ref();
+    if (parent_folder.is_null())
+        return nullptr;
+    auto process = parent_folder->m_associated_process;
     RefPtr<ProcFSProcessFileDescription> procfd_fd;
     // FIXME: Try to exit the loop earlier
     size_t count = 0;
-    m_process_folder->m_associated_process->fds().enumerate([&](auto& file_description_metadata) {
+    process->fds().enumerate([&](auto& file_description_metadata) {
         if (!file_description_metadata.is_valid()) {
             count++;
             return;
@@ -239,8 +256,11 @@ private:
     }
     virtual bool output(KBufferBuilder& builder) override
     {
+        auto parent_folder = m_parent_folder.strong_ref();
+        if (parent_folder.is_null())
+            return false;
         JsonArraySerializer array { builder };
-        for (auto& unveiled_path : m_parent_folder->m_associated_process->unveiled_paths()) {
+        for (auto& unveiled_path : parent_folder->m_associated_process->unveiled_paths()) {
             if (!unveiled_path.was_explicitly_unveiled())
                 continue;
             auto obj = array.add_object();
@@ -278,11 +298,15 @@ private:
     virtual bool output(KBufferBuilder& builder) override
     {
         InterruptDisabler disabler;
-        if (!m_parent_folder->m_associated_process->perf_events()) {
-            dbgln("ProcFS: No perf events for {}", m_parent_folder->m_associated_process->pid());
+        auto parent_folder = m_parent_folder.strong_ref();
+        if (parent_folder.is_null())
+            return false;
+        auto process = parent_folder->m_associated_process;
+        if (!process->perf_events()) {
+            dbgln("ProcFS: No perf events for {}", process->pid());
             return false;
         }
-        return m_parent_folder->m_associated_process->perf_events()->to_json(builder);
+        return process->perf_events()->to_json(builder);
     }
 };
 
@@ -300,8 +324,11 @@ private:
     }
     virtual bool output(KBufferBuilder& builder) override
     {
+        auto parent_folder = m_parent_folder.strong_ref();
+        if (parent_folder.is_null())
+            return false;
         JsonArraySerializer array { builder };
-        auto process = m_parent_folder->m_associated_process;
+        auto process = parent_folder->m_associated_process;
         if (process->fds().open_count() == 0) {
             array.finish();
             return true;
@@ -348,10 +375,13 @@ private:
     }
     virtual bool acquire_link(KBufferBuilder& builder) override
     {
-        builder.append_bytes(m_parent_process_directory->m_associated_process->root_directory_relative_to_global_root().absolute_path().to_byte_buffer());
+        auto parent_folder = m_parent_process_directory.strong_ref();
+        if (parent_folder.is_null())
+            return false;
+        builder.append_bytes(parent_folder->m_associated_process->root_directory_relative_to_global_root().absolute_path().to_byte_buffer());
         return true;
     }
-    NonnullRefPtr<ProcFSProcessFolder> m_parent_process_directory;
+    WeakPtr<ProcFSProcessFolder> m_parent_process_directory;
 };
 
 class ProcFSProcessVirtualMemory final : public ProcFSProcessInformation {
@@ -368,7 +398,10 @@ private:
     }
     virtual bool output(KBufferBuilder& builder) override
     {
-        auto process = m_parent_folder->m_associated_process;
+        auto parent_folder = m_parent_folder.strong_ref();
+        if (parent_folder.is_null())
+            return false;
+        auto process = parent_folder->m_associated_process;
         JsonArraySerializer array { builder };
         {
             ScopedSpinLock lock(process->space().get_lock());
@@ -428,11 +461,14 @@ private:
     }
     virtual bool acquire_link(KBufferBuilder& builder) override
     {
-        builder.append_bytes(m_parent_process_directory->m_associated_process->current_directory().absolute_path().bytes());
+        auto parent_folder = m_parent_process_directory.strong_ref();
+        if (parent_folder.is_null())
+            return false;
+        builder.append_bytes(parent_folder->m_associated_process->current_directory().absolute_path().bytes());
         return true;
     }
 
-    NonnullRefPtr<ProcFSProcessFolder> m_parent_process_directory;
+    WeakPtr<ProcFSProcessFolder> m_parent_process_directory;
 };
 
 class ProcFSProcessBinary final : public ProcFSExposedLink {
@@ -444,7 +480,10 @@ public:
 
     virtual mode_t required_mode() const override
     {
-        if (!m_parent_process_directory->m_associated_process->executable())
+        auto parent_folder = m_parent_process_directory.strong_ref();
+        if (parent_folder.is_null())
+            return false;
+        if (!parent_folder->m_associated_process->executable())
             return 0;
         return ProcFSExposedComponent::required_mode();
     }
@@ -457,29 +496,53 @@ private:
     }
     virtual bool acquire_link(KBufferBuilder& builder) override
     {
-        auto* custody = m_parent_process_directory->m_associated_process->executable();
+        auto parent_folder = m_parent_process_directory.strong_ref();
+        if (parent_folder.is_null())
+            return false;
+        auto* custody = parent_folder->m_associated_process->executable();
         if (!custody)
             return false;
         builder.append(custody->absolute_path().bytes());
         return true;
     }
 
-    NonnullRefPtr<ProcFSProcessFolder> m_parent_process_directory;
+    WeakPtr<ProcFSProcessFolder> m_parent_process_directory;
 };
+
+void ProcFSProcessFolder::on_attach()
+{
+    VERIFY(m_components.size() == 0);
+    m_components.append(ProcFSProcessUnveil::create(*this));
+    m_components.append(ProcFSProcessPerformanceEvents::create(*this));
+    m_components.append(ProcFSProcessFileDescriptions::create(*this));
+    m_components.append(ProcFSProcessOverallFileDescriptions::create(*this));
+    m_components.append(ProcFSProcessRoot::create(*this));
+    m_components.append(ProcFSProcessVirtualMemory::create(*this));
+    m_components.append(ProcFSProcessCurrentWorkDirectory::create(*this));
+    m_components.append(ProcFSProcessBinary::create(*this));
+    m_components.append(ProcFSProcessStacks::create(*this));
+}
+
+RefPtr<ProcFSExposedComponent> ProcFSProcessFolder::lookup(StringView name)
+{
+    // Note: we need to allocate all sub components when doing a lookup, because
+    // for some reason, the caller may not call ProcFSInode::attach method before calling this.
+    if (m_components.size() == 0)
+        on_attach();
+    return ProcFSExposedFolder::lookup(name);
+}
+
+KResult ProcFSProcessFolder::refresh_data(FileDescription&) const
+{
+    if (m_components.size() != 0)
+        return KSuccess;
+    const_cast<ProcFSProcessFolder&>(*this).on_attach();
+    return KSuccess;
+}
 
 NonnullRefPtr<ProcFSProcessFolder> ProcFSProcessFolder::create(const Process& process)
 {
-    auto folder = adopt_ref_if_nonnull(new (nothrow) ProcFSProcessFolder(process)).release_nonnull();
-    folder->m_components.append(ProcFSProcessUnveil::create(folder));
-    folder->m_components.append(ProcFSProcessPerformanceEvents::create(folder));
-    folder->m_components.append(ProcFSProcessFileDescriptions::create(folder));
-    folder->m_components.append(ProcFSProcessOverallFileDescriptions::create(folder));
-    folder->m_components.append(ProcFSProcessRoot::create(folder));
-    folder->m_components.append(ProcFSProcessVirtualMemory::create(folder));
-    folder->m_components.append(ProcFSProcessCurrentWorkDirectory::create(folder));
-    folder->m_components.append(ProcFSProcessBinary::create(folder));
-    folder->m_components.append(ProcFSProcessStacks::create(folder));
-    return folder;
+    return adopt_ref_if_nonnull(new (nothrow) ProcFSProcessFolder(process)).release_nonnull();
 }
 
 ProcFSProcessFolder::ProcFSProcessFolder(const Process& process)

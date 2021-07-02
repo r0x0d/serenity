@@ -14,7 +14,7 @@
 #include <LibJS/Bytecode/Op.h>
 #include <LibJS/Bytecode/Register.h>
 #include <LibJS/Bytecode/StringTable.h>
-#include <LibJS/Runtime/EnvironmentRecord.h>
+#include <LibJS/Runtime/Environment.h>
 
 namespace JS {
 
@@ -63,7 +63,7 @@ void ScopeNode::generate_bytecode(Bytecode::Generator& generator) const
     }
 
     if (!scope_variables_with_declaration_kind.is_empty()) {
-        generator.emit<Bytecode::Op::PushDeclarativeEnvironmentRecord>(move(scope_variables_with_declaration_kind));
+        generator.emit<Bytecode::Op::PushDeclarativeEnvironment>(move(scope_variables_with_declaration_kind));
     }
 
     for (auto& child : children()) {
@@ -1214,7 +1214,7 @@ void TryStatement::generate_bytecode(Bytecode::Generator& generator) const
         if (!m_finalizer)
             generator.emit<Bytecode::Op::LeaveUnwindContext>();
         if (!m_handler->parameter().is_empty()) {
-            // FIXME: We need a separate DeclarativeEnvironmentRecord here
+            // FIXME: We need a separate DeclarativeEnvironment here
             generator.emit<Bytecode::Op::SetVariable>(generator.intern_string(m_handler->parameter()));
         }
         m_handler->body().generate_bytecode(generator);
@@ -1298,6 +1298,12 @@ void SwitchStatement::generate_bytecode(Bytecode::Generator& generator) const
     generator.end_breakable_scope();
 
     generator.switch_to_basic_block(end_block);
+}
+
+void ClassDeclaration::generate_bytecode(Bytecode::Generator& generator) const
+{
+    generator.emit<Bytecode::Op::NewClass>(m_class_expression);
+    generator.emit<Bytecode::Op::SetVariable>(generator.intern_string(m_class_expression.ptr()->name()));
 }
 
 }

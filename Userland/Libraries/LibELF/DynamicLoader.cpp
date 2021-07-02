@@ -215,7 +215,7 @@ Result<NonnullRefPtr<DynamicObject>, DlErrorMessage> DynamicLoader::load_stage_3
 
     if (m_relro_segment_size) {
         if (mprotect(m_relro_segment_address.as_ptr(), m_relro_segment_size, PROT_READ) < 0) {
-            return DlErrorMessage { String::formatted("mprotect .text: PROT_READ: {}", strerror(errno)) };
+            return DlErrorMessage { String::formatted("mprotect .relro: PROT_READ: {}", strerror(errno)) };
         }
 
 #if __serenity__
@@ -321,10 +321,9 @@ void DynamicLoader::load_program_headers()
     for (auto& text_region : text_regions) {
         FlatPtr ph_text_base = text_region.desired_load_address().page_base().get();
         FlatPtr ph_text_end = ph_text_base + round_up_to_power_of_two(text_region.size_in_memory() + (size_t)(text_region.desired_load_address().as_ptr() - ph_text_base), PAGE_SIZE);
-        size_t text_segment_size = ph_text_end - ph_text_base;
 
-        auto text_segment_offset = ph_text_base - ph_load_base;
-        auto* text_segment_address = (u8*)reservation + text_segment_offset;
+        auto* text_segment_address = (u8*)reservation + ph_text_base;
+        size_t text_segment_size = ph_text_end - ph_text_base;
 
         // Now we can map the text segment at the reserved address.
         auto* text_segment_begin = (u8*)mmap_with_name(
@@ -359,10 +358,9 @@ void DynamicLoader::load_program_headers()
     for (auto& data_region : data_regions) {
         FlatPtr ph_data_base = data_region.desired_load_address().page_base().get();
         FlatPtr ph_data_end = ph_data_base + round_up_to_power_of_two(data_region.size_in_memory() + (size_t)(data_region.desired_load_address().as_ptr() - ph_data_base), PAGE_SIZE);
-        size_t data_segment_size = ph_data_end - ph_data_base;
 
-        auto data_segment_offset = ph_data_base - ph_load_base;
-        auto* data_segment_address = (u8*)reservation + data_segment_offset;
+        auto* data_segment_address = (u8*)reservation + ph_data_base;
+        size_t data_segment_size = ph_data_end - ph_data_base;
 
         // Finally, we make an anonymous mapping for the data segment. Contents are then copied from the file.
         auto* data_segment = (u8*)mmap_with_name(
@@ -424,7 +422,10 @@ DynamicLoader::RelocationResult DynamicLoader::do_relocation(const ELF::DynamicO
             return RelocationResult::Failed;
         }
         auto symbol_address = res.value().address;
-        *patch_ptr += symbol_address.get();
+        if (relocation.addend_used())
+            *patch_ptr = symbol_address.get() + relocation.addend();
+        else
+            *patch_ptr += symbol_address.get();
         break;
     }
 #ifndef __LP64__
@@ -468,7 +469,10 @@ DynamicLoader::RelocationResult DynamicLoader::do_relocation(const ELF::DynamicO
         // FIXME: According to the spec, R_386_relative ones must be done first.
         //     We could explicitly do them first using m_number_of_relocations from DT_RELCOUNT
         //     However, our compiler is nice enough to put them at the front of the relocations for us :)
-        *patch_ptr += (FlatPtr)m_dynamic_object->base_address().as_ptr(); // + addend for RelA (addend for Rel is stored at addr)
+        if (relocation.addend_used())
+            *patch_ptr = (FlatPtr)m_dynamic_object->base_address().as_ptr() + relocation.addend();
+        else
+            *patch_ptr += (FlatPtr)m_dynamic_object->base_address().as_ptr();
         break;
     }
 #ifndef __LP64__

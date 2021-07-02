@@ -26,6 +26,17 @@ set(KERNEL_SOURCES
     AddressSanitizer.cpp
     Arch/PC/BIOS.cpp
     Arch/x86/SmapDisabler.h
+    Bus/PCI/Access.cpp
+    Bus/PCI/Device.cpp
+    Bus/PCI/DeviceController.cpp
+    Bus/PCI/IOAccess.cpp
+    Bus/PCI/MMIOAccess.cpp
+    Bus/PCI/Initializer.cpp
+    Bus/PCI/WindowedMMIOAccess.cpp
+    Bus/USB/UHCIController.cpp
+    Bus/USB/USBDevice.cpp
+    Bus/USB/USBPipe.cpp
+    Bus/USB/USBTransfer.cpp
     CMOS.cpp
     CommandLine.cpp
     ConsoleDevice.cpp
@@ -42,13 +53,9 @@ set(KERNEL_SOURCES
     Devices/RandomDevice.cpp
     Devices/SB16.cpp
     Devices/SerialDevice.cpp
-    Devices/USB/UHCIController.cpp
     VirtIO/VirtIO.cpp
     VirtIO/VirtIOQueue.cpp
     VirtIO/VirtIOConsole.cpp
-    Devices/USB/USBDevice.cpp
-    Devices/USB/USBPipe.cpp
-    Devices/USB/USBTransfer.cpp
     Devices/VMWareBackdoor.cpp
     Devices/ZeroDevice.cpp
     Devices/HID/I8042Controller.cpp
@@ -139,13 +146,6 @@ set(KERNEL_SOURCES
     Net/Socket.cpp
     Net/TCPSocket.cpp
     Net/UDPSocket.cpp
-    PCI/Access.cpp
-    PCI/Device.cpp
-    PCI/DeviceController.cpp
-    PCI/IOAccess.cpp
-    PCI/MMIOAccess.cpp
-    PCI/Initializer.cpp
-    PCI/WindowedMMIOAccess.cpp
     Panic.cpp
     PerformanceEventBuffer.cpp
     Process.cpp

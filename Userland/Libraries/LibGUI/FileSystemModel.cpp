@@ -261,10 +261,28 @@ FileSystemModel::FileSystemModel(String root_path, Mode mode)
         dbgln("Event at \"{}\" on Node {}: {}", node.full_path(), &node, event);
 
         // FIXME: Your time is coming, un-granular updates.
-        node.has_traversed = false;
-        node.mode = 0;
-        node.children.clear();
-        node.reify_if_needed();
+        auto refresh_node = [](Node& node) {
+            node.has_traversed = false;
+            node.mode = 0;
+            node.children.clear();
+            node.reify_if_needed();
+        };
+
+        if (event.type == Core::FileWatcherEvent::Type::Deleted) {
+            auto canonical_event_path = LexicalPath::canonicalized_path(event.event_path);
+            if (m_root_path.starts_with(canonical_event_path)) {
+                // Deleted directory contains our root, so navigate to our nearest parent.
+                auto new_path = LexicalPath(m_root_path).parent();
+                while (!Core::File::is_directory(new_path.string()))
+                    new_path = new_path.parent();
+
+                set_root_path(new_path.string());
+            } else if (node.parent) {
+                refresh_node(*node.parent);
+            }
+        } else {
+            refresh_node(node);
+        }
         did_update();
     };
 
@@ -569,7 +587,7 @@ bool FileSystemModel::fetch_thumbnail_for(const Node& node)
     auto weak_this = make_weak_ptr();
 
     Threading::BackgroundAction<RefPtr<Gfx::Bitmap>>::create(
-        [path] {
+        [path](auto&) {
             return render_thumbnail(path);
         },
 

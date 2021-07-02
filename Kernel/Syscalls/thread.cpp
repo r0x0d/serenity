@@ -24,11 +24,11 @@ KResultOr<FlatPtr> Process::sys$create_thread(void* (*entry)(void*), Userspace<c
     if (!copy_from_user(&params, user_params))
         return EFAULT;
 
-    unsigned detach_state = params.m_detach_state;
-    int schedule_priority = params.m_schedule_priority;
-    unsigned stack_size = params.m_stack_size;
+    unsigned detach_state = params.detach_state;
+    int schedule_priority = params.schedule_priority;
+    unsigned stack_size = params.stack_size;
 
-    auto user_sp = Checked<FlatPtr>((FlatPtr)params.m_stack_location);
+    auto user_sp = Checked<FlatPtr>((FlatPtr)params.stack_location);
     user_sp += stack_size;
     if (user_sp.has_overflow())
         return EOVERFLOW;
@@ -70,6 +70,10 @@ KResultOr<FlatPtr> Process::sys$create_thread(void* (*entry)(void*), Userspace<c
     regs.rip = (FlatPtr)entry;
     regs.rflags = 0x0202;
     regs.rsp = user_sp.value();
+    regs.rdi = params.rdi;
+    regs.rsi = params.rsi;
+    regs.rdx = params.rdx;
+    regs.rcx = params.rcx;
 #endif
     regs.cr3 = space().page_directory().cr3();
 
@@ -81,11 +85,7 @@ KResultOr<FlatPtr> Process::sys$create_thread(void* (*entry)(void*), Userspace<c
 
     ScopedSpinLock lock(g_scheduler_lock);
     thread->set_priority(requested_thread_priority);
-#if ARCH(I386)
     thread->set_state(Thread::State::Runnable);
-#else
-    dbgln("FIXME: Not starting thread {} (because it'd crash)", *thread);
-#endif
     return thread->tid().value();
 }
 
