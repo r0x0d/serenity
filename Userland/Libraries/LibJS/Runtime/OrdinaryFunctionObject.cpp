@@ -94,7 +94,7 @@ void OrdinaryFunctionObject::initialize(GlobalObject& global_object)
             break;
         case FunctionKind::Generator:
             // prototype is "g1.prototype" in figure-2 (https://tc39.es/ecma262/img/figure-2.png)
-            prototype->set_prototype(global_object.generator_object_prototype());
+            prototype->internal_set_prototype_of(global_object.generator_object_prototype());
             break;
         }
         define_property(vm.names.prototype, prototype, Attribute::Writable);
@@ -166,7 +166,7 @@ Value OrdinaryFunctionObject::execute_function_body()
                 [&](const auto& param) {
                     Value argument_value;
                     if (parameter.is_rest) {
-                        auto* array = Array::create(global_object());
+                        auto* array = Array::create(global_object(), 0);
                         for (size_t rest_index = i; rest_index < execution_context_arguments.size(); ++rest_index)
                             array->indexed_properties().append(execution_context_arguments[rest_index]);
                         argument_value = move(array);

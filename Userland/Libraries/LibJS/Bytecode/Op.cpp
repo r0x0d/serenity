@@ -134,7 +134,7 @@ void IteratorToArray::execute_impl(Bytecode::Interpreter& interpreter) const
     if (vm.exception())
         return;
 
-    auto array = Array::create(global_object);
+    auto array = Array::create(global_object, 0);
     size_t index = 0;
 
     while (true) {
@@ -193,7 +193,9 @@ void CopyObjectExcludingProperties::execute_impl(Bytecode::Interpreter& interpre
             return;
     }
 
-    auto own_keys = from_object->get_own_properties(Object::PropertyKind::Key, true);
+    auto own_keys = from_object->internal_own_property_keys();
+    if (interpreter.vm().exception())
+        return;
 
     for (auto& key : own_keys) {
         if (!excluded_names.contains(key)) {
@@ -226,7 +228,7 @@ void SetVariable::execute_impl(Bytecode::Interpreter& interpreter) const
 void GetById::execute_impl(Bytecode::Interpreter& interpreter) const
 {
     if (auto* object = interpreter.accumulator().to_object(interpreter.global_object()))
-        interpreter.accumulator() = object->get(interpreter.current_executable().get_string(m_property)).value_or(js_undefined());
+        interpreter.accumulator() = object->get(interpreter.current_executable().get_string(m_property));
 }
 
 void PutById::execute_impl(Bytecode::Interpreter& interpreter) const
@@ -415,7 +417,7 @@ void GetByValue::execute_impl(Bytecode::Interpreter& interpreter) const
         auto property_key = interpreter.accumulator().to_property_key(interpreter.global_object());
         if (interpreter.vm().exception())
             return;
-        interpreter.accumulator() = object->get(property_key).value_or(js_undefined());
+        interpreter.accumulator() = object->get(property_key);
     }
 }
 

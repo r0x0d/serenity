@@ -1128,7 +1128,7 @@ UNMAP_AFTER_INIT void Processor::gdt_init()
 
 #if ARCH(X86_64)
     MSR gs_base(MSR_GS_BASE);
-    gs_base.set((size_t)this & 0xffffffff, (size_t)this >> 32);
+    gs_base.set((u64)this);
 #else
     asm volatile(
         "mov %%ax, %%ds\n"
@@ -1214,6 +1214,9 @@ extern "C" void enter_thread_context(Thread* from_thread, Thread* to_thread)
     auto& tls_descriptor = processor.get_gdt_entry(GDT_SELECTOR_TLS);
     tls_descriptor.set_base(to_thread->thread_specific_data());
     tls_descriptor.set_limit(to_thread->thread_specific_region_size());
+#else
+    MSR fs_base_msr(MSR_FS_BASE);
+    fs_base_msr.set(to_thread->thread_specific_data().get());
 #endif
 
     if (from_regs.cr3 != to_regs.cr3)

@@ -62,7 +62,7 @@ TaskbarWindow::TaskbarWindow(NonnullRefPtr<GUI::Menu> start_menu)
 
     auto& main_widget = set_main_widget<TaskbarWidget>();
     main_widget.set_layout<GUI::HorizontalBoxLayout>();
-    main_widget.layout()->set_margins({ 3, 3, 3, 1 });
+    main_widget.layout()->set_margins({ 3, 3, 1, 1 });
 
     m_start_button = GUI::Button::construct("Serenity");
     m_start_button->set_font(Gfx::FontDatabase::default_font().bold_variant());
@@ -88,6 +88,14 @@ TaskbarWindow::TaskbarWindow(NonnullRefPtr<GUI::Menu> start_menu)
 
     main_widget.add<Taskbar::ClockWidget>();
 
+    m_show_desktop_button = GUI::Button::construct();
+    m_show_desktop_button->set_tooltip("Show Desktop");
+    m_show_desktop_button->set_icon(GUI::Icon::default_icon("desktop").bitmap_for_size(16));
+    m_show_desktop_button->set_button_style(Gfx::ButtonStyle::Coolbar);
+    m_show_desktop_button->set_fixed_size(24, 24);
+    m_show_desktop_button->on_click = TaskbarWindow::show_desktop_button_clicked;
+    main_widget.add_child(*m_show_desktop_button);
+
     auto af_path = String::formatted("{}/{}", Desktop::AppFile::APP_FILES_DIRECTORY, "Assistant.af");
     m_assistant_app_file = Desktop::AppFile::open(af_path);
 }
@@ -96,16 +104,18 @@ TaskbarWindow::~TaskbarWindow()
 {
 }
 
+void TaskbarWindow::show_desktop_button_clicked(unsigned)
+{
+    GUI::WindowManagerServerConnection::the().async_toggle_show_desktop();
+}
+
 void TaskbarWindow::create_quick_launch_bar()
 {
     auto& quick_launch_bar = main_widget()->add<GUI::Frame>();
+    quick_launch_bar.set_shrink_to_fit(true);
     quick_launch_bar.set_layout<GUI::HorizontalBoxLayout>();
     quick_launch_bar.layout()->set_spacing(0);
-    quick_launch_bar.layout()->set_margins({ 3, 0, 3, 0 });
     quick_launch_bar.set_frame_thickness(0);
-
-    int total_width = 6;
-    bool first = true;
 
     auto config = Core::ConfigFile::get_for_app("Taskbar");
     constexpr const char* quick_launch = "QuickLaunch";
@@ -141,14 +151,8 @@ void TaskbarWindow::create_quick_launch_bar()
                     perror("disown");
             }
         };
-
-        if (!first)
-            total_width += quick_launch_bar.layout()->spacing();
-        first = false;
-        total_width += button_size;
     }
-
-    quick_launch_bar.set_fixed_size(total_width, 24);
+    quick_launch_bar.set_fixed_height(24);
 }
 
 void TaskbarWindow::on_screen_rects_change(const Vector<Gfx::IntRect, 4>& rects, size_t main_screen_index)
@@ -221,6 +225,7 @@ void TaskbarWindow::update_window_button(::Window& window, bool show_as_active)
     button->set_text(window.title());
     button->set_tooltip(window.title());
     button->set_checked(show_as_active);
+    button->set_visible(is_window_on_current_virtual_desktop(window));
 }
 
 ::Window* TaskbarWindow::find_window_owner(::Window& window) const
@@ -304,6 +309,7 @@ void TaskbarWindow::wm_event(GUI::WMEvent& event)
         window.set_active(changed_event.is_active());
         window.set_minimized(changed_event.is_minimized());
         window.set_progress(changed_event.progress());
+        window.set_virtual_desktop(changed_event.virtual_desktop_row(), changed_event.virtual_desktop_column());
 
         auto* window_owner = find_window_owner(window);
         if (window_owner == &window) {
@@ -336,6 +342,10 @@ void TaskbarWindow::wm_event(GUI::WMEvent& event)
             warnln("failed to spawn 'Assistant' when requested via Super+Space");
         break;
     }
+    case GUI::Event::WM_VirtualDesktopChanged: {
+        auto& changed_event = static_cast<GUI::WMVirtualDesktopChangedEvent&>(event);
+        virtual_desktop_change_event(changed_event.current_row(), changed_event.current_column());
+    }
     default:
         break;
     }
@@ -344,4 +354,20 @@ void TaskbarWindow::wm_event(GUI::WMEvent& event)
 void TaskbarWindow::screen_rects_change_event(GUI::ScreenRectsChangeEvent& event)
 {
     on_screen_rects_change(event.rects(), event.main_screen_index());
+}
+
+bool TaskbarWindow::is_window_on_current_virtual_desktop(::Window& window) const
+{
+    return window.virtual_desktop_row() == m_current_virtual_desktop_row && window.virtual_desktop_column() == m_current_virtual_desktop_column;
+}
+
+void TaskbarWindow::virtual_desktop_change_event(unsigned current_row, unsigned current_column)
+{
+    m_current_virtual_desktop_row = current_row;
+    m_current_virtual_desktop_column = current_column;
+
+    WindowList::the().for_each_window([&](auto& window) {
+        if (auto* button = window.button())
+            button->set_visible(is_window_on_current_virtual_desktop(window));
+    });
 }

@@ -258,7 +258,7 @@ bool Value::is_regexp(GlobalObject& global_object) const
     auto matcher = as_object().get(*vm.well_known_symbol_match());
     if (vm.exception())
         return false;
-    if (!matcher.is_empty() && !matcher.is_undefined())
+    if (!matcher.is_undefined())
         return matcher.to_boolean();
 
     return is<RegExpObject>(as_object());
@@ -799,6 +799,7 @@ Value Value::get(GlobalObject& global_object, PropertyName const& property_name)
     auto& vm = global_object.vm();
 
     // 1. Assert: IsPropertyKey(P) is true.
+    VERIFY(property_name.is_valid());
 
     // 2. Let O be ? ToObject(V).
     auto* object = to_object(global_object);
@@ -806,7 +807,7 @@ Value Value::get(GlobalObject& global_object, PropertyName const& property_name)
         return {};
 
     // 3. Return ? O.[[Get]](P, V).
-    return object->get(property_name, *this);
+    return object->internal_get(property_name, *this);
 }
 
 // 7.3.10 GetMethod ( V, P ), https://tc39.es/ecma262/#sec-getmethod
@@ -815,9 +816,10 @@ FunctionObject* Value::get_method(GlobalObject& global_object, PropertyName cons
     auto& vm = global_object.vm();
 
     // 1. Assert: IsPropertyKey(P) is true.
+    VERIFY(property_name.is_valid());
 
     // 2. Let func be ? GetV(V, P).
-    auto function = get(global_object, property_name).value_or(js_undefined());
+    auto function = get(global_object, property_name);
     if (vm.exception())
         return nullptr;
 
@@ -1250,6 +1252,7 @@ Value instance_of(GlobalObject& global_object, Value lhs, Value rhs)
     return ordinary_has_instance(global_object, lhs, rhs);
 }
 
+// 7.3.21 OrdinaryHasInstance ( C, O ), https://tc39.es/ecma262/#sec-ordinaryhasinstance
 Value ordinary_has_instance(GlobalObject& global_object, Value lhs, Value rhs)
 {
     auto& vm = global_object.vm();
@@ -1275,7 +1278,7 @@ Value ordinary_has_instance(GlobalObject& global_object, Value lhs, Value rhs)
         return {};
     }
     while (true) {
-        lhs_object = lhs_object->prototype();
+        lhs_object = lhs_object->internal_get_prototype_of();
         if (vm.exception())
             return {};
         if (!lhs_object)

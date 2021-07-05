@@ -21,6 +21,7 @@ public:
 
 private:
     explicit TaskbarWindow(NonnullRefPtr<GUI::Menu> start_menu);
+    static void show_desktop_button_clicked(unsigned);
     void create_quick_launch_bar();
     void on_screen_rects_change(const Vector<Gfx::IntRect, 4>&, size_t);
     NonnullRefPtr<GUI::Button> create_button(const WindowIdentifier&);
@@ -34,6 +35,9 @@ private:
 
     void update_applet_area();
 
+    bool is_window_on_current_virtual_desktop(::Window&) const;
+    void virtual_desktop_change_event(unsigned, unsigned);
+
     NonnullRefPtr<GUI::Menu> m_start_menu;
     RefPtr<GUI::Widget> m_task_button_container;
     RefPtr<Gfx::Bitmap> m_default_icon;
@@ -41,6 +45,10 @@ private:
     Gfx::IntSize m_applet_area_size;
     RefPtr<GUI::Frame> m_applet_area_container;
     RefPtr<GUI::Button> m_start_button;
+    RefPtr<GUI::Button> m_show_desktop_button;
 
     RefPtr<Desktop::AppFile> m_assistant_app_file;
+
+    unsigned m_current_virtual_desktop_row { 0 };
+    unsigned m_current_virtual_desktop_column { 0 };
 };

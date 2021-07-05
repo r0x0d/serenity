@@ -129,7 +129,7 @@ CallExpression::ThisAndCallee CallExpression::compute_this_and_callee(Interprete
             auto property_name = member_expression.computed_property_name(interpreter, global_object);
             if (!property_name.is_valid())
                 return {};
-            auto reference = Reference { super_base, property_name, super_base };
+            auto reference = Reference { super_base, property_name, super_base, vm.in_strict_mode() };
             callee = reference.get_value(global_object);
             if (vm.exception())
                 return {};
@@ -339,23 +339,43 @@ Value IfStatement::execute(Interpreter& interpreter, GlobalObject& global_object
     return js_undefined();
 }
 
+// 14.11.2 Runtime Semantics: Evaluation, https://tc39.es/ecma262/#sec-with-statement-runtime-semantics-evaluation
+// WithStatement : with ( Expression ) Statement
 Value WithStatement::execute(Interpreter& interpreter, GlobalObject& global_object) const
 {
     InterpreterNodeScope node_scope { interpreter, *this };
 
-    auto object_value = m_object->execute(interpreter, global_object);
+    // 1. Let value be the result of evaluating Expression.
+    auto value = m_object->execute(interpreter, global_object);
     if (interpreter.exception())
         return {};
 
-    auto* object = object_value.to_object(global_object);
+    // 2. Let obj be ? ToObject(? GetValue(value)).
+    auto* object = value.to_object(global_object);
     if (interpreter.exception())
         return {};
 
-    VERIFY(object);
+    // 3. Let oldEnv be the running execution context's LexicalEnvironment.
+    auto* old_environment = interpreter.vm().running_execution_context().lexical_environment;
 
-    auto* object_environment = new_object_environment(*object, true, interpreter.vm().running_execution_context().lexical_environment);
-    TemporaryChange<Environment*> scope_change(interpreter.vm().running_execution_context().lexical_environment, object_environment);
-    return interpreter.execute_statement(global_object, m_body).value_or(js_undefined());
+    // 4. Let newEnv be NewObjectEnvironment(obj, true, oldEnv).
+    auto* new_environment = new_object_environment(*object, true, old_environment);
+    if (interpreter.exception())
+        return {};
+
+    // 5. Set the running execution context's LexicalEnvironment to newEnv.
+    interpreter.vm().running_execution_context().lexical_environment = new_environment;
+
+    // 6. Let C be the result of evaluating Statement.
+    auto result = interpreter.execute_statement(global_object, m_body).value_or(js_undefined());
+    if (interpreter.exception())
+        return {};
+
+    // 7. Set the running execution context's LexicalEnvironment to oldEnv.
+    interpreter.vm().running_execution_context().lexical_environment = old_environment;
+
+    // 8. Return Completion(UpdateEmpty(C, undefined)).
+    return result;
 }
 
 Value WhileStatement::execute(Interpreter& interpreter, GlobalObject& global_object) const
@@ -539,7 +559,7 @@ Value ForInStatement::execute(Interpreter& interpreter, GlobalObject& global_obj
         return {};
     auto* object = rhs_result.to_object(global_object);
     while (object) {
-        auto property_names = object->get_enumerable_own_property_names(Object::PropertyKind::Key);
+        auto property_names = object->enumerable_own_property_names(Object::PropertyKind::Key);
         for (auto& value : property_names) {
             interpreter.vm().assign(target, value, global_object, has_declaration);
             if (interpreter.exception())
@@ -558,7 +578,7 @@ Value ForInStatement::execute(Interpreter& interpreter, GlobalObject& global_obj
                 }
             }
         }
-        object = object->prototype();
+        object = object->internal_get_prototype_of();
         if (interpreter.exception())
             return {};
     }
@@ -720,9 +740,49 @@ Reference Identifier::to_reference(Interpreter& interpreter, GlobalObject&) cons
 
 Reference MemberExpression::to_reference(Interpreter& interpreter, GlobalObject& global_object) const
 {
+    // 13.3.7.1 Runtime Semantics: Evaluation
+    // SuperProperty : super [ Expression ]
+    // SuperProperty : super . IdentifierName
+    // https://tc39.es/ecma262/#sec-super-keyword-runtime-semantics-evaluation
+    if (is<SuperExpression>(object())) {
+        // 1. Let env be GetThisEnvironment().
+        auto& environment = get_this_environment(interpreter.vm());
+        // 2. Let actualThis be ? env.GetThisBinding().
+        auto actual_this = environment.get_this_binding(global_object);
+
+        StringOrSymbol property_key;
+
+        if (is_computed()) {
+            // SuperProperty : super [ Expression ]
+
+            // 3. Let propertyNameReference be the result of evaluating Expression.
+            // 4. Let propertyNameValue be ? GetValue(propertyNameReference).
+            auto property_name_value = m_property->execute(interpreter, global_object);
+            if (interpreter.exception())
+                return {};
+            // 5. Let propertyKey be ? ToPropertyKey(propertyNameValue).
+            property_key = property_name_value.to_property_key(global_object);
+        } else {
+            // SuperProperty : super . IdentifierName
+
+            // 3. Let propertyKey be StringValue of IdentifierName.
+            VERIFY(is<Identifier>(property()));
+            property_key = static_cast<Identifier const&>(property()).string();
+        }
+
+        // 6. If the code matched by this SuperProperty is strict mode code, let strict be true; else let strict be false.
+        bool strict = interpreter.vm().in_strict_mode();
+
+        // 7. Return ? MakeSuperPropertyReference(actualThis, propertyKey, strict).
+        return make_super_property_reference(global_object, actual_this, property_key, strict);
+    }
+
     auto object_value = m_object->execute(interpreter, global_object);
     if (interpreter.exception())
         return {};
+
+    // From here on equivalent to
+    // 13.3.4 EvaluatePropertyAccessWithIdentifierKey ( baseValue, identifierName, strict ), https://tc39.es/ecma262/#sec-evaluate-property-access-with-identifier-key
 
     object_value = require_object_coercible(global_object, object_value);
     if (interpreter.exception())
@@ -732,7 +792,8 @@ Reference MemberExpression::to_reference(Interpreter& interpreter, GlobalObject&
     if (!property_name.is_valid())
         return Reference {};
 
-    return Reference { object_value, property_name, object_value };
+    auto strict = interpreter.vm().in_strict_mode();
+    return Reference { object_value, property_name, {}, strict };
 }
 
 Value UnaryExpression::execute(Interpreter& interpreter, GlobalObject& global_object) const
@@ -823,7 +884,7 @@ Value ClassExpression::execute(Interpreter& interpreter, GlobalObject& global_ob
 
         Object* super_constructor_prototype = nullptr;
         if (!super_constructor.is_null()) {
-            auto super_constructor_prototype_value = super_constructor.as_object().get(vm.names.prototype).value_or(js_undefined());
+            auto super_constructor_prototype_value = super_constructor.as_object().get(vm.names.prototype);
             if (interpreter.exception())
                 return {};
             if (!super_constructor_prototype_value.is_object() && !super_constructor_prototype_value.is_null()) {
@@ -841,7 +902,7 @@ Value ClassExpression::execute(Interpreter& interpreter, GlobalObject& global_ob
         class_constructor->define_property(vm.names.prototype, prototype, Attribute::Writable);
         if (interpreter.exception())
             return {};
-        class_constructor->set_prototype(super_constructor.is_null() ? global_object.function_prototype() : &super_constructor.as_object());
+        class_constructor->internal_set_prototype_of(super_constructor.is_null() ? global_object.function_prototype() : &super_constructor.as_object());
     }
 
     auto class_prototype = class_constructor->get(vm.names.prototype);
@@ -872,15 +933,15 @@ Value ClassExpression::execute(Interpreter& interpreter, GlobalObject& global_ob
 
         switch (method.kind()) {
         case ClassMethod::Kind::Method:
-            target.define_property(property_key, method_value);
+            target.define_property_or_throw(property_key, { .value = method_value, .writable = true, .enumerable = false, .configurable = true });
             break;
         case ClassMethod::Kind::Getter:
             update_function_name(method_value, String::formatted("get {}", get_function_name(global_object, key)));
-            target.define_accessor(property_key, &method_function, nullptr, Attribute::Configurable | Attribute::Enumerable);
+            target.define_property_or_throw(property_key, { .get = &method_function, .enumerable = true, .configurable = true });
             break;
         case ClassMethod::Kind::Setter:
             update_function_name(method_value, String::formatted("set {}", get_function_name(global_object, key)));
-            target.define_accessor(property_key, nullptr, &method_function, Attribute::Configurable | Attribute::Enumerable);
+            target.define_property_or_throw(property_key, { .set = &method_function, .enumerable = true, .configurable = true });
             break;
         default:
             VERIFY_NOT_REACHED();
@@ -1374,9 +1435,10 @@ Value Identifier::execute(Interpreter& interpreter, GlobalObject& global_object)
     InterpreterNodeScope node_scope { interpreter, *this };
 
     auto value = interpreter.vm().get_variable(string(), global_object);
+    if (interpreter.exception())
+        return {};
     if (value.is_empty()) {
-        if (!interpreter.exception())
-            interpreter.vm().throw_exception<ReferenceError>(global_object, ErrorType::UnknownIdentifier, string());
+        interpreter.vm().throw_exception<ReferenceError>(global_object, ErrorType::UnknownIdentifier, string());
         return {};
     }
     return value;
@@ -1758,7 +1820,10 @@ Value ObjectExpression::execute(Interpreter& interpreter, GlobalObject& global_o
             if (key.is_object() && key.as_object().is_array()) {
                 auto& array_to_spread = static_cast<Array&>(key.as_object());
                 for (auto& entry : array_to_spread.indexed_properties()) {
-                    object->indexed_properties().put(object, entry.index(), entry.value_and_attributes(&array_to_spread).value);
+                    auto value = array_to_spread.get(entry.index());
+                    if (interpreter.exception())
+                        return {};
+                    object->indexed_properties().put(entry.index(), value);
                     if (interpreter.exception())
                         return {};
                 }
@@ -1955,7 +2020,7 @@ Value ArrayExpression::execute(Interpreter& interpreter, GlobalObject& global_ob
 {
     InterpreterNodeScope node_scope { interpreter, *this };
 
-    auto* array = Array::create(global_object);
+    auto* array = Array::create(global_object, 0);
     for (auto& element : m_elements) {
         auto value = Value();
         if (element) {
@@ -2029,7 +2094,7 @@ Value TaggedTemplateLiteral::execute(Interpreter& interpreter, GlobalObject& glo
     }
     auto& tag_function = tag.as_function();
     auto& expressions = m_template_literal->expressions();
-    auto* strings = Array::create(global_object);
+    auto* strings = Array::create(global_object, 0);
     MarkedValueList arguments(vm.heap());
     arguments.append(strings);
     for (size_t i = 0; i < expressions.size(); ++i) {
@@ -2045,7 +2110,7 @@ Value TaggedTemplateLiteral::execute(Interpreter& interpreter, GlobalObject& glo
         }
     }
 
-    auto* raw_strings = Array::create(global_object);
+    auto* raw_strings = Array::create(global_object, 0);
     for (auto& raw_string : m_template_literal->raw_strings()) {
         auto value = raw_string.execute(interpreter, global_object);
         if (vm.exception())

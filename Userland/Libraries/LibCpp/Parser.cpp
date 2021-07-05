@@ -743,11 +743,12 @@ Optional<NonnullRefPtrVector<Parameter>> Parser::parse_parameter_list(ASTNode& p
     NonnullRefPtrVector<Parameter> parameters;
     while (peek().type() != Token::Type::RightParen && !eof()) {
         if (match_ellipsis()) {
-            auto last_dot = consume();
-            while (peek().type() == Token::Type::Dot)
-                last_dot = consume();
-            auto param = create_ast_node<Parameter>(parent, position(), last_dot.end(), StringView {});
+            auto param = create_ast_node<Parameter>(parent, position(), {}, StringView {});
+            consume(Token::Type::Dot);
+            consume(Token::Type::Dot);
+            auto last_dot = consume(Token::Type::Dot);
             param->m_is_ellipsis = true;
+            param->set_end(last_dot.end());
             parameters.append(move(param));
         } else {
             auto type = parse_type(parent);
@@ -869,15 +870,25 @@ String Parser::text_of_node(const ASTNode& node) const
 
 String Parser::text_in_range(Position start, Position end) const
 {
+    StringBuilder builder;
+    for (auto token : tokens_in_range(start, end)) {
+        builder.append(token.text());
+    }
+    return builder.to_string();
+}
+
+Vector<Token> Parser::tokens_in_range(Position start, Position end) const
+{
     auto start_token_index = index_of_token_at(start);
     auto end_node_index = index_of_token_at(end);
     VERIFY(start_token_index.has_value());
     VERIFY(end_node_index.has_value());
-    StringBuilder text;
+
+    Vector<Token> tokens;
     for (size_t i = start_token_index.value(); i <= end_node_index.value(); ++i) {
-        text.append(m_tokens[i].text());
+        tokens.append(m_tokens[i]);
     }
-    return text.build();
+    return tokens;
 }
 
 void Parser::error(StringView message)
@@ -1188,7 +1199,7 @@ NonnullRefPtr<Type> Parser::parse_type(ASTNode& parent)
     while (!eof() && peek().type() == Token::Type::Asterisk) {
         type->set_end(position());
         auto asterisk = consume();
-        auto ptr = create_ast_node<Pointer>(parent, asterisk.start(), asterisk.end());
+        auto ptr = create_ast_node<Pointer>(parent, type->start(), asterisk.end());
         type->set_parent(*ptr);
         ptr->m_pointee = type;
         ptr->set_end(position());
@@ -1305,7 +1316,7 @@ bool Parser::match_ellipsis()
 {
     if (m_state.token_index > m_tokens.size() - 3)
         return false;
-    return peek().type() == Token::Type::Dot && peek().type() == Token::Type::Dot && peek().type() == Token::Type::Dot;
+    return peek().type() == Token::Type::Dot && peek(1).type() == Token::Type::Dot && peek(2).type() == Token::Type::Dot;
 }
 void Parser::add_tokens_for_preprocessor(Token& replaced_token, Preprocessor::DefinedValue& definition)
 {

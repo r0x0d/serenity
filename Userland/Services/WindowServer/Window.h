@@ -35,6 +35,7 @@ enum WMEventMask {
     WindowStateChanges = 1 << 1,
     WindowIconChanges = 1 << 2,
     WindowRemovals = 1 << 3,
+    VirtualDesktopChanges = 1 << 4,
 };
 
 enum class WindowTileType {
@@ -67,6 +68,12 @@ enum class WindowMenuDefaultAction {
     Restore
 };
 
+enum class WindowMinimizedState : u32 {
+    None = 0,
+    Minimized,
+    Hidden,
+};
+
 class Window final : public Core::Object {
     C_OBJECT(Window);
 
@@ -81,8 +88,11 @@ public:
     void window_menu_activate_default();
     void request_close();
 
-    bool is_minimized() const { return m_minimized; }
+    bool is_minimized() const { return m_minimized_state != WindowMinimizedState::None; }
     void set_minimized(bool);
+    bool is_hidden() const { return m_minimized_state == WindowMinimizedState::Hidden; }
+    void set_hidden(bool);
+    WindowMinimizedState minimized_state() const { return m_minimized_state; }
 
     bool is_minimizable() const { return m_type == WindowType::Normal && m_minimizable; }
     void set_minimizable(bool);
@@ -103,6 +113,9 @@ public:
     WindowTileType tile_type_based_on_rect(Gfx::IntRect const&) const;
     void check_untile_due_to_resize(Gfx::IntRect const&);
     bool set_untiled(Optional<Gfx::IntPoint> fixed_point = {});
+
+    void set_forced_shadow(bool b) { m_forced_shadow = b; }
+    bool has_forced_shadow() const { return m_forced_shadow; }
 
     bool is_occluded() const { return m_occluded; }
     void set_occluded(bool);
@@ -188,6 +201,9 @@ public:
     void invalidate(const Gfx::IntRect&, bool with_frame = false);
     void invalidate_menubar();
     bool invalidate_no_notify(const Gfx::IntRect& rect, bool with_frame = false);
+    void invalidate_last_rendered_screen_rects();
+    void invalidate_last_rendered_screen_rects_now();
+    [[nodiscard]] bool should_invalidate_last_rendered_screen_rects() { return exchange(m_invalidate_last_render_rects, false); }
 
     void refresh_client_size();
 
@@ -318,9 +334,18 @@ public:
     const Menubar* menubar() const { return m_menubar; }
     void set_menubar(Menubar*);
 
-    WindowStack* outer_stack() { return m_outer_stack; }
-    WindowStack const* outer_stack() const { return m_outer_stack; }
-    void set_outer_stack(Badge<WindowStack>, WindowStack* stack) { m_outer_stack = stack; }
+    WindowStack& window_stack()
+    {
+        VERIFY(m_window_stack);
+        return *m_window_stack;
+    }
+    WindowStack const& window_stack() const
+    {
+        VERIFY(m_window_stack);
+        return *m_window_stack;
+    }
+    bool is_on_any_window_stack(Badge<WindowStack>) const { return m_window_stack != nullptr; }
+    void set_window_stack(Badge<WindowStack>, WindowStack* stack) { m_window_stack = stack; }
 
     const Vector<Screen*, default_screen_count>& screens() const { return m_screens; }
     Vector<Screen*, default_screen_count>& screens() { return m_screens; }
@@ -329,6 +354,9 @@ public:
     {
         frame().window_was_constructed({});
     }
+
+    void set_moving_to_another_stack(bool value) { m_moving_to_another_stack = value; }
+    bool is_moving_to_another_stack() const { return m_moving_to_another_stack; }
 
 private:
     Window(ClientConnection&, WindowType, int window_id, bool modal, bool minimizable, bool frameless, bool resizable, bool fullscreen, bool accessory, Window* parent_window = nullptr);
@@ -368,9 +396,10 @@ private:
     bool m_modal { false };
     bool m_minimizable { false };
     bool m_frameless { false };
+    bool m_forced_shadow { false };
     bool m_resizable { false };
     Optional<Gfx::IntSize> m_resize_aspect_ratio {};
-    bool m_minimized { false };
+    WindowMinimizedState m_minimized_state { WindowMinimizedState::None };
     bool m_maximized { false };
     bool m_fullscreen { false };
     bool m_accessory { false };
@@ -382,6 +411,8 @@ private:
     bool m_invalidated_frame { true };
     bool m_hit_testing_enabled { true };
     bool m_modified { false };
+    bool m_moving_to_another_stack { false };
+    bool m_invalidate_last_render_rects { false };
     WindowTileType m_tiled { WindowTileType::None };
     Gfx::IntRect m_untiled_rect;
     bool m_occluded { false };
@@ -411,7 +442,7 @@ private:
     MenuItem* m_window_menu_menubar_visibility_item { nullptr };
     Optional<int> m_progress;
     bool m_should_show_menubar { true };
-    WindowStack* m_outer_stack { nullptr };
+    WindowStack* m_window_stack { nullptr };
     RefPtr<Animation> m_animation;
 
 public:

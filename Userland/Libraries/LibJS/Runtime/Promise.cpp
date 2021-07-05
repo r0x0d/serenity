@@ -22,7 +22,7 @@ Object* promise_resolve(GlobalObject& global_object, Object& constructor, Value 
 {
     auto& vm = global_object.vm();
     if (value.is_object() && is<Promise>(value.as_object())) {
-        auto value_constructor = value.as_object().get(vm.names.constructor).value_or(js_undefined());
+        auto value_constructor = value.as_object().get(vm.names.constructor);
         if (vm.exception())
             return nullptr;
         if (same_value(value_constructor, &constructor))
@@ -63,7 +63,7 @@ Promise::ResolvingFunctions Promise::create_resolving_functions()
             return js_undefined();
         }
         already_resolved.value = true;
-        auto resolution = vm.argument(0).value_or(js_undefined());
+        auto resolution = vm.argument(0);
         if (resolution.is_object() && &resolution.as_object() == &promise) {
             dbgln_if(PROMISE_DEBUG, "[Promise @ {} / PromiseResolvingFunction]: Promise can't be resolved with itself, rejecting with error", &promise);
             auto* self_resolution_error = TypeError::create(global_object, "Cannot resolve promise with itself");
@@ -100,7 +100,7 @@ Promise::ResolvingFunctions Promise::create_resolving_functions()
         if (already_resolved.value)
             return js_undefined();
         already_resolved.value = true;
-        auto reason = vm.argument(0).value_or(js_undefined());
+        auto reason = vm.argument(0);
         return promise.reject(reason);
     });
 

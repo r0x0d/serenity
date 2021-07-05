@@ -146,6 +146,7 @@ void Window::show()
         m_resizable,
         m_fullscreen,
         m_frameless,
+        m_forced_shadow,
         m_accessory,
         m_opacity_when_windowless,
         m_alpha_hit_threshold,
@@ -911,7 +912,7 @@ void Window::set_fullscreen(bool fullscreen)
     m_fullscreen = fullscreen;
     if (!is_visible())
         return;
-    WindowServerConnection::the().set_fullscreen(m_window_id, fullscreen);
+    WindowServerConnection::the().async_set_fullscreen(m_window_id, fullscreen);
 }
 
 void Window::set_frameless(bool frameless)
@@ -921,10 +922,20 @@ void Window::set_frameless(bool frameless)
     m_frameless = frameless;
     if (!is_visible())
         return;
-    WindowServerConnection::the().set_frameless(m_window_id, frameless);
+    WindowServerConnection::the().async_set_frameless(m_window_id, frameless);
 
     if (!frameless)
         apply_icon();
+}
+
+void Window::set_forced_shadow(bool shadow)
+{
+    if (m_forced_shadow == shadow)
+        return;
+    m_forced_shadow = shadow;
+    if (!is_visible())
+        return;
+    WindowServerConnection::the().async_set_forced_shadow(m_window_id, shadow);
 }
 
 bool Window::is_maximized() const

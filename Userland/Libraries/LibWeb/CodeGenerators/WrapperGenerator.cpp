@@ -786,17 +786,12 @@ public:
 
     if (interface.extended_attributes.contains("CustomGet")) {
         generator.append(R"~~~(
-    virtual JS::Value get(const JS::PropertyName&, JS::Value receiver = {}, JS::AllowSideEffects = JS::AllowSideEffects::Yes) const override;
+    virtual JS::Value internal_get(JS::PropertyName const&, JS::Value receiver) const override;
 )~~~");
     }
-    if (interface.extended_attributes.contains("CustomGetByIndex")) {
+    if (interface.extended_attributes.contains("CustomSet")) {
         generator.append(R"~~~(
-    virtual JS::Value get_by_index(u32 property_index, JS::AllowSideEffects = JS::AllowSideEffects::Yes) const override;
-)~~~");
-    }
-    if (interface.extended_attributes.contains("CustomPut")) {
-        generator.append(R"~~~(
-    virtual bool put(const JS::PropertyName&, JS::Value, JS::Value receiver = {}) override;
+    virtual bool internal_set(const JS::PropertyName&, JS::Value, JS::Value receiver) override;
 )~~~");
     }
 
@@ -911,7 +906,8 @@ namespace Web::Bindings {
 @wrapper_class@::@wrapper_class@(JS::GlobalObject& global_object, @fully_qualified_name@& impl)
     : @wrapper_base_class@(global_object, impl)
 {
-    set_prototype(&static_cast<WindowObject&>(global_object).ensure_web_prototype<@prototype_class@>("@name@"));
+    auto success = internal_set_prototype_of(&static_cast<WindowObject&>(global_object).ensure_web_prototype<@prototype_class@>("@name@"));
+    VERIFY(success);
 }
 )~~~");
     }
@@ -1161,12 +1157,12 @@ private:
         auto attribute_generator = generator.fork();
         attribute_generator.set("attribute.name:snakecase", attribute.name.to_snakecase());
         attribute_generator.append(R"~~~(
-    JS_DECLARE_NATIVE_GETTER(@attribute.name:snakecase@_getter);
+    JS_DECLARE_NATIVE_FUNCTION(@attribute.name:snakecase@_getter);
 )~~~");
 
         if (!attribute.readonly) {
             attribute_generator.append(R"~~~(
-    JS_DECLARE_NATIVE_SETTER(@attribute.name:snakecase@_setter);
+    JS_DECLARE_NATIVE_FUNCTION(@attribute.name:snakecase@_setter);
 )~~~");
         }
     }
@@ -1277,11 +1273,13 @@ namespace Web::Bindings {
         // https://heycam.github.io/webidl/#es-DOMException-specialness
         // Object.getPrototypeOf(DOMException.prototype) === Error.prototype
         generator.append(R"~~~(
-    set_prototype(global_object.error_prototype());
+    auto success = internal_set_prototype_of(global_object.error_prototype());
+    VERIFY(success);
 )~~~");
     } else if (!interface.parent_name.is_empty()) {
         generator.append(R"~~~(
-    set_prototype(&static_cast<WindowObject&>(global_object).ensure_web_prototype<@prototype_base_class@>("@parent_name@"));
+    auto success = internal_set_prototype_of(&static_cast<WindowObject&>(global_object).ensure_web_prototype<@prototype_base_class@>("@parent_name@"));
+    VERIFY(success);
 )~~~");
     }
 
@@ -1310,7 +1308,7 @@ void @prototype_class@::initialize(JS::GlobalObject& global_object)
             attribute_generator.set("attribute.setter_callback", attribute.setter_callback_name);
 
         attribute_generator.append(R"~~~(
-    define_native_property("@attribute.name@", @attribute.getter_callback@, @attribute.setter_callback@, default_attributes);
+    define_native_accessor("@attribute.name@", @attribute.getter_callback@, @attribute.setter_callback@, default_attributes);
 )~~~");
     }
 
@@ -1401,7 +1399,7 @@ static @fully_qualified_name@* impl_from(JS::VM& vm, JS::GlobalObject& global_ob
             // FIXME: Remove this fake type hack once it's no longer needed.
             //        Basically once we have NodeList we can throw this out.
             scoped_generator.append(R"~~~(
-    auto* new_array = JS::Array::create(global_object);
+    auto* new_array = JS::Array::create(global_object, 0);
     for (auto& element : retval)
         new_array->indexed_properties().append(wrap(global_object, element));
 
@@ -1455,7 +1453,7 @@ static @fully_qualified_name@* impl_from(JS::VM& vm, JS::GlobalObject& global_ob
         }
 
         attribute_generator.append(R"~~~(
-JS_DEFINE_NATIVE_GETTER(@prototype_class@::@attribute.getter_callback@)
+JS_DEFINE_NATIVE_FUNCTION(@prototype_class@::@attribute.getter_callback@)
 {
     auto* impl = impl_from(vm, global_object);
     if (!impl)
@@ -1493,14 +1491,16 @@ JS_DEFINE_NATIVE_GETTER(@prototype_class@::@attribute.getter_callback@)
 
         if (!attribute.readonly) {
             attribute_generator.append(R"~~~(
-JS_DEFINE_NATIVE_SETTER(@prototype_class@::@attribute.setter_callback@)
+JS_DEFINE_NATIVE_FUNCTION(@prototype_class@::@attribute.setter_callback@)
 {
     auto* impl = impl_from(vm, global_object);
     if (!impl)
-        return;
+        return {};
+
+    auto value = vm.argument(0);
 )~~~");
 
-            generate_to_cpp(generator, attribute, "value", "", "cpp_value", true, attribute.extended_attributes.contains("LegacyNullToEmptyString"));
+            generate_to_cpp(generator, attribute, "value", "", "cpp_value", false, attribute.extended_attributes.contains("LegacyNullToEmptyString"));
 
             if (attribute.extended_attributes.contains("Reflect")) {
                 if (attribute.type.name != "boolean") {
@@ -1522,6 +1522,7 @@ JS_DEFINE_NATIVE_SETTER(@prototype_class@::@attribute.setter_callback@)
             }
 
             attribute_generator.append(R"~~~(
+    return {};
 }
 )~~~");
         }

@@ -109,11 +109,11 @@ JS_DEFINE_NATIVE_GETTER(RegExpPrototype::flags)
 
     StringBuilder builder(8);
 
-#define __JS_ENUMERATE(flagName, flag_name, flag_char, ECMAScriptFlagName)                \
-    auto flag_##flag_name = this_object->get(vm.names.flagName).value_or(js_undefined()); \
-    if (vm.exception())                                                                   \
-        return {};                                                                        \
-    if (flag_##flag_name.to_boolean())                                                    \
+#define __JS_ENUMERATE(flagName, flag_name, flag_char, ECMAScriptFlagName) \
+    auto flag_##flag_name = this_object->get(vm.names.flagName);           \
+    if (vm.exception())                                                    \
+        return {};                                                         \
+    if (flag_##flag_name.to_boolean())                                     \
         builder.append(#flag_char);
     JS_ENUMERATE_REGEXP_FLAGS
 #undef __JS_ENUMERATE
@@ -178,27 +178,27 @@ JS_DEFINE_NATIVE_FUNCTION(RegExpPrototype::exec)
     auto* array = Array::create(global_object, result.n_capture_groups + 1);
     if (vm.exception())
         return {};
-    array->define_property(vm.names.index, Value((i32)match.global_offset));
-    array->define_property(vm.names.input, js_string(vm, str));
-    array->indexed_properties().put(array, 0, js_string(vm, match.view.to_string()));
+    array->create_data_property_or_throw(vm.names.index, Value((i32)match.global_offset));
+    array->create_data_property_or_throw(vm.names.input, js_string(vm, str));
+    array->create_data_property_or_throw(0, js_string(vm, match.view.to_string()));
 
     for (size_t i = 0; i < result.n_capture_groups; ++i) {
         auto capture_value = js_undefined();
         auto& capture = result.capture_group_matches[0][i + 1];
         if (!capture.view.is_null())
             capture_value = js_string(vm, capture.view.to_string());
-        array->indexed_properties().put(array, i + 1, capture_value);
+        array->create_data_property_or_throw(i + 1, capture_value);
     }
 
     Value groups = js_undefined();
     if (result.n_named_capture_groups > 0) {
         auto groups_object = Object::create(global_object, nullptr);
         for (auto& entry : result.named_capture_group_matches[0])
-            groups_object->define_property(entry.key, js_string(vm, entry.value.view.to_string()));
+            groups_object->create_data_property_or_throw(entry.key, js_string(vm, entry.value.view.to_string()));
         groups = move(groups_object);
     }
 
-    array->define_property(vm.names.groups, groups);
+    array->create_data_property_or_throw(vm.names.groups, groups);
 
     return array;
 }
@@ -231,14 +231,14 @@ JS_DEFINE_NATIVE_FUNCTION(RegExpPrototype::to_string)
     if (!this_object)
         return {};
 
-    auto source_attr = this_object->get(vm.names.source).value_or(js_undefined());
+    auto source_attr = this_object->get(vm.names.source);
     if (vm.exception())
         return {};
     auto pattern = source_attr.to_string(global_object);
     if (vm.exception())
         return {};
 
-    auto flags_attr = this_object->get(vm.names.flags).value_or(js_undefined());
+    auto flags_attr = this_object->get(vm.names.flags);
     if (vm.exception())
         return {};
     auto flags = flags_attr.to_string(global_object);
@@ -257,7 +257,7 @@ JS_DEFINE_NATIVE_FUNCTION(RegExpPrototype::symbol_match)
     auto s = vm.argument(0).to_string(global_object);
     if (vm.exception())
         return {};
-    auto global_value = rx->get(vm.names.global).value_or(js_undefined());
+    auto global_value = rx->get(vm.names.global);
     if (vm.exception())
         return {};
     bool global = global_value.to_boolean();
@@ -286,7 +286,7 @@ JS_DEFINE_NATIVE_FUNCTION(RegExpPrototype::symbol_replace)
     if (vm.exception())
         return {};
 
-    auto global_value = rx->get(vm.names.global).value_or(js_undefined());
+    auto global_value = rx->get(vm.names.global);
     if (vm.exception())
         return {};
 
@@ -338,7 +338,7 @@ JS_DEFINE_NATIVE_FUNCTION(RegExpPrototype::symbol_replace)
         size_t result_length = length_of_array_like(global_object, result);
         size_t n_captures = result_length == 0 ? 0 : result_length - 1;
 
-        auto matched_value = result.get(0).value_or(js_undefined());
+        auto matched_value = result.get(0);
         if (vm.exception())
             return {};
 
@@ -346,7 +346,7 @@ JS_DEFINE_NATIVE_FUNCTION(RegExpPrototype::symbol_replace)
         if (vm.exception())
             return {};
 
-        auto position_value = result.get(vm.names.index).value_or(js_undefined());
+        auto position_value = result.get(vm.names.index);
         if (vm.exception())
             return {};
 
@@ -358,7 +358,7 @@ JS_DEFINE_NATIVE_FUNCTION(RegExpPrototype::symbol_replace)
 
         MarkedValueList captures(vm.heap());
         for (size_t n = 1; n <= n_captures; ++n) {
-            auto capture = result.get(n).value_or(js_undefined());
+            auto capture = result.get(n);
             if (vm.exception())
                 return {};
 
@@ -375,7 +375,7 @@ JS_DEFINE_NATIVE_FUNCTION(RegExpPrototype::symbol_replace)
             captures.append(move(capture));
         }
 
-        auto named_captures = result.get(vm.names.groups).value_or(js_undefined());
+        auto named_captures = result.get(vm.names.groups);
         if (vm.exception())
             return {};
 

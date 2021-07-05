@@ -94,6 +94,7 @@
     __JS_ENUMERATE(match, match)                             \
     __JS_ENUMERATE(matchAll, match_all)                      \
     __JS_ENUMERATE(replace, replace)                         \
+    __JS_ENUMERATE(replaceAll, replace_all)                  \
     __JS_ENUMERATE(search, search)                           \
     __JS_ENUMERATE(split, split)                             \
     __JS_ENUMERATE(hasInstance, has_instance)                \
@@ -144,6 +145,8 @@ class PrimitiveString;
 class PromiseReaction;
 class PromiseReactionJob;
 class PromiseResolveThenableJob;
+class PropertyAttributes;
+class PropertyDescriptor;
 class PropertyName;
 class Reference;
 class ScopeNode;
@@ -172,11 +175,6 @@ class TypedArrayPrototype;
 
 // Tag type used to differentiate between u8 as used by Uint8Array and u8 as used by Uint8ClampedArray.
 struct ClampedU8;
-
-enum class AllowSideEffects {
-    Yes,
-    No
-};
 
 #define __JS_ENUMERATE(ClassName, snake_name, ConstructorName, PrototypeName, ArrayType) \
     class ClassName;                                                                     \

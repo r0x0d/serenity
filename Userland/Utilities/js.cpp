@@ -192,7 +192,7 @@ static void print_array(JS::Array& array, HashTable<JS::Object*>& seen_objects)
     bool first = true;
     for (auto it = array.indexed_properties().begin(false); it != array.indexed_properties().end(); ++it) {
         print_separator(first);
-        auto value = it.value_and_attributes(&array).value;
+        auto value = array.get(it.index());
         // The V8 repl doesn't throw an exception here, and instead just
         // prints 'undefined'. We may choose to replicate that behavior in
         // the future, but for now lets just catch the error
@@ -212,7 +212,7 @@ static void print_object(JS::Object& object, HashTable<JS::Object*>& seen_object
     for (auto& entry : object.indexed_properties()) {
         print_separator(first);
         out("\"\033[33;1m{}\033[0m\": ", entry.index());
-        auto value = entry.value_and_attributes(&object).value;
+        auto value = object.get(entry.index());
         // The V8 repl doesn't throw an exception here, and instead just
         // prints 'undefined'. We may choose to replicate that behavior in
         // the future, but for now lets just catch the error
@@ -378,6 +378,7 @@ static void print_number(T number) requires IsArithmetic<T>
 static void print_typed_array(const JS::Object& object, HashTable<JS::Object*>& seen_objects)
 {
     auto& typed_array_base = static_cast<const JS::TypedArrayBase&>(object);
+    auto& array_buffer = *typed_array_base.viewed_array_buffer();
     auto length = typed_array_base.array_length();
     print_type(object.class_name());
     out("\n  length: ");
@@ -386,8 +387,10 @@ static void print_typed_array(const JS::Object& object, HashTable<JS::Object*>& 
     print_value(JS::Value(typed_array_base.byte_length()), seen_objects);
     out("\n  buffer: ");
     print_type("ArrayBuffer");
-    out(" @ {:p}", typed_array_base.viewed_array_buffer());
-    if (!length)
+    if (array_buffer.is_detached())
+        out(" (detached)");
+    out(" @ {:p}", &array_buffer);
+    if (!length || array_buffer.is_detached())
         return;
     outln();
     // FIXME: This kinda sucks.
