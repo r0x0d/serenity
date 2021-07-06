@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2018-2021, Andreas Kling <kling@serenityos.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -7,20 +7,22 @@
 #pragma once
 
 #include <AK/Assertions.h>
-#include <AK/Atomic.h>
 #include <AK/Types.h>
-
-#ifdef __serenity__
-#    include <unistd.h>
-#else
-#    include <pthread.h>
-#endif
+#include <pthread.h>
 
 namespace Threading {
 
 class Lock {
 public:
-    Lock() { }
+    Lock()
+    {
+#ifndef __serenity__
+        pthread_mutexattr_t attr;
+        pthread_mutexattr_init(&attr);
+        pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
+        pthread_mutex_init(&m_mutex, &attr);
+#endif
+    }
     ~Lock() { }
 
     void lock();
@@ -28,22 +30,10 @@ public:
 
 private:
 #ifdef __serenity__
-    using ThreadID = int;
-
-    ALWAYS_INLINE static ThreadID self()
-    {
-        return gettid();
-    }
+    pthread_mutex_t m_mutex = PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP;
 #else
-    using ThreadID = pthread_t;
-
-    ALWAYS_INLINE static ThreadID self()
-    {
-        return pthread_self();
-    }
+    pthread_mutex_t m_mutex;
 #endif
-    Atomic<ThreadID> m_holder { 0 };
-    u32 m_level { 0 };
 };
 
 class Locker {
@@ -63,31 +53,12 @@ private:
 
 ALWAYS_INLINE void Lock::lock()
 {
-    ThreadID tid = self();
-    if (m_holder == tid) {
-        ++m_level;
-        return;
-    }
-    for (;;) {
-        ThreadID expected = 0;
-        if (m_holder.compare_exchange_strong(expected, tid, AK::memory_order_acq_rel)) {
-            m_level = 1;
-            return;
-        }
-#ifdef __serenity__
-        donate(expected);
-#endif
-    }
+    pthread_mutex_lock(&m_mutex);
 }
 
 inline void Lock::unlock()
 {
-    VERIFY(m_holder == self());
-    VERIFY(m_level);
-    if (m_level == 1)
-        m_holder.store(0, AK::memory_order_release);
-    else
-        --m_level;
+    pthread_mutex_unlock(&m_mutex);
 }
 
 template<typename T>

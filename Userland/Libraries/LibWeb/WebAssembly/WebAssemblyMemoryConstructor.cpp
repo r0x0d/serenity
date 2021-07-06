@@ -24,7 +24,7 @@ WebAssemblyMemoryConstructor::~WebAssemblyMemoryConstructor()
 
 JS::Value WebAssemblyMemoryConstructor::call()
 {
-    vm().throw_exception<JS::TypeError>(global_object(), JS::ErrorType::ConstructorWithoutNew, "WebAssemblyMemory");
+    vm().throw_exception<JS::TypeError>(global_object(), JS::ErrorType::ConstructorWithoutNew, "WebAssembly.Memory");
     return {};
 }
 
@@ -72,8 +72,8 @@ void WebAssemblyMemoryConstructor::initialize(JS::GlobalObject& global_object)
     auto& window = static_cast<WindowObject&>(global_object);
 
     NativeFunction::initialize(global_object);
-    define_property(vm.names.prototype, &window.ensure_web_prototype<WebAssemblyMemoryPrototype>("WebAssemblyMemoryPrototype"));
-    define_property(vm.names.length, JS::Value(1), JS::Attribute::Configurable);
+    define_direct_property(vm.names.prototype, &window.ensure_web_prototype<WebAssemblyMemoryPrototype>("WebAssemblyMemoryPrototype"), 0);
+    define_direct_property(vm.names.length, JS::Value(1), JS::Attribute::Configurable);
 }
 
 }

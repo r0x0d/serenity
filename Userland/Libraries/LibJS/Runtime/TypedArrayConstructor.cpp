@@ -27,9 +27,9 @@ void TypedArrayConstructor::initialize(GlobalObject& global_object)
     NativeFunction::initialize(global_object);
 
     // 23.2.2.3 %TypedArray%.prototype, https://tc39.es/ecma262/#sec-%typedarray%.prototype
-    define_property(vm.names.prototype, global_object.typed_array_prototype(), 0);
+    define_direct_property(vm.names.prototype, global_object.typed_array_prototype(), 0);
 
-    define_property(vm.names.length, Value(0), Attribute::Configurable);
+    define_direct_property(vm.names.length, Value(0), Attribute::Configurable);
 
     u8 attr = Attribute::Writable | Attribute::Configurable;
     define_native_function(vm.names.from, from, 1, attr);
@@ -180,7 +180,7 @@ JS_DEFINE_NATIVE_FUNCTION(TypedArrayConstructor::of)
     if (vm.exception())
         return {};
     for (size_t k = 0; k < length; ++k) {
-        auto success = new_object->put(k, vm.argument(k));
+        auto success = new_object->set(k, vm.argument(k), true);
         if (vm.exception())
             return {};
         if (!success) {

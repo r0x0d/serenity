@@ -59,6 +59,11 @@ test("basic regex replacement", () => {
 
     expect("abc123def".replaceAll(/\D/g, "*")).toBe("***123***");
     expect("123abc456".replaceAll(/\D/g, "*")).toBe("123***456");
+
+    expect("aaab a a aac".replaceAll("aa", "z")).toBe("zab a a zc");
+    expect("aaab a a aac".replaceAll("aa", "a")).toBe("aab a a ac");
+    expect("aaab a a aac".replaceAll("a", "a")).toBe("aaab a a aac");
+    expect("aaab a a aac".replaceAll("a", "z")).toBe("zzzb z z zzc");
 });
 
 test("functional regex replacement", () => {
@@ -98,4 +103,43 @@ test("functional regex replacement", () => {
             return "x";
         })
     ).toBe("xd");
+});
+
+test("replacement value is evaluated before searching the source string", () => {
+    var calls = 0;
+    var replaceValue = {
+        toString: function () {
+            calls += 1;
+            return "b";
+        },
+    };
+
+    var newString = "".replaceAll("a", replaceValue);
+    expect(newString).toBe("");
+    expect(calls).toBe(1);
+
+    newString = "".replaceAll(/a/g, replaceValue);
+    expect(newString).toBe("");
+    expect(calls).toBe(2);
+});
+
+test("search value is coerced to a string", () => {
+    var calls = 0;
+    var coerced;
+
+    var searchValue = {
+        toString: function () {
+            calls += 1;
+            return "x";
+        },
+    };
+
+    var replaceValue = function (matched) {
+        coerced = matched;
+        return "abc";
+    };
+
+    var newString = "x".replaceAll(searchValue, replaceValue);
+    expect(newString).toBe("abc");
+    expect(coerced).toBe("x");
 });

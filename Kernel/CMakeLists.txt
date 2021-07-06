@@ -191,6 +191,7 @@ set(KERNEL_SOURCES
     Syscalls/mmap.cpp
     Syscalls/module.cpp
     Syscalls/mount.cpp
+    Syscalls/num_lock.cpp
     Syscalls/open.cpp
     Syscalls/perf_event.cpp
     Syscalls/pipe.cpp
@@ -280,7 +281,7 @@ set(KERNEL_SOURCES
 set(KERNEL_SOURCES
     ${KERNEL_SOURCES}
     ${CMAKE_CURRENT_SOURCE_DIR}/Arch/x86/${KERNEL_ARCH}/ASM_wrapper.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/Arch/x86/${KERNEL_ARCH}/Boot/boot.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/Arch/x86/${KERNEL_ARCH}/Boot/ap_setup.S
     ${CMAKE_CURRENT_SOURCE_DIR}/Arch/x86/${KERNEL_ARCH}/InterruptEntry.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Arch/x86/${KERNEL_ARCH}/Processor.cpp
 )
@@ -288,6 +289,7 @@ set(KERNEL_SOURCES
 set(KERNEL_SOURCES
     ${KERNEL_SOURCES}
     ${CMAKE_CURRENT_SOURCE_DIR}/Arch/x86/common/ASM_wrapper.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Arch/x86/common/Boot/boot.S
     ${CMAKE_CURRENT_SOURCE_DIR}/Arch/x86/common/Boot/multiboot.S
     ${CMAKE_CURRENT_SOURCE_DIR}/Arch/x86/common/CPU.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Arch/x86/common/Interrupts.cpp
@@ -353,6 +355,7 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-rtti -ffreestanding -fbuiltin")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mno-80387 -mno-mmx -mno-sse -mno-sse2")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-asynchronous-unwind-tables")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fstack-protector-strong")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-exceptions")
 if (NOT ${CMAKE_HOST_SYSTEM_NAME} MATCHES SerenityOS)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -nostdlib -nostdinc -nostdinc++")
 endif()
@@ -386,13 +389,13 @@ add_library(kernel_heap STATIC ${KERNEL_HEAP_SOURCES})
 if (${CMAKE_HOST_SYSTEM_NAME} MATCHES SerenityOS)
     include_directories(/usr/local/include/c++/${GCC_VERSION}/)
 else()
-    if (NOT EXISTS ${TOOLCHAIN_ROOT}/Kernel/${SERENITY_ARCH}-pc-serenity/include/c++/${GCC_VERSION}/)
+    if (NOT EXISTS ${TOOLCHAIN_ROOT}/${SERENITY_ARCH}-pc-serenity/include/c++/${GCC_VERSION}/)
         message(FATAL_ERROR "Toolchain version ${GCC_VERSION} appears to be missing! Please run: Meta/serenity.sh rebuild-toolchain")
     endif()
-    include_directories(${TOOLCHAIN_ROOT}/Kernel/${SERENITY_ARCH}-pc-serenity/include/c++/${GCC_VERSION}/)
-    include_directories(${TOOLCHAIN_ROOT}/Kernel/${SERENITY_ARCH}-pc-serenity/include/c++/${GCC_VERSION}/${SERENITY_ARCH}-pc-serenity/)
-    link_directories(${TOOLCHAIN_ROOT}/Kernel/${SERENITY_ARCH}-pc-serenity/lib)
-    link_directories(${TOOLCHAIN_ROOT}/Kernel/lib/gcc/${SERENITY_ARCH}-pc-serenity/${GCC_VERSION}/)
+    include_directories(${TOOLCHAIN_ROOT}/${SERENITY_ARCH}-pc-serenity/include/c++/${GCC_VERSION}/)
+    include_directories(${TOOLCHAIN_ROOT}/${SERENITY_ARCH}-pc-serenity/include/c++/${GCC_VERSION}/${SERENITY_ARCH}-pc-serenity/)
+    link_directories(${TOOLCHAIN_ROOT}/${SERENITY_ARCH}-pc-serenity/lib)
+    link_directories(${TOOLCHAIN_ROOT}/lib/gcc/${SERENITY_ARCH}-pc-serenity/${GCC_VERSION}/)
 endif()
 
 if ("${SERENITY_ARCH}" STREQUAL "i686")
@@ -411,7 +414,7 @@ if (ENABLE_KERNEL_LTO)
     check_ipo_supported()
     set_property(TARGET ${KERNEL_TARGET} PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
 endif()
-target_link_libraries(${KERNEL_TARGET} kernel_heap gcc supc++)
+target_link_libraries(${KERNEL_TARGET} kernel_heap gcc)
 add_dependencies(${KERNEL_TARGET} kernel_heap)
 
 add_custom_command(

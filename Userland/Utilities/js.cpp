@@ -452,7 +452,7 @@ static void print_value(JS::Value value, HashTable<JS::Object*>& seen_objects)
 
     if (value.is_object()) {
         auto& object = value.as_object();
-        if (object.is_array())
+        if (is<JS::Array>(object))
             return print_array(static_cast<JS::Array&>(object), seen_objects);
         if (object.is_function())
             return print_function(object, seen_objects);
@@ -653,11 +653,12 @@ static JS::Value load_file_impl(JS::VM& vm, JS::GlobalObject& global_object)
 void ReplObject::initialize_global_object()
 {
     Base::initialize_global_object();
-    define_property("global", this, JS::Attribute::Enumerable);
-    define_native_function("exit", exit_interpreter);
-    define_native_function("help", repl_help);
-    define_native_function("load", load_file, 1);
-    define_native_function("save", save_to_file, 1);
+    define_direct_property("global", this, JS::Attribute::Enumerable);
+    u8 attr = JS::Attribute::Configurable | JS::Attribute::Writable | JS::Attribute::Enumerable;
+    define_native_function("exit", exit_interpreter, 0, attr);
+    define_native_function("help", repl_help, 0, attr);
+    define_native_function("load", load_file, 1, attr);
+    define_native_function("save", save_to_file, 1, attr);
 }
 
 JS_DEFINE_NATIVE_FUNCTION(ReplObject::save_to_file)
@@ -700,8 +701,9 @@ JS_DEFINE_NATIVE_FUNCTION(ReplObject::load_file)
 void ScriptObject::initialize_global_object()
 {
     Base::initialize_global_object();
-    define_property("global", this, JS::Attribute::Enumerable);
-    define_native_function("load", load_file, 1);
+    define_direct_property("global", this, JS::Attribute::Enumerable);
+    u8 attr = JS::Attribute::Configurable | JS::Attribute::Writable | JS::Attribute::Enumerable;
+    define_native_function("load", load_file, 1, attr);
 }
 
 JS_DEFINE_NATIVE_FUNCTION(ScriptObject::load_file)

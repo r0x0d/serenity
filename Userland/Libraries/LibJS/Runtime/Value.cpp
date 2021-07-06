@@ -203,7 +203,7 @@ bool Value::is_array(GlobalObject& global_object) const
     if (!is_object())
         return false;
     auto& object = as_object();
-    if (object.is_array())
+    if (is<Array>(object))
         return true;
     if (is<ProxyObject>(object)) {
         auto& proxy = static_cast<ProxyObject const&>(object);
@@ -219,7 +219,7 @@ bool Value::is_array(GlobalObject& global_object) const
 
 Array& Value::as_array()
 {
-    VERIFY(is_object() && as_object().is_array());
+    VERIFY(is_object() && is<Array>(as_object()));
     return static_cast<Array&>(*m_value.as_object);
 }
 
@@ -584,7 +584,7 @@ i32 Value::as_i32() const
 u32 Value::as_u32() const
 {
     VERIFY(as_double() >= 0);
-    return min((u32)as_i32(), NumericLimits<u32>::max());
+    return (u32)min(as_double(), (double)NumericLimits<u32>::max());
 }
 
 double Value::to_double(GlobalObject& global_object) const

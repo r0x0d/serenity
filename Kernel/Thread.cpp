@@ -4,7 +4,6 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
-#include <AK/Demangle.h>
 #include <AK/ScopeGuard.h>
 #include <AK/StringBuilder.h>
 #include <AK/Time.h>
@@ -334,18 +333,6 @@ void Thread::yield_without_holding_big_lock()
     relock_process(previous_locked, lock_count_to_restore);
 }
 
-void Thread::donate_without_holding_big_lock(RefPtr<Thread>& thread, const char* reason)
-{
-    VERIFY(!g_scheduler_lock.own_lock());
-    u32 lock_count_to_restore = 0;
-    auto previous_locked = unlock_process_if_locked(lock_count_to_restore);
-    // NOTE: Even though we call Scheduler::yield here, unless we happen
-    // to be outside of a critical section, the yield will be postponed
-    // until leaving it in relock_process.
-    Scheduler::donate_to(thread, reason);
-    relock_process(previous_locked, lock_count_to_restore);
-}
-
 LockMode Thread::unlock_process_if_locked(u32& lock_count_to_restore)
 {
     return process().big_lock().force_unlock_if_locked(lock_count_to_restore);
@@ -354,8 +341,8 @@ LockMode Thread::unlock_process_if_locked(u32& lock_count_to_restore)
 void Thread::relock_process(LockMode previous_locked, u32 lock_count_to_restore)
 {
     // Clearing the critical section may trigger the context switch
-    // flagged by calling Scheduler::donate_to or Scheduler::yield
-    // above. We have to do it this way because we intentionally
+    // flagged by calling Scheduler::yield above.
+    // We have to do it this way because we intentionally
     // leave the critical section here to be able to switch contexts.
     u32 prev_flags;
     u32 prev_crit = Processor::current().clear_critical(prev_flags, true);
@@ -1037,7 +1024,7 @@ struct RecognizedSymbol {
     const KernelSymbol* symbol { nullptr };
 };
 
-static bool symbolicate(const RecognizedSymbol& symbol, const Process& process, StringBuilder& builder)
+static bool symbolicate(RecognizedSymbol const& symbol, Process& process, StringBuilder& builder)
 {
     if (!symbol.address)
         return false;
@@ -1047,7 +1034,15 @@ static bool symbolicate(const RecognizedSymbol& symbol, const Process& process, 
         if (!is_user_address(VirtualAddress(symbol.address))) {
             builder.append("0xdeadc0de\n");
         } else {
-            builder.appendff("{:p}\n", symbol.address);
+            if (auto* region = process.space().find_region_containing({ VirtualAddress(symbol.address), sizeof(FlatPtr) })) {
+                size_t offset = symbol.address - region->vaddr().get();
+                if (auto region_name = region->name(); !region_name.is_null() && !region_name.is_empty())
+                    builder.appendff("{:p}  {} + 0x{:x}\n", (void*)symbol.address, region_name, offset);
+                else
+                    builder.appendff("{:p}  {:p} + 0x{:x}\n", (void*)symbol.address, region->vaddr().as_ptr(), offset);
+            } else {
+                builder.appendff("{:p}\n", symbol.address);
+            }
         }
         return true;
     }
@@ -1055,7 +1050,7 @@ static bool symbolicate(const RecognizedSymbol& symbol, const Process& process, 
     if (symbol.symbol->address == g_highest_kernel_symbol_address && offset > 4096) {
         builder.appendff("{:p}\n", (void*)(mask_kernel_addresses ? 0xdeadc0de : symbol.address));
     } else {
-        builder.appendff("{:p}  {} +{}\n", (void*)(mask_kernel_addresses ? 0xdeadc0de : symbol.address), demangle(symbol.symbol->name), offset);
+        builder.appendff("{:p}  {} + 0x{:x}\n", (void*)(mask_kernel_addresses ? 0xdeadc0de : symbol.address), symbol.symbol->name, offset);
     }
     return true;
 }

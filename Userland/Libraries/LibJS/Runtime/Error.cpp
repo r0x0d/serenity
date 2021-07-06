@@ -20,7 +20,7 @@ Error* Error::create(GlobalObject& global_object, String const& message)
     auto& vm = global_object.vm();
     auto* error = Error::create(global_object);
     u8 attr = Attribute::Writable | Attribute::Configurable;
-    error->define_property(vm.names.message, js_string(vm, message), attr);
+    error->define_direct_property(vm.names.message, js_string(vm, message), attr);
     return error;
 }
 
@@ -41,7 +41,7 @@ void Error::install_error_cause(Value options)
     auto cause = options_object.get(vm.names.cause);
     if (vm.exception())
         return;
-    define_property(vm.names.cause, cause, Attribute::Writable | Attribute::Configurable);
+    create_non_enumerable_data_property_or_throw(vm.names.cause, cause);
 }
 
 #define __JS_ENUMERATE(ClassName, snake_name, PrototypeName, ConstructorName, ArrayType)                         \
@@ -55,7 +55,7 @@ void Error::install_error_cause(Value options)
         auto& vm = global_object.vm();                                                                           \
         auto* error = ClassName::create(global_object);                                                          \
         u8 attr = Attribute::Writable | Attribute::Configurable;                                                 \
-        error->define_property(vm.names.message, js_string(vm, message), attr);                                  \
+        error->define_direct_property(vm.names.message, js_string(vm, message), attr);                           \
         return error;                                                                                            \
     }                                                                                                            \
                                                                                                                  \

@@ -555,7 +555,7 @@ static void generate_to_cpp(SourceGenerator& generator, ParameterType& parameter
         if (parameter.type.nullable) {
             scoped_generator.append(R"~~~(
     RefPtr<EventListener> @cpp_name@;
-    if (!@js_name@@js_suffix@.is_null()) {
+    if (!@js_name@@js_suffix@.is_nullish()) {
         if (!@js_name@@js_suffix@.is_function()) {
             vm.throw_exception<JS::TypeError>(global_object, JS::ErrorType::NotA, "Function");
             @return_statement@
@@ -573,7 +573,8 @@ static void generate_to_cpp(SourceGenerator& generator, ParameterType& parameter
 )~~~");
         }
     } else if (is_wrappable_type(parameter.type)) {
-        scoped_generator.append(R"~~~(
+        if (!parameter.type.nullable) {
+            scoped_generator.append(R"~~~(
     auto @cpp_name@_object = @js_name@@js_suffix@.to_object(global_object);
     if (vm.exception())
         @return_statement@
@@ -585,6 +586,23 @@ static void generate_to_cpp(SourceGenerator& generator, ParameterType& parameter
 
     auto& @cpp_name@ = static_cast<@parameter.type.name@Wrapper*>(@cpp_name@_object)->impl();
 )~~~");
+        } else {
+            scoped_generator.append(R"~~~(
+    @parameter.type.name@* @cpp_name@ = nullptr;
+    if (!@js_name@@js_suffix@.is_nullish()) {
+        auto @cpp_name@_object = @js_name@@js_suffix@.to_object(global_object);
+        if (vm.exception())
+            @return_statement@
+
+        if (!is<@parameter.type.name@Wrapper>(@cpp_name@_object)) {
+            vm.throw_exception<JS::TypeError>(global_object, JS::ErrorType::NotA, "@parameter.type.name@");
+            @return_statement@
+        }
+
+        @cpp_name@ = &static_cast<@parameter.type.name@Wrapper*>(@cpp_name@_object)->impl();
+    }
+)~~~");
+        }
     } else if (parameter.type.name == "double") {
         if (!optional) {
             scoped_generator.append(R"~~~(
@@ -1095,8 +1113,8 @@ void @constructor_class@::initialize(JS::GlobalObject& global_object)
     [[maybe_unused]] u8 default_attributes = JS::Attribute::Enumerable;
 
     NativeFunction::initialize(global_object);
-    define_property(vm.names.prototype, &window.ensure_web_prototype<@prototype_class@>("@name@"), 0);
-    define_property(vm.names.length, JS::Value(@constructor.length@), JS::Attribute::Configurable);
+    define_direct_property(vm.names.prototype, &window.ensure_web_prototype<@prototype_class@>("@name@"), 0);
+    define_direct_property(vm.names.length, JS::Value(@constructor.length@), JS::Attribute::Configurable);
 
 )~~~");
 
@@ -1106,7 +1124,7 @@ void @constructor_class@::initialize(JS::GlobalObject& global_object)
         constant_generator.set("constant.value", constant.value);
 
         constant_generator.append(R"~~~(
-define_property("@constant.name@", JS::Value((i32)@constant.value@), JS::Attribute::Enumerable);
+define_direct_property("@constant.name@", JS::Value((i32)@constant.value@), JS::Attribute::Enumerable);
 )~~~");
     }
 
@@ -1318,7 +1336,7 @@ void @prototype_class@::initialize(JS::GlobalObject& global_object)
         constant_generator.set("constant.value", constant.value);
 
         constant_generator.append(R"~~~(
-    define_property("@constant.name@", JS::Value((i32)@constant.value@), JS::Attribute::Enumerable);
+    define_direct_property("@constant.name@", JS::Value((i32)@constant.value@), JS::Attribute::Enumerable);
 )~~~");
     }
 

@@ -143,6 +143,12 @@ static void initialize_typed_array_from_array_like(GlobalObject& global_object, 
     if (vm.exception())
         return;
 
+    // Enforce 2GB "Excessive Length" limit
+    if (length > NumericLimits<i32>::max() / sizeof(TypeError)) {
+        vm.throw_exception<RangeError>(global_object, ErrorType::InvalidLength, "typed array");
+        return;
+    }
+
     auto element_size = typed_array.element_size();
     if (Checked<size_t>::multiplication_would_overflow(element_size, length)) {
         vm.throw_exception<RangeError>(global_object, ErrorType::InvalidLength, "typed array");
@@ -197,6 +203,15 @@ void TypedArrayBase::visit_edges(Visitor& visitor)
 }
 
 #define JS_DEFINE_TYPED_ARRAY(ClassName, snake_name, PrototypeName, ConstructorName, Type)                                             \
+    ClassName* ClassName::create(GlobalObject& global_object, u32 length, FunctionObject& new_target)                                  \
+    {                                                                                                                                  \
+        auto& vm = global_object.vm();                                                                                                 \
+        auto* prototype = get_prototype_from_constructor(global_object, new_target, &GlobalObject::snake_name##_prototype);            \
+        if (vm.exception())                                                                                                            \
+            return {};                                                                                                                 \
+        return global_object.heap().allocate<ClassName>(global_object, length, *prototype);                                            \
+    }                                                                                                                                  \
+                                                                                                                                       \
     ClassName* ClassName::create(GlobalObject& global_object, u32 length)                                                              \
     {                                                                                                                                  \
         return global_object.heap().allocate<ClassName>(global_object, length, *global_object.snake_name##_prototype());               \
@@ -221,11 +236,16 @@ void TypedArrayBase::visit_edges(Visitor& visitor)
     PrototypeName::PrototypeName(GlobalObject& global_object)                                                                          \
         : Object(*global_object.typed_array_prototype())                                                                               \
     {                                                                                                                                  \
-        auto& vm = this->vm();                                                                                                         \
-        define_property(vm.names.BYTES_PER_ELEMENT, Value((i32)sizeof(Type)), 0);                                                      \
     }                                                                                                                                  \
                                                                                                                                        \
     PrototypeName::~PrototypeName() { }                                                                                                \
+                                                                                                                                       \
+    void PrototypeName::initialize(GlobalObject& global_object)                                                                        \
+    {                                                                                                                                  \
+        auto& vm = this->vm();                                                                                                         \
+        Object::initialize(global_object);                                                                                             \
+        define_direct_property(vm.names.BYTES_PER_ELEMENT, Value((i32)sizeof(Type)), 0);                                               \
+    }                                                                                                                                  \
                                                                                                                                        \
     ConstructorName::ConstructorName(GlobalObject& global_object)                                                                      \
         : TypedArrayConstructor(vm().names.ClassName.as_string(), *global_object.typed_array_constructor())                            \
@@ -240,12 +260,12 @@ void TypedArrayBase::visit_edges(Visitor& visitor)
         NativeFunction::initialize(global_object);                                                                                     \
                                                                                                                                        \
         /* 23.2.6.2 TypedArray.prototype, https://tc39.es/ecma262/#sec-typedarray.prototype */                                         \
-        define_property(vm.names.prototype, global_object.snake_name##_prototype(), 0);                                                \
+        define_direct_property(vm.names.prototype, global_object.snake_name##_prototype(), 0);                                         \
                                                                                                                                        \
-        define_property(vm.names.length, Value(3), Attribute::Configurable);                                                           \
+        define_direct_property(vm.names.length, Value(3), Attribute::Configurable);                                                    \
                                                                                                                                        \
         /* 23.2.6.1 TypedArray.BYTES_PER_ELEMENT, https://tc39.es/ecma262/#sec-typedarray.bytes_per_element */                         \
-        define_property(vm.names.BYTES_PER_ELEMENT, Value((i32)sizeof(Type)), 0);                                                      \
+        define_direct_property(vm.names.BYTES_PER_ELEMENT, Value((i32)sizeof(Type)), 0);                                               \
     }                                                                                                                                  \
                                                                                                                                        \
     /* 23.2.5.1 TypedArray ( ...args ), https://tc39.es/ecma262/#sec-typedarray */                                                     \
@@ -257,15 +277,17 @@ void TypedArrayBase::visit_edges(Visitor& visitor)
     }                                                                                                                                  \
                                                                                                                                        \
     /* 23.2.5.1 TypedArray ( ...args ), https://tc39.es/ecma262/#sec-typedarray */                                                     \
-    Value ConstructorName::construct(FunctionObject&)                                                                                  \
+    Value ConstructorName::construct(FunctionObject& new_target)                                                                       \
     {                                                                                                                                  \
         auto& vm = this->vm();                                                                                                         \
         if (vm.argument_count() == 0)                                                                                                  \
-            return ClassName::create(global_object(), 0);                                                                              \
+            return ClassName::create(global_object(), 0, new_target);                                                                  \
                                                                                                                                        \
         auto first_argument = vm.argument(0);                                                                                          \
         if (first_argument.is_object()) {                                                                                              \
-            auto* typed_array = ClassName::create(global_object(), 0);                                                                 \
+            auto* typed_array = ClassName::create(global_object(), 0, new_target);                                                     \
+            if (vm.exception())                                                                                                        \
+                return {};                                                                                                             \
             if (first_argument.as_object().is_typed_array()) {                                                                         \
                 auto& arg_typed_array = static_cast<TypedArrayBase&>(first_argument.as_object());                                      \
                 initialize_typed_array_from_typed_array(global_object(), *typed_array, arg_typed_array);                               \
@@ -277,10 +299,10 @@ void TypedArrayBase::visit_edges(Visitor& visitor)
                 if (vm.exception())                                                                                                    \
                     return {};                                                                                                         \
             } else {                                                                                                                   \
-                auto iterator = first_argument.as_object().get(*vm.well_known_symbol_iterator());                                      \
+                auto iterator = first_argument.get_method(global_object(), *vm.well_known_symbol_iterator());                          \
                 if (vm.exception())                                                                                                    \
                     return {};                                                                                                         \
-                if (iterator.is_function()) {                                                                                          \
+                if (iterator) {                                                                                                        \
                     auto values = iterable_to_list(global_object(), first_argument, iterator);                                         \
                     if (vm.exception())                                                                                                \
                         return {};                                                                                                     \
@@ -296,12 +318,14 @@ void TypedArrayBase::visit_edges(Visitor& visitor)
                                                                                                                                        \
         auto array_length = first_argument.to_index(global_object());                                                                  \
         if (vm.exception()) {                                                                                                          \
-            /* Re-throw more specific RangeError */                                                                                    \
-            vm.clear_exception();                                                                                                      \
-            vm.throw_exception<RangeError>(global_object(), ErrorType::InvalidLength, "typed array");                                  \
+            if (vm.exception()->value().is_object() && is<RangeError>(vm.exception()->value().as_object())) {                          \
+                /* Re-throw more specific RangeError */                                                                                \
+                vm.clear_exception();                                                                                                  \
+                vm.throw_exception<RangeError>(global_object(), ErrorType::InvalidLength, "typed array");                              \
+            }                                                                                                                          \
             return {};                                                                                                                 \
         }                                                                                                                              \
-        if (array_length > NumericLimits<i32>::max()) {                                                                                \
+        if (array_length > NumericLimits<i32>::max() / sizeof(Type)) {                                                                 \
             vm.throw_exception<RangeError>(global_object(), ErrorType::InvalidLength, "typed array");                                  \
             return {};                                                                                                                 \
         }                                                                                                                              \
@@ -310,7 +334,7 @@ void TypedArrayBase::visit_edges(Visitor& visitor)
             vm.throw_exception<RangeError>(global_object(), ErrorType::InvalidLength, "typed array");                                  \
             return {};                                                                                                                 \
         }                                                                                                                              \
-        return ClassName::create(global_object(), array_length);                                                                       \
+        return ClassName::create(global_object(), array_length, new_target);                                                           \
     }
 
 #undef __JS_ENUMERATE

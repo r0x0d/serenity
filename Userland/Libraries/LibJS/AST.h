@@ -145,8 +145,10 @@ public:
 
     void add_variables(NonnullRefPtrVector<VariableDeclaration>);
     void add_functions(NonnullRefPtrVector<FunctionDeclaration>);
+    void add_hoisted_function(NonnullRefPtr<FunctionDeclaration>);
     NonnullRefPtrVector<VariableDeclaration> const& variables() const { return m_variables; }
     NonnullRefPtrVector<FunctionDeclaration> const& functions() const { return m_functions; }
+    NonnullRefPtrVector<FunctionDeclaration> const& hoisted_functions() const { return m_hoisted_functions; }
 
 protected:
     explicit ScopeNode(SourceRange source_range)
@@ -160,6 +162,7 @@ private:
     NonnullRefPtrVector<Statement> m_children;
     NonnullRefPtrVector<VariableDeclaration> m_variables;
     NonnullRefPtrVector<FunctionDeclaration> m_functions;
+    NonnullRefPtrVector<FunctionDeclaration> m_hoisted_functions;
 };
 
 class Program final : public ScopeNode {
@@ -257,11 +260,10 @@ public:
     FunctionKind kind() const { return m_kind; }
 
 protected:
-    FunctionNode(FlyString name, NonnullRefPtr<Statement> body, Vector<Parameter> parameters, i32 function_length, NonnullRefPtrVector<VariableDeclaration> variables, FunctionKind kind, bool is_strict_mode, bool is_arrow_function)
+    FunctionNode(FlyString name, NonnullRefPtr<Statement> body, Vector<Parameter> parameters, i32 function_length, FunctionKind kind, bool is_strict_mode, bool is_arrow_function)
         : m_name(move(name))
         , m_body(move(body))
         , m_parameters(move(parameters))
-        , m_variables(move(variables))
         , m_function_length(function_length)
         , m_kind(kind)
         , m_is_strict_mode(is_strict_mode)
@@ -270,8 +272,6 @@ protected:
     }
 
     void dump(int indent, String const& class_name) const;
-
-    NonnullRefPtrVector<VariableDeclaration> const& variables() const { return m_variables; }
 
 protected:
     void set_name(FlyString name)
@@ -284,7 +284,6 @@ private:
     FlyString m_name;
     NonnullRefPtr<Statement> m_body;
     Vector<Parameter> const m_parameters;
-    NonnullRefPtrVector<VariableDeclaration> m_variables;
     const i32 m_function_length;
     FunctionKind m_kind;
     bool m_is_strict_mode;
@@ -297,9 +296,9 @@ class FunctionDeclaration final
 public:
     static bool must_have_name() { return true; }
 
-    FunctionDeclaration(SourceRange source_range, FlyString const& name, NonnullRefPtr<Statement> body, Vector<Parameter> parameters, i32 function_length, NonnullRefPtrVector<VariableDeclaration> variables, FunctionKind kind, bool is_strict_mode = false)
+    FunctionDeclaration(SourceRange source_range, FlyString const& name, NonnullRefPtr<Statement> body, Vector<Parameter> parameters, i32 function_length, FunctionKind kind, bool is_strict_mode = false)
         : Declaration(source_range)
-        , FunctionNode(name, move(body), move(parameters), function_length, move(variables), kind, is_strict_mode, false)
+        , FunctionNode(name, move(body), move(parameters), function_length, kind, is_strict_mode, false)
     {
     }
 
@@ -314,9 +313,9 @@ class FunctionExpression final
 public:
     static bool must_have_name() { return false; }
 
-    FunctionExpression(SourceRange source_range, FlyString const& name, NonnullRefPtr<Statement> body, Vector<Parameter> parameters, i32 function_length, NonnullRefPtrVector<VariableDeclaration> variables, FunctionKind kind, bool is_strict_mode, bool is_arrow_function = false)
+    FunctionExpression(SourceRange source_range, FlyString const& name, NonnullRefPtr<Statement> body, Vector<Parameter> parameters, i32 function_length, FunctionKind kind, bool is_strict_mode, bool is_arrow_function = false)
         : Expression(source_range)
-        , FunctionNode(name, move(body), move(parameters), function_length, move(variables), kind, is_strict_mode, is_arrow_function)
+        , FunctionNode(name, move(body), move(parameters), function_length, kind, is_strict_mode, is_arrow_function)
     {
     }
 

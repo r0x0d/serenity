@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
+#include <AK/CharacterTypes.h>
 #include <AK/Function.h>
 #include <AK/Optional.h>
 #include <AK/Result.h>
@@ -414,6 +415,7 @@ Object* create_unmapped_arguments_object(GlobalObject& global_object, Vector<Val
     // 2. Let obj be ! OrdinaryObjectCreate(%Object.prototype%, « [[ParameterMap]] »).
     // 3. Set obj.[[ParameterMap]] to undefined.
     auto* object = Object::create(global_object, global_object.object_prototype());
+    object->set_has_parameter_map();
 
     // 4. Perform DefinePropertyOrThrow(obj, "length", PropertyDescriptor { [[Value]]: 𝔽(len), [[Writable]]: true, [[Enumerable]]: false, [[Configurable]]: true }).
     object->define_property_or_throw(vm.names.length, { .value = Value(length), .writable = true, .enumerable = false, .configurable = true });
@@ -544,10 +546,19 @@ Object* create_mapped_arguments_object(GlobalObject& global_object, FunctionObje
 }
 
 // 7.1.21 CanonicalNumericIndexString ( argument ), https://tc39.es/ecma262/#sec-canonicalnumericindexstring
-Value canonical_numeric_index_string(GlobalObject& global_object, Value argument)
+Value canonical_numeric_index_string(GlobalObject& global_object, PropertyName const& property_name)
 {
+    // NOTE: If the property name is a number type (An implementation-defined optimized
+    // property key type), it can be treated as a string property that has already been
+    // converted successfully into a canonical numeric index.
+
+    VERIFY(property_name.is_string() || property_name.is_number());
+
+    if (property_name.is_number())
+        return Value(property_name.as_number());
+
     // 1. Assert: Type(argument) is String.
-    VERIFY(argument.is_string());
+    auto argument = Value(js_string(global_object.vm(), property_name.as_string()));
 
     // 2. If argument is "-0", return -0𝔽.
     if (argument.as_string().string() == "-0")
@@ -562,6 +573,93 @@ Value canonical_numeric_index_string(GlobalObject& global_object, Value argument
 
     // 5. Return n.
     return n;
+}
+
+// 22.1.3.17.1 GetSubstitution ( matched, str, position, captures, namedCaptures, replacement ), https://tc39.es/ecma262/#sec-getsubstitution
+String get_substitution(GlobalObject& global_object, String const& matched, String const& str, size_t position, Vector<Value> const& captures, Value named_captures, Value replacement)
+{
+    auto& vm = global_object.vm();
+
+    auto replace_string = replacement.to_string(global_object);
+    if (vm.exception())
+        return {};
+
+    StringBuilder result;
+
+    for (size_t i = 0; i < replace_string.length(); ++i) {
+        char curr = replace_string[i];
+
+        if ((curr != '$') || (i + 1 >= replace_string.length())) {
+            result.append(curr);
+            continue;
+        }
+
+        char next = replace_string[i + 1];
+
+        if (next == '$') {
+            result.append(next);
+            ++i;
+        } else if (next == '&') {
+            result.append(matched);
+            ++i;
+        } else if (next == '`') {
+            result.append(str.substring_view(0, position));
+            ++i;
+        } else if (next == '\'') {
+            auto tail_pos = position + matched.length();
+            if (tail_pos < str.length())
+                result.append(str.substring_view(tail_pos));
+            ++i;
+        } else if (is_ascii_digit(next)) {
+            bool is_two_digits = (i + 2 < replace_string.length()) && is_ascii_digit(replace_string[i + 2]);
+
+            auto capture_postition_string = replace_string.substring_view(i + 1, is_two_digits ? 2 : 1);
+            auto capture_position = capture_postition_string.to_uint();
+
+            if (capture_position.has_value() && (*capture_position > 0) && (*capture_position <= captures.size())) {
+                auto& value = captures[*capture_position - 1];
+
+                if (!value.is_undefined()) {
+                    auto value_string = value.to_string(global_object);
+                    if (vm.exception())
+                        return {};
+
+                    result.append(value_string);
+                }
+
+                i += is_two_digits ? 2 : 1;
+            } else {
+                result.append(curr);
+            }
+        } else if (next == '<') {
+            auto start_position = i + 2;
+            auto end_position = replace_string.find('>', start_position);
+
+            if (named_captures.is_undefined() || !end_position.has_value()) {
+                result.append(curr);
+            } else {
+                auto group_name = replace_string.substring(start_position, *end_position - start_position);
+
+                auto capture = named_captures.as_object().get(group_name);
+                if (vm.exception())
+                    return {};
+
+                if (!capture.is_undefined()) {
+                    auto capture_string = capture.to_string(global_object);
+                    if (vm.exception())
+                        return {};
+
+                    result.append(capture_string);
+                }
+
+                i = *end_position;
+            }
+        } else {
+            result.append(curr);
+        }
+    }
+
+    return result.build();
 }
 
 }

@@ -7,7 +7,9 @@
 #pragma once
 
 #include <stdio.h>
+#include <sys/cdefs.h>
 #include <sys/types.h>
+#include <time.h>
 #include <unistd.h>
 
 __BEGIN_DECLS
@@ -70,6 +72,26 @@ int profiling_free_buffer(pid_t);
 
 int futex(uint32_t* userspace_address, int futex_op, uint32_t value, const struct timespec* timeout, uint32_t* userspace_address2, uint32_t value3);
 
+static ALWAYS_INLINE int futex_wait(uint32_t* userspace_address, uint32_t value, const struct timespec* abstime, int clockid)
+{
+    int op;
+
+    if (abstime) {
+        // NOTE: FUTEX_WAIT takes a relative timeout, so use FUTEX_WAIT_BITSET instead!
+        op = FUTEX_WAIT_BITSET | FUTEX_PRIVATE_FLAG;
+        if (clockid == CLOCK_REALTIME || clockid == CLOCK_REALTIME_COARSE)
+            op |= FUTEX_CLOCK_REALTIME;
+    } else {
+        op = FUTEX_WAIT;
+    }
+    return futex(userspace_address, op, value, abstime, nullptr, FUTEX_BITSET_MATCH_ANY);
+}
+
+static ALWAYS_INLINE int futex_wake(uint32_t* userspace_address, uint32_t count)
+{
+    return futex(userspace_address, FUTEX_WAKE, count, NULL, NULL, 0);
+}
+
 #define PURGE_ALL_VOLATILE 0x1
 #define PURGE_ALL_CLEAN_INODE 0x2
 
@@ -104,6 +126,8 @@ int serenity_readlink(const char* path, size_t path_length, char* buffer, size_t
 
 int getkeymap(char* name_buffer, size_t name_buffer_size, uint32_t* map, uint32_t* shift_map, uint32_t* alt_map, uint32_t* altgr_map, uint32_t* shift_altgr_map);
 int setkeymap(const char* name, const uint32_t* map, uint32_t* const shift_map, const uint32_t* alt_map, const uint32_t* altgr_map, const uint32_t* shift_altgr_map);
+
+void set_num_lock(bool on);
 
 uint16_t internet_checksum(const void* ptr, size_t count);
 

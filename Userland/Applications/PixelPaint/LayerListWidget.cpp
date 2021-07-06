@@ -17,6 +17,8 @@ namespace PixelPaint {
 
 LayerListWidget::LayerListWidget()
 {
+    set_should_hide_unnecessary_scrollbars(false);
+    horizontal_scrollbar().set_visible(false);
 }
 
 LayerListWidget::~LayerListWidget()
@@ -71,6 +73,8 @@ void LayerListWidget::paint_event(GUI::PaintEvent& event)
         auto& layer = m_image->layer(gadget.layer_index);
 
         auto adjusted_rect = gadget.rect;
+        adjusted_rect.translate_by(0, -vertical_scrollbar().value());
+        adjusted_rect.translate_by(frame_thickness(), frame_thickness());
 
         if (gadget.is_moving) {
             adjusted_rect.translate_by(0, gadget.movement_delta.y());
@@ -82,7 +86,7 @@ void LayerListWidget::paint_event(GUI::PaintEvent& event)
             painter.fill_rect(adjusted_rect, palette().selection());
         }
 
-        painter.draw_rect(adjusted_rect, Color::Black);
+        painter.draw_rect(adjusted_rect, palette().color(ColorRole::BaseText));
 
         Gfx::IntRect thumbnail_rect { adjusted_rect.x(), adjusted_rect.y(), adjusted_rect.height(), adjusted_rect.height() };
         thumbnail_rect.shrink(8, 8);
@@ -91,7 +95,13 @@ void LayerListWidget::paint_event(GUI::PaintEvent& event)
         Gfx::IntRect text_rect { thumbnail_rect.right() + 10, adjusted_rect.y(), adjusted_rect.width(), adjusted_rect.height() };
         text_rect.intersect(adjusted_rect);
 
-        painter.draw_text(text_rect, layer.name(), Gfx::TextAlignment::CenterLeft, layer.is_selected() ? palette().selection_text() : palette().button_text());
+        if (layer.is_visible()) {
+            painter.draw_text(text_rect, layer.name(), Gfx::TextAlignment::CenterLeft, layer.is_selected() ? palette().selection_text() : palette().button_text());
+            painter.draw_rect(thumbnail_rect, palette().color(ColorRole::BaseText));
+        } else {
+            painter.draw_text(text_rect, layer.name(), Gfx::TextAlignment::CenterLeft, palette().color(ColorRole::DisabledText));
+            painter.draw_rect(thumbnail_rect, palette().color(ColorRole::DisabledText));
+        }
     };
 
     for (auto& gadget : m_gadgets) {
@@ -101,6 +111,8 @@ void LayerListWidget::paint_event(GUI::PaintEvent& event)
 
     if (m_moving_gadget_index.has_value())
         paint_gadget(m_gadgets[m_moving_gadget_index.value()]);
+
+    Gfx::StylePainter::paint_frame(painter, rect(), palette(), Gfx::FrameShape::Box, Gfx::FrameShadow::Sunken, 2);
 }
 
 Optional<size_t> LayerListWidget::gadget_at(Gfx::IntPoint const& position)
@@ -118,14 +130,18 @@ void LayerListWidget::mousedown_event(GUI::MouseEvent& event)
         return;
     if (event.button() != GUI::MouseButton::Left)
         return;
-    auto gadget_index = gadget_at(event.position());
+
+    Gfx::IntPoint translated_event_point = { 0, vertical_scrollbar().value() + event.y() };
+
+    auto gadget_index = gadget_at(translated_event_point);
     if (!gadget_index.has_value()) {
         if (on_layer_select)
             on_layer_select(nullptr);
         return;
     }
     m_moving_gadget_index = gadget_index;
-    m_moving_event_origin = event.position();
+    m_selected_layer_index = gadget_index.value();
+    m_moving_event_origin = translated_event_point;
     auto& gadget = m_gadgets[m_moving_gadget_index.value()];
     auto& layer = m_image->layer(gadget_index.value());
     set_selected_layer(&layer);
@@ -141,7 +157,9 @@ void LayerListWidget::mousemove_event(GUI::MouseEvent& event)
     if (!m_moving_gadget_index.has_value())
         return;
 
-    auto delta = event.position() - m_moving_event_origin;
+    Gfx::IntPoint translated_event_point = { 0, vertical_scrollbar().value() + event.y() };
+
+    auto delta = translated_event_point - m_moving_event_origin;
     auto& gadget = m_gadgets[m_moving_gadget_index.value()];
     VERIFY(gadget.is_moving);
     gadget.movement_delta = delta;
@@ -164,6 +182,21 @@ void LayerListWidget::mouseup_event(GUI::MouseEvent& event)
 
     m_moving_gadget_index = {};
     m_image->change_layer_index(old_index, new_index);
+}
+
+void LayerListWidget::context_menu_event(GUI::ContextMenuEvent& event)
+{
+    Gfx::IntPoint translated_event_point = { 0, vertical_scrollbar().value() + event.position().y() };
+
+    auto gadget_index = gadget_at(translated_event_point);
+    if (gadget_index.has_value()) {
+        auto& layer = m_image->layer(gadget_index.value());
+        m_selected_layer_index = gadget_index.value();
+        set_selected_layer(&layer);
+    }
+
+    if (on_context_menu_request)
+        on_context_menu_request(event);
 }
 
 void LayerListWidget::image_did_add_layer(size_t layer_index)
@@ -197,8 +230,8 @@ void LayerListWidget::image_did_modify_layer_stack()
     rebuild_gadgets();
 }
 
-static constexpr int gadget_height = 30;
-static constexpr int gadget_spacing = 1;
+static constexpr int gadget_height = 40;
+static constexpr int gadget_spacing = -1;
 static constexpr int vertical_step = gadget_height + gadget_spacing;
 
 size_t LayerListWidget::hole_index_during_move() const
@@ -213,6 +246,7 @@ void LayerListWidget::select_bottom_layer()
 {
     if (!m_image || !m_image->layer_count())
         return;
+    m_selected_layer_index = 0;
     set_selected_layer(&m_image->layer(0));
 }
 
@@ -220,15 +254,25 @@ void LayerListWidget::select_top_layer()
 {
     if (!m_image || !m_image->layer_count())
         return;
+    m_selected_layer_index = m_image->layer_count() - 1;
     set_selected_layer(&m_image->layer(m_image->layer_count() - 1));
 }
 
-void LayerListWidget::move_selection(int delta)
+void LayerListWidget::cycle_through_selection(int delta)
 {
     if (!m_image || !m_image->layer_count())
         return;
-    int new_layer_index = min(max(0, (int)m_image->layer_count() + delta), (int)m_image->layer_count() - 1);
-    set_selected_layer(&m_image->layer(new_layer_index));
+
+    int selected_layer_index = static_cast<int>(m_selected_layer_index);
+    selected_layer_index += delta;
+
+    if (selected_layer_index < 0)
+        selected_layer_index = m_image->layer_count() - 1;
+    if (selected_layer_index > static_cast<int>(m_image->layer_count()) - 1)
+        selected_layer_index = 0;
+
+    m_selected_layer_index = selected_layer_index;
+    set_selected_layer(&m_image->layer(m_selected_layer_index));
 }
 
 void LayerListWidget::relayout_gadgets()
@@ -245,11 +289,14 @@ void LayerListWidget::relayout_gadgets()
             continue;
         if (hole_index.has_value() && index == hole_index.value())
             y += vertical_step;
-        gadget.rect = { 0, y, width(), gadget_height };
+        gadget.rect = { 0, y, widget_inner_rect().width(), gadget_height };
         y += vertical_step;
         ++index;
     }
 
+    auto total_gadget_height = static_cast<int>(m_gadgets.size()) * vertical_step;
+    set_content_size({ widget_inner_rect().width(), total_gadget_height });
+    vertical_scrollbar().set_range(0, max(total_gadget_height - height(), 0));
     update();
 }
 
@@ -261,6 +308,8 @@ void LayerListWidget::set_selected_layer(Layer* layer)
         m_image->layer(i).set_selected(layer == &m_image->layer(i));
     if (on_layer_select)
         on_layer_select(layer);
+
+    scroll_into_view(m_gadgets[m_selected_layer_index].rect, false, true);
     update();
 }
 

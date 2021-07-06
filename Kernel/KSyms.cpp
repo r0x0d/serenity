@@ -4,7 +4,6 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
-#include <AK/Demangle.h>
 #include <AK/TemporaryChange.h>
 #include <Kernel/Arch/x86/SmapDisabler.h>
 #include <Kernel/FileSystem/FileDescription.h>
@@ -51,7 +50,7 @@ const KernelSymbol* symbolicate_kernel_address(FlatPtr address)
     return nullptr;
 }
 
-UNMAP_AFTER_INIT static void load_kernel_sybols_from_data(const KBuffer& buffer)
+UNMAP_AFTER_INIT static void load_kernel_symbols_from_data(const KBuffer& buffer)
 {
     g_lowest_kernel_symbol_address = 0xffffffff;
     g_highest_kernel_symbol_address = 0;
@@ -148,7 +147,7 @@ NEVER_INLINE static void dump_backtrace_impl(FlatPtr base_pointer, bool use_ksym
         if (symbol.symbol->address == g_highest_kernel_symbol_address && offset > 4096)
             dbgln("{:p}", symbol.address);
         else
-            dbgln("{:p}  {} +0x{:x}", symbol.address, demangle(symbol.symbol->name), offset);
+            dbgln("{:p}  {} +0x{:x}", symbol.address, symbol.symbol->name, offset);
     }
 }
 
@@ -172,7 +171,7 @@ UNMAP_AFTER_INIT void load_kernel_symbol_table()
         auto description = result.value();
         auto buffer = description->read_entire_file();
         if (!buffer.is_error())
-            load_kernel_sybols_from_data(*buffer.value());
+            load_kernel_symbols_from_data(*buffer.value());
     }
 }
 

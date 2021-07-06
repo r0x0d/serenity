@@ -139,12 +139,13 @@ bool SheetGlobalObject::internal_set(const JS::PropertyName& property_name, JS::
 void SheetGlobalObject::initialize_global_object()
 {
     Base::initialize_global_object();
-    define_native_function("get_real_cell_contents", get_real_cell_contents, 1);
-    define_native_function("set_real_cell_contents", set_real_cell_contents, 2);
-    define_native_function("parse_cell_name", parse_cell_name, 1);
-    define_native_function("current_cell_position", current_cell_position, 0);
-    define_native_function("column_arithmetic", column_arithmetic, 2);
-    define_native_function("column_index", column_index, 1);
+    u8 attr = JS::Attribute::Configurable | JS::Attribute::Writable | JS::Attribute::Enumerable;
+    define_native_function("get_real_cell_contents", get_real_cell_contents, 1, attr);
+    define_native_function("set_real_cell_contents", set_real_cell_contents, 2, attr);
+    define_native_function("parse_cell_name", parse_cell_name, 1, attr);
+    define_native_function("current_cell_position", current_cell_position, 0, attr);
+    define_native_function("column_arithmetic", column_arithmetic, 2, attr);
+    define_native_function("column_index", column_index, 1, attr);
 }
 
 void SheetGlobalObject::visit_edges(Visitor& visitor)
@@ -264,8 +265,8 @@ JS_DEFINE_NATIVE_FUNCTION(SheetGlobalObject::parse_cell_name)
         return JS::js_undefined();
 
     auto object = JS::Object::create(global_object, global_object.object_prototype());
-    object->put("column", JS::js_string(vm, sheet_object->m_sheet.column(position.value().column)));
-    object->put("row", JS::Value((unsigned)position.value().row));
+    object->define_direct_property("column", JS::js_string(vm, sheet_object->m_sheet.column(position.value().column)), JS::default_attributes);
+    object->define_direct_property("row", JS::Value((unsigned)position.value().row), JS::default_attributes);
 
     return object;
 }
@@ -294,8 +295,8 @@ JS_DEFINE_NATIVE_FUNCTION(SheetGlobalObject::current_cell_position)
     auto position = current_cell->position();
 
     auto object = JS::Object::create(global_object, global_object.object_prototype());
-    object->put("column", JS::js_string(vm, sheet_object->m_sheet.column(position.column)));
-    object->put("row", JS::Value((unsigned)position.row));
+    object->define_direct_property("column", JS::js_string(vm, sheet_object->m_sheet.column(position.column)), JS::default_attributes);
+    object->define_direct_property("row", JS::Value((unsigned)position.row), JS::default_attributes);
 
     return object;
 }
@@ -389,7 +390,7 @@ WorkbookObject::~WorkbookObject()
 void WorkbookObject::initialize(JS::GlobalObject& global_object)
 {
     Object::initialize(global_object);
-    define_native_function("sheet", sheet, 1);
+    define_native_function("sheet", sheet, 1, JS::default_attributes);
 }
 
 void WorkbookObject::visit_edges(Visitor& visitor)

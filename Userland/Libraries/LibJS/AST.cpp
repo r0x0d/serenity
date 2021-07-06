@@ -896,10 +896,10 @@ Value ClassExpression::execute(Interpreter& interpreter, GlobalObject& global_ob
         }
         auto* prototype = Object::create(global_object, super_constructor_prototype);
 
-        prototype->define_property(vm.names.constructor, class_constructor, 0);
+        prototype->define_direct_property(vm.names.constructor, class_constructor, 0);
         if (interpreter.exception())
             return {};
-        class_constructor->define_property(vm.names.prototype, prototype, Attribute::Writable);
+        class_constructor->define_direct_property(vm.names.prototype, prototype, Attribute::Writable);
         if (interpreter.exception())
             return {};
         class_constructor->internal_set_prototype_of(super_constructor.is_null() ? global_object.function_prototype() : &super_constructor.as_object());
@@ -1309,13 +1309,6 @@ void FunctionNode::dump(int indent, String const& class_name) const
             if (parameter.default_value)
                 parameter.default_value->dump(indent + 3);
         }
-    }
-    if (!m_variables.is_empty()) {
-        print_indent(indent + 1);
-        outln("(Variables)");
-
-        for (auto& variable : m_variables)
-            variable.dump(indent + 2);
     }
     print_indent(indent + 1);
     outln("(Body)");
@@ -1817,7 +1810,7 @@ Value ObjectExpression::execute(Interpreter& interpreter, GlobalObject& global_o
             return {};
 
         if (property.type() == ObjectProperty::Type::Spread) {
-            if (key.is_object() && key.as_object().is_array()) {
+            if (key.is_object() && is<Array>(key.as_object())) {
                 auto& array_to_spread = static_cast<Array&>(key.as_object());
                 for (auto& entry : array_to_spread.indexed_properties()) {
                     auto value = array_to_spread.get(entry.index());
@@ -1832,7 +1825,7 @@ Value ObjectExpression::execute(Interpreter& interpreter, GlobalObject& global_o
 
                 for (auto& it : obj_to_spread.shape().property_table_ordered()) {
                     if (it.value.attributes.is_enumerable()) {
-                        object->define_property(it.key, obj_to_spread.get(it.key));
+                        object->define_direct_property(it.key, obj_to_spread.get(it.key), JS::default_attributes);
                         if (interpreter.exception())
                             return {};
                     }
@@ -1841,7 +1834,7 @@ Value ObjectExpression::execute(Interpreter& interpreter, GlobalObject& global_o
                 auto& str_to_spread = key.as_string().string();
 
                 for (size_t i = 0; i < str_to_spread.length(); i++) {
-                    object->define_property(i, js_string(interpreter.heap(), str_to_spread.substring(i, 1)));
+                    object->define_direct_property(i, js_string(interpreter.heap(), str_to_spread.substring(i, 1)), JS::default_attributes);
                     if (interpreter.exception())
                         return {};
                 }
@@ -1868,14 +1861,14 @@ Value ObjectExpression::execute(Interpreter& interpreter, GlobalObject& global_o
         switch (property.type()) {
         case ObjectProperty::Type::Getter:
             VERIFY(value.is_function());
-            object->define_accessor(PropertyName::from_value(global_object, key), &value.as_function(), nullptr, Attribute::Configurable | Attribute::Enumerable);
+            object->define_direct_accessor(PropertyName::from_value(global_object, key), &value.as_function(), nullptr, Attribute::Configurable | Attribute::Enumerable);
             break;
         case ObjectProperty::Type::Setter:
             VERIFY(value.is_function());
-            object->define_accessor(PropertyName::from_value(global_object, key), nullptr, &value.as_function(), Attribute::Configurable | Attribute::Enumerable);
+            object->define_direct_accessor(PropertyName::from_value(global_object, key), nullptr, &value.as_function(), Attribute::Configurable | Attribute::Enumerable);
             break;
         case ObjectProperty::Type::KeyValue:
-            object->define_property(PropertyName::from_value(global_object, key), value);
+            object->define_direct_property(PropertyName::from_value(global_object, key), value, JS::default_attributes);
             break;
         case ObjectProperty::Type::Spread:
         default:
@@ -2117,7 +2110,7 @@ Value TaggedTemplateLiteral::execute(Interpreter& interpreter, GlobalObject& glo
             return {};
         raw_strings->indexed_properties().append(value);
     }
-    strings->define_property(vm.names.raw, raw_strings, 0);
+    strings->define_direct_property(vm.names.raw, raw_strings, 0);
     return vm.call(tag_function, js_undefined(), move(arguments));
 }
 
@@ -2382,6 +2375,11 @@ void ScopeNode::add_variables(NonnullRefPtrVector<VariableDeclaration> variables
 void ScopeNode::add_functions(NonnullRefPtrVector<FunctionDeclaration> functions)
 {
     m_functions.extend(move(functions));
+}
+
+void ScopeNode::add_hoisted_function(NonnullRefPtr<FunctionDeclaration> hoisted_function)
+{
+    m_hoisted_functions.append(hoisted_function);
 }
 
 }

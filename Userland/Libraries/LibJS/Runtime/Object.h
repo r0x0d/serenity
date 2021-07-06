@@ -78,6 +78,7 @@ public:
     bool create_data_property(PropertyName const&, Value);
     bool create_method_property(PropertyName const&, Value);
     bool create_data_property_or_throw(PropertyName const&, Value);
+    bool create_non_enumerable_data_property_or_throw(PropertyName const&, Value);
     bool define_property_or_throw(PropertyName const&, PropertyDescriptor const&);
     bool delete_property_or_throw(PropertyName const&);
     bool has_property(PropertyName const&) const;
@@ -122,25 +123,15 @@ public:
 
     // Non-standard methods
 
-    // - Helpers using old, non-standard names but wrapping the standard methods.
-    //   FIXME: Update all the code relying on these and remove them.
-    bool put(PropertyName const& property_name, Value value, Value receiver = {}) { return internal_set(property_name, value, receiver.value_or(this)); }
-    Optional<PropertyDescriptor> get_own_property_descriptor(PropertyName const& property_name) const { return internal_get_own_property(property_name); }
-    bool define_property(PropertyName const& property_name, Value value, PropertyAttributes attributes = default_attributes, bool = true)
-    {
-        return internal_define_own_property(property_name, { .value = value, .writable = attributes.is_writable(), .enumerable = attributes.is_enumerable(), .configurable = attributes.is_configurable() });
-    };
-
     Value get_without_side_effects(const PropertyName&) const;
 
-    bool define_property_without_transition(const PropertyName&, Value value, PropertyAttributes attributes = default_attributes, bool throw_exceptions = true);
-    bool define_accessor(const PropertyName&, FunctionObject* getter, FunctionObject* setter, PropertyAttributes attributes = default_attributes, bool throw_exceptions = true);
+    void define_direct_property(PropertyName const& property_name, Value value, PropertyAttributes attributes) { storage_set(property_name, { value, attributes }); };
+    void define_direct_accessor(PropertyName const&, FunctionObject* getter, FunctionObject* setter, PropertyAttributes attributes);
 
-    bool define_native_function(PropertyName const&, Function<Value(VM&, GlobalObject&)>, i32 length = 0, PropertyAttributes attributes = default_attributes);
-    bool define_native_property(PropertyName const&, Function<Value(VM&, GlobalObject&)> getter, Function<void(VM&, GlobalObject&, Value)> setter, PropertyAttributes attributes = default_attributes);
-    bool define_native_accessor(PropertyName const&, Function<Value(VM&, GlobalObject&)> getter, Function<Value(VM&, GlobalObject&)> setter, PropertyAttributes attributes = default_attributes);
+    void define_native_function(PropertyName const&, Function<Value(VM&, GlobalObject&)>, i32 length, PropertyAttributes attributes);
+    void define_native_property(PropertyName const&, Function<Value(VM&, GlobalObject&)> getter, Function<void(VM&, GlobalObject&, Value)> setter, PropertyAttributes attributes);
+    void define_native_accessor(PropertyName const&, Function<Value(VM&, GlobalObject&)> getter, Function<Value(VM&, GlobalObject&)> setter, PropertyAttributes attributes);
 
-    virtual bool is_array() const { return false; }
     virtual bool is_function() const { return false; }
     virtual bool is_typed_array() const { return false; }
     virtual bool is_string_object() const { return false; }
@@ -151,6 +142,9 @@ public:
 
     // B.3.7 The [[IsHTMLDDA]] Internal Slot, https://tc39.es/ecma262/#sec-IsHTMLDDA-internal-slot
     virtual bool is_htmldda() const { return false; }
+
+    bool has_parameter_map() const { return m_has_parameter_map; }
+    void set_has_parameter_map() { m_has_parameter_map = true; }
 
     virtual const char* class_name() const override { return "Object"; }
     virtual void visit_edges(Cell::Visitor&) override;
@@ -195,7 +189,11 @@ protected:
     explicit Object(GlobalObjectTag);
     Object(ConstructWithoutPrototypeTag, GlobalObject&);
 
+    // [[Extensible]]
     bool m_is_extensible { true };
+
+    // [[ParameterMap]]
+    bool m_has_parameter_map { false };
 
 private:
     Value call_native_property_getter(NativeProperty& property, Value this_value) const;

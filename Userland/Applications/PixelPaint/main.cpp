@@ -350,12 +350,12 @@ int main(int argc, char** argv)
     layer_menu.add_separator();
     layer_menu.add_action(GUI::Action::create(
         "Select &Previous Layer", { 0, Key_PageUp }, [&](auto&) {
-            layer_list_widget.move_selection(1);
+            layer_list_widget.cycle_through_selection(1);
         },
         window));
     layer_menu.add_action(GUI::Action::create(
         "Select &Next Layer", { 0, Key_PageDown }, [&](auto&) {
-            layer_list_widget.move_selection(-1);
+            layer_list_widget.cycle_through_selection(-1);
         },
         window));
     layer_menu.add_action(GUI::Action::create(
@@ -404,6 +404,10 @@ int main(int argc, char** argv)
             editor->set_active_layer(nullptr);
         },
         window));
+
+    layer_list_widget.on_context_menu_request = [&](auto& event) {
+        layer_menu.popup(event.screen_position());
+    };
 
     auto& filter_menu = menubar->add_menu("&Filter");
     auto& spatial_filters_menu = filter_menu.add_submenu("&Spatial");

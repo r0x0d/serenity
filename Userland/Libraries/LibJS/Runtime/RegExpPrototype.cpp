@@ -286,6 +286,16 @@ JS_DEFINE_NATIVE_FUNCTION(RegExpPrototype::symbol_replace)
     if (vm.exception())
         return {};
 
+    if (!replace_value.is_function()) {
+        auto replace_string = replace_value.to_string(global_object);
+        if (vm.exception())
+            return {};
+
+        replace_value = js_string(vm, move(replace_string));
+        if (vm.exception())
+            return {};
+    }
+
     auto global_value = rx->get(vm.names.global);
     if (vm.exception())
         return {};
@@ -399,8 +409,14 @@ JS_DEFINE_NATIVE_FUNCTION(RegExpPrototype::symbol_replace)
             if (vm.exception())
                 return {};
         } else {
-            // FIXME: Implement the GetSubstituion algorithm for substituting placeholder '$' characters - https://tc39.es/ecma262/#sec-getsubstitution
-            replacement = replace_value.to_string(global_object);
+            auto named_captures_object = js_undefined();
+            if (!named_captures.is_undefined()) {
+                named_captures_object = named_captures.to_object(global_object);
+                if (vm.exception())
+                    return {};
+            }
+
+            replacement = get_substitution(global_object, matched, string, position, captures, named_captures_object, replace_value);
             if (vm.exception())
                 return {};
         }
