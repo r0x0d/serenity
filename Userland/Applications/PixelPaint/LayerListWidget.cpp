@@ -163,6 +163,11 @@ void LayerListWidget::mousemove_event(GUI::MouseEvent& event)
     auto& gadget = m_gadgets[m_moving_gadget_index.value()];
     VERIFY(gadget.is_moving);
     gadget.movement_delta = delta;
+
+    auto adjusted_rect = gadget.rect;
+    adjusted_rect.translate_by(gadget.movement_delta);
+    scroll_into_view(adjusted_rect, false, true);
+
     relayout_gadgets();
 }
 
@@ -217,6 +222,7 @@ void LayerListWidget::image_did_remove_layer(size_t layer_index)
         m_moving_gadget_index = {};
     }
     m_gadgets.remove(layer_index);
+    m_selected_layer_index = 0;
     relayout_gadgets();
 }
 

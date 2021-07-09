@@ -348,12 +348,6 @@ JS_DEFINE_NATIVE_FUNCTION(ArrayPrototype::push)
     auto* this_object = vm.this_value(global_object).to_object(global_object);
     if (!this_object)
         return {};
-    if (is<Array>(this_object)) {
-        auto* array = static_cast<Array*>(this_object);
-        for (size_t i = 0; i < vm.argument_count(); ++i)
-            array->indexed_properties().append(vm.argument(i));
-        return Value(static_cast<i32>(array->indexed_properties().array_like_size()));
-    }
     auto length = length_of_array_like(global_object, *this_object);
     if (vm.exception())
         return {};
@@ -368,7 +362,7 @@ JS_DEFINE_NATIVE_FUNCTION(ArrayPrototype::push)
         if (vm.exception())
             return {};
     }
-    auto new_length_value = Value((i32)new_length);
+    auto new_length_value = Value(new_length);
     this_object->set(vm.names.length, new_length_value, true);
     if (vm.exception())
         return {};
@@ -432,12 +426,6 @@ JS_DEFINE_NATIVE_FUNCTION(ArrayPrototype::pop)
     auto* this_object = vm.this_value(global_object).to_object(global_object);
     if (!this_object)
         return {};
-    if (is<Array>(this_object)) {
-        auto* array = static_cast<Array*>(this_object);
-        if (array->indexed_properties().is_empty())
-            return js_undefined();
-        return array->indexed_properties().take_last(array).value.value_or(js_undefined());
-    }
     auto length = length_of_array_like(global_object, *this_object);
     if (vm.exception())
         return {};
@@ -452,7 +440,7 @@ JS_DEFINE_NATIVE_FUNCTION(ArrayPrototype::pop)
     this_object->delete_property_or_throw(index);
     if (vm.exception())
         return {};
-    this_object->set(vm.names.length, Value((i32)index), true);
+    this_object->set(vm.names.length, Value(index), true);
     if (vm.exception())
         return {};
     return element;
@@ -749,14 +737,15 @@ JS_DEFINE_NATIVE_FUNCTION(ArrayPrototype::slice)
         return {};
 
     size_t index = 0;
+    size_t k = actual_start;
 
-    while (actual_start < final) {
-        bool present = this_object->has_property((u32)actual_start);
+    while (k < final) {
+        bool present = this_object->has_property(k);
         if (vm.exception())
             return {};
 
         if (present) {
-            auto value = this_object->get((u32)actual_start);
+            auto value = this_object->get(k);
             if (vm.exception())
                 return {};
 
@@ -765,7 +754,7 @@ JS_DEFINE_NATIVE_FUNCTION(ArrayPrototype::slice)
                 return {};
         }
 
-        ++actual_start;
+        ++k;
         ++index;
     }
 
@@ -813,18 +802,18 @@ JS_DEFINE_NATIVE_FUNCTION(ArrayPrototype::index_of)
     if (Value(n).is_negative_infinity())
         n = 0;
 
-    u32 k;
+    size_t k;
 
     // 8. If n ≥ 0, then
     if (n >= 0) {
         // a. Let k be n.
-        k = (u32)n;
+        k = (size_t)n;
     }
     // 9. Else,
     else {
         // a. Let k be len + n.
         // b. If k < 0, set k to 0.
-        k = max((i32)length + (i32)n, 0);
+        k = max(length + n, 0);
     }
 
     // 10. Repeat, while k < len,
@@ -1048,7 +1037,7 @@ JS_DEFINE_NATIVE_FUNCTION(ArrayPrototype::reduce_right)
                 return {};
 
             // ii. Set accumulator to ? Call(callbackfn, undefined, « accumulator, kValue, 𝔽(k), O »).
-            accumulator = vm.call(callback_function.as_function(), js_undefined(), accumulator, k_value, Value((i32)k), object);
+            accumulator = vm.call(callback_function.as_function(), js_undefined(), accumulator, k_value, Value((size_t)k), object);
             if (vm.exception())
                 return {};
         }
@@ -1323,17 +1312,17 @@ JS_DEFINE_NATIVE_FUNCTION(ArrayPrototype::last_index_of)
     if (Value(n).is_negative_infinity())
         return Value(-1);
 
-    i32 k;
+    ssize_t k;
 
     // 6. If n ≥ 0, then
     if (n >= 0) {
         // a. Let k be min(n, len - 1).
-        k = min((i32)n, (i32)length - 1);
+        k = min(n, (double)length - 1);
     }
     // 7. Else,
     else {
         //  a. Let k be len + n.
-        k = (i32)length + (i32)n;
+        k = (double)length + n;
     }
 
     // 8. Repeat, while k ≥ 0,
@@ -1357,7 +1346,7 @@ JS_DEFINE_NATIVE_FUNCTION(ArrayPrototype::last_index_of)
 
             // iii. If same is true, return 𝔽(k).
             if (same)
-                return Value(k);
+                return Value((size_t)k);
         }
 
         // c. Set k to k - 1.
@@ -1373,23 +1362,29 @@ JS_DEFINE_NATIVE_FUNCTION(ArrayPrototype::includes)
     auto* this_object = vm.this_value(global_object).to_object(global_object);
     if (!this_object)
         return {};
-    i32 length = length_of_array_like(global_object, *this_object);
+    auto length = length_of_array_like(global_object, *this_object);
     if (vm.exception())
         return {};
     if (length == 0)
         return Value(false);
-    i32 from_index = 0;
+    u64 from_index = 0;
     if (vm.argument_count() >= 2) {
-        from_index = vm.argument(1).to_i32(global_object);
+        auto from_argument = vm.argument(1).to_integer_or_infinity(global_object);
         if (vm.exception())
             return {};
-        if (from_index >= length)
+        if (Value(from_argument).is_positive_infinity() || from_argument >= length)
             return Value(false);
-        if (from_index < 0)
-            from_index = max(length + from_index, 0);
+
+        if (Value(from_argument).is_negative_infinity())
+            from_argument = 0;
+
+        if (from_argument < 0)
+            from_index = max(length + from_argument, 0);
+        else
+            from_index = from_argument;
     }
     auto value_to_find = vm.argument(0);
-    for (i32 i = from_index; i < length; ++i) {
+    for (u64 i = from_index; i < length; ++i) {
         auto element = this_object->get(i);
         if (vm.exception())
             return {};
@@ -1622,32 +1617,35 @@ JS_DEFINE_NATIVE_FUNCTION(ArrayPrototype::splice)
     if (vm.exception())
         return {};
 
-    auto relative_start = vm.argument(0).to_i32(global_object);
+    auto relative_start = vm.argument(0).to_integer_or_infinity(global_object);
     if (vm.exception())
         return {};
 
-    size_t actual_start;
+    if (Value(relative_start).is_negative_infinity())
+        relative_start = 0;
+
+    u64 actual_start;
 
     if (relative_start < 0)
         actual_start = max((ssize_t)initial_length + relative_start, (ssize_t)0);
     else
-        actual_start = min((size_t)relative_start, initial_length);
+        actual_start = min(relative_start, initial_length);
 
-    size_t insert_count = 0;
-    size_t actual_delete_count = 0;
+    u64 insert_count = 0;
+    double actual_delete_count = 0;
 
     if (vm.argument_count() == 1) {
         actual_delete_count = initial_length - actual_start;
     } else if (vm.argument_count() >= 2) {
         insert_count = vm.argument_count() - 2;
-        i32 delete_count = vm.argument(1).to_i32(global_object);
+        auto delete_count = vm.argument(1).to_integer_or_infinity(global_object);
         if (vm.exception())
             return {};
-
-        actual_delete_count = min((size_t)max(delete_count, 0), initial_length - actual_start);
+        auto temp = max(delete_count, 0);
+        actual_delete_count = min(temp, initial_length - actual_start);
     }
 
-    size_t new_length = initial_length + insert_count - actual_delete_count;
+    double new_length = initial_length + insert_count - actual_delete_count;
 
     if (new_length > MAX_ARRAY_LIKE_INDEX) {
         vm.throw_exception<TypeError>(global_object, ErrorType::ArrayMaxSize);
@@ -1658,14 +1656,14 @@ JS_DEFINE_NATIVE_FUNCTION(ArrayPrototype::splice)
     if (vm.exception())
         return {};
 
-    for (size_t i = 0; i < actual_delete_count; ++i) {
+    for (u64 i = 0; i < actual_delete_count; ++i) {
         auto from = actual_start + i;
         bool from_present = this_object->has_property(from);
         if (vm.exception())
             return {};
 
         if (from_present) {
-            auto from_value = this_object->get(actual_start + i);
+            auto from_value = this_object->get(from);
             if (vm.exception())
                 return {};
 
@@ -1680,15 +1678,20 @@ JS_DEFINE_NATIVE_FUNCTION(ArrayPrototype::splice)
         return {};
 
     if (insert_count < actual_delete_count) {
-        for (size_t i = actual_start; i < initial_length - actual_delete_count; ++i) {
-            auto from = this_object->get(i + actual_delete_count);
+        for (u64 i = actual_start; i < initial_length - actual_delete_count; ++i) {
+            auto to = i + insert_count;
+            u64 from = i + actual_delete_count;
+
+            auto from_present = this_object->has_property(from);
             if (vm.exception())
                 return {};
 
-            auto to = i + insert_count;
+            if (from_present) {
+                auto from_value = this_object->get(from);
+                if (vm.exception())
+                    return {};
 
-            if (!from.is_empty()) {
-                this_object->set(to, from, true);
+                this_object->set(to, from_value, true);
             } else {
                 this_object->delete_property_or_throw(to);
             }
@@ -1696,21 +1699,25 @@ JS_DEFINE_NATIVE_FUNCTION(ArrayPrototype::splice)
                 return {};
         }
 
-        for (size_t i = initial_length; i > new_length; --i) {
+        for (u64 i = initial_length; i > new_length; --i) {
             this_object->delete_property_or_throw(i - 1);
             if (vm.exception())
                 return {};
         }
     } else if (insert_count > actual_delete_count) {
-        for (size_t i = initial_length - actual_delete_count; i > actual_start; --i) {
-            auto from = this_object->get(i + actual_delete_count - 1);
+        for (u64 i = initial_length - actual_delete_count; i > actual_start; --i) {
+            u64 from_index = i + actual_delete_count - 1;
+            auto from_present = this_object->has_property(from_index);
             if (vm.exception())
                 return {};
 
             auto to = i + insert_count - 1;
 
-            if (!from.is_empty()) {
-                this_object->set(to, from, true);
+            if (from_present) {
+                auto from_value = this_object->get(from_index);
+                if (vm.exception())
+                    return {};
+                this_object->set(to, from_value, true);
             } else {
                 this_object->delete_property_or_throw(to);
             }
@@ -1719,13 +1726,13 @@ JS_DEFINE_NATIVE_FUNCTION(ArrayPrototype::splice)
         }
     }
 
-    for (size_t i = 0; i < insert_count; ++i) {
+    for (u64 i = 0; i < insert_count; ++i) {
         this_object->set(actual_start + i, vm.argument(i + 2), true);
         if (vm.exception())
             return {};
     }
 
-    this_object->set(vm.names.length, Value((i32)new_length), true);
+    this_object->set(vm.names.length, Value(new_length), true);
     if (vm.exception())
         return {};
 
@@ -1739,26 +1746,31 @@ JS_DEFINE_NATIVE_FUNCTION(ArrayPrototype::fill)
     if (!this_object)
         return {};
 
-    ssize_t length = length_of_array_like(global_object, *this_object);
+    auto length = length_of_array_like(global_object, *this_object);
     if (vm.exception())
         return {};
 
-    ssize_t relative_start = 0;
-    ssize_t relative_end = length;
+    double relative_start = 0;
+    double relative_end = length;
 
     if (vm.argument_count() >= 2) {
-        relative_start = vm.argument(1).to_i32(global_object);
+        relative_start = vm.argument(1).to_integer_or_infinity(global_object);
         if (vm.exception())
             return {};
+        if (Value(relative_start).is_negative_infinity())
+            relative_start = 0;
     }
 
-    if (vm.argument_count() >= 3) {
-        relative_end = vm.argument(2).to_i32(global_object);
+    //If end is undefined, let relativeEnd be len; else let relativeEnd be ? ToIntegerOrInfinity(end).
+    if (vm.argument_count() >= 3 && !vm.argument(2).is_undefined()) {
+        relative_end = vm.argument(2).to_integer_or_infinity(global_object);
         if (vm.exception())
             return {};
+        if (Value(relative_end).is_negative_infinity())
+            relative_end = 0;
     }
 
-    size_t from, to;
+    u64 from, to;
 
     if (relative_start < 0)
         from = max(length + relative_start, 0L);
@@ -1770,7 +1782,7 @@ JS_DEFINE_NATIVE_FUNCTION(ArrayPrototype::fill)
     else
         to = min(relative_end, length);
 
-    for (size_t i = from; i < to; i++) {
+    for (u64 i = from; i < to; i++) {
         this_object->set(i, vm.argument(0), true);
         if (vm.exception())
             return {};
@@ -1833,10 +1845,10 @@ static size_t flatten_into_array(GlobalObject& global_object, Object& new_array,
         }
 
         if (depth > 0 && value.is_array(global_object)) {
-            auto length = length_of_array_like(global_object, value.as_array());
+            auto length = length_of_array_like(global_object, value.as_object());
             if (vm.exception())
                 return {};
-            target_index = flatten_into_array(global_object, new_array, value.as_array(), length, target_index, depth - 1);
+            target_index = flatten_into_array(global_object, new_array, value.as_object(), length, target_index, depth - 1);
             if (vm.exception())
                 return {};
             continue;

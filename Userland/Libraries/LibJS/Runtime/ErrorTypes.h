@@ -55,6 +55,7 @@
     M(NotAFunctionNoParam, "Not a function")                                                                                            \
     M(NotAn, "Not an {} object")                                                                                                        \
     M(NotAnObject, "{} is not an object")                                                                                               \
+    M(NotAnObjectOrNull, "{} is neither an object nor null")                                                                            \
     M(NotASymbol, "{} is not a symbol")                                                                                                 \
     M(NotIterable, "{} is not iterable")                                                                                                \
     M(NotObjectCoercible, "{} cannot be converted to an object")                                                                        \
@@ -132,6 +133,8 @@
                                "return value must match the target's extensibility")                                                    \
     M(ProxyOwnPropertyKeysNotStringOrSymbol, "Proxy handler's ownKeys trap violates invariant: "                                        \
                                              "the type of each result list element is either String or Symbol")                         \
+    M(ProxyOwnPropertyKeysDuplicates, "Proxy handler's ownKeys trap violates invariant: "                                               \
+                                      "the result list may not contain duplicate elements")                                             \
     M(ProxyPreventExtensionsReturn, "Proxy handler's preventExtensions trap violates "                                                  \
                                     "invariant: cannot return true if the target object is extensible")                                 \
     M(ProxyRevoked, "An operation was performed on a revoked Proxy object")                                                             \
@@ -160,6 +163,8 @@
     M(StringNonGlobalRegExp, "RegExp argument is non-global")                                                                           \
     M(StringRawCannotConvert, "Cannot convert property 'raw' to object from {}")                                                        \
     M(StringRepeatCountMustBe, "repeat count must be a {} number")                                                                      \
+    M(TemporalInvalidEpochNanoseconds, "Invalid epoch nanoseconds value, must be in range -86400 * 10^17 to 86400 * 10^17")             \
+    M(TemporalInvalidTimeZoneName, "Invalid time zone name")                                                                            \
     M(ThisHasNotBeenInitialized, "|this| has not been initialized")                                                                     \
     M(ThisIsAlreadyInitialized, "|this| is already initialized")                                                                        \
     M(ToObjectNullOrUndefined, "ToObject on null or undefined")                                                                         \

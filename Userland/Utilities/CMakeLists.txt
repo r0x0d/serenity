@@ -4,11 +4,11 @@ list(APPEND REQUIRED_TARGETS
     arp base64 basename cat chmod chown chroot clear cp cut date dd df dirname dmesg du echo env expr false fgrep
     file find grep groups head host hostname id ifconfig kill killall ln ls mkdir mount mv nproc
     pgrep pidof ping pmap ps readlink realpath reboot rm rmdir seq shutdown sleep sort stat stty su tail test
-    touch tr true umount uname uniq uptime w wc which whoami xargs yes
+    touch tr true umount uname uniq uptime w wc which whoami xargs yes less
 )
 list(APPEND RECOMMENDED_TARGETS
     adjtime aplay avol bt checksum chres cksum copy fortune gunzip gzip init keymap lsirq lsof lspci man mknod mktemp
-    modload modunload more nc netstat notify ntpquery open pape passwd pls printf pro shot tar tt unzip zip
+    modload modunload nc netstat notify ntpquery open pape passwd pls printf pro shot tar tt unzip zip
 )
 
 # FIXME: Support specifying component dependencies for utilities (e.g. WebSocket for telws)
@@ -85,7 +85,7 @@ target_link_libraries(pls LibCrypt)
 target_link_libraries(pro LibProtocol)
 target_link_libraries(run-tests LibRegex)
 target_link_libraries(shot LibGUI)
-target_link_libraries(sql LibLine LibSQL)
+target_link_libraries(sql LibLine LibSQL LibIPC)
 target_link_libraries(su LibCrypt)
 target_link_libraries(tar LibArchive LibCompress)
 target_link_libraries(telws LibProtocol LibLine)
@@ -99,3 +99,4 @@ target_link_libraries(zip LibArchive LibCompress LibCrypto)
 target_link_libraries(cpp-parser LibCpp LibGUI)
 target_link_libraries(PreprocessorTest LibCpp LibGUI)
 target_link_libraries(wasm LibWasm LibLine)
+target_link_libraries(wsctl LibGUI)

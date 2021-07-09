@@ -24,9 +24,9 @@ void RegExpConstructor::initialize(GlobalObject& global_object)
     // 22.2.4.1 RegExp.prototype, https://tc39.es/ecma262/#sec-regexp.prototype
     define_direct_property(vm.names.prototype, global_object.regexp_prototype(), 0);
 
-    define_direct_property(vm.names.length, Value(2), Attribute::Configurable);
-
     define_native_accessor(*vm.well_known_symbol_species(), symbol_species_getter, {}, Attribute::Configurable);
+
+    define_direct_property(vm.names.length, Value(2), Attribute::Configurable);
 }
 
 RegExpConstructor::~RegExpConstructor()
@@ -43,20 +43,8 @@ Value RegExpConstructor::call()
 Value RegExpConstructor::construct(FunctionObject&)
 {
     auto& vm = this->vm();
-    String pattern = "";
-    String flags = "";
-    if (!vm.argument(0).is_undefined()) {
-        pattern = vm.argument(0).to_string(global_object());
-        if (vm.exception())
-            return {};
-    }
-    if (!vm.argument(1).is_undefined()) {
-        flags = vm.argument(1).to_string(global_object());
-        if (vm.exception())
-            return {};
-    }
-    // FIXME: Use RegExpAlloc (which uses OrdinaryCreateFromConstructor)
-    return RegExpObject::create(global_object(), pattern, flags);
+    // FIXME: This is non-conforming
+    return regexp_create(global_object(), vm.argument(0), vm.argument(1));
 }
 
 // 22.2.4.2 get RegExp [ @@species ], https://tc39.es/ecma262/#sec-get-regexp-@@species

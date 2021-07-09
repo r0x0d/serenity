@@ -35,8 +35,8 @@ static IDAllocator s_window_id_allocator;
 
 class WindowBackingStore {
 public:
-    WindowBackingStore(NonnullRefPtr<Gfx::Bitmap> bitmap)
-        : m_bitmap(bitmap)
+    explicit WindowBackingStore(NonnullRefPtr<Gfx::Bitmap> bitmap)
+        : m_bitmap(move(bitmap))
         , m_serial(++s_next_backing_store_serial)
     {
     }
@@ -808,7 +808,7 @@ OwnPtr<WindowBackingStore> Window::create_backing_store(const Gfx::IntSize& size
     }
 
     // FIXME: Plumb scale factor here eventually.
-    auto bitmap = Gfx::Bitmap::create_with_anonymous_buffer(format, buffer, size, 1, {});
+    auto bitmap = Gfx::Bitmap::create_with_anonymous_buffer(format, move(buffer), size, 1, {});
     if (!bitmap) {
         VERIFY(size.width() <= INT16_MAX);
         VERIFY(size.height() <= INT16_MAX);

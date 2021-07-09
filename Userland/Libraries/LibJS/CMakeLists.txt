@@ -82,7 +82,6 @@ set(SOURCES
     Runtime/MarkedValueList.cpp
     Runtime/MathObject.cpp
     Runtime/NativeFunction.cpp
-    Runtime/NativeProperty.cpp
     Runtime/NumberConstructor.cpp
     Runtime/NumberObject.cpp
     Runtime/NumberPrototype.cpp
@@ -121,6 +120,15 @@ set(SOURCES
     Runtime/SymbolConstructor.cpp
     Runtime/SymbolObject.cpp
     Runtime/SymbolPrototype.cpp
+    Runtime/Temporal/Instant.cpp
+    Runtime/Temporal/InstantConstructor.cpp
+    Runtime/Temporal/InstantPrototype.cpp
+    Runtime/Temporal/ISO8601.cpp
+    Runtime/Temporal/Now.cpp
+    Runtime/Temporal/Temporal.cpp
+    Runtime/Temporal/TimeZone.cpp
+    Runtime/Temporal/TimeZoneConstructor.cpp
+    Runtime/Temporal/TimeZonePrototype.cpp
     Runtime/TypedArray.cpp
     Runtime/TypedArrayConstructor.cpp
     Runtime/TypedArrayPrototype.cpp

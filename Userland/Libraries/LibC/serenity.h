@@ -82,14 +82,14 @@ static ALWAYS_INLINE int futex_wait(uint32_t* userspace_address, uint32_t value,
         if (clockid == CLOCK_REALTIME || clockid == CLOCK_REALTIME_COARSE)
             op |= FUTEX_CLOCK_REALTIME;
     } else {
-        op = FUTEX_WAIT;
+        op = FUTEX_WAIT | FUTEX_PRIVATE_FLAG;
     }
     return futex(userspace_address, op, value, abstime, nullptr, FUTEX_BITSET_MATCH_ANY);
 }
 
 static ALWAYS_INLINE int futex_wake(uint32_t* userspace_address, uint32_t count)
 {
-    return futex(userspace_address, FUTEX_WAKE, count, NULL, NULL, 0);
+    return futex(userspace_address, FUTEX_WAKE | FUTEX_PRIVATE_FLAG, count, NULL, NULL, 0);
 }
 
 #define PURGE_ALL_VOLATILE 0x1
@@ -126,8 +126,6 @@ int serenity_readlink(const char* path, size_t path_length, char* buffer, size_t
 
 int getkeymap(char* name_buffer, size_t name_buffer_size, uint32_t* map, uint32_t* shift_map, uint32_t* alt_map, uint32_t* altgr_map, uint32_t* shift_altgr_map);
 int setkeymap(const char* name, const uint32_t* map, uint32_t* const shift_map, const uint32_t* alt_map, const uint32_t* altgr_map, const uint32_t* shift_altgr_map);
-
-void set_num_lock(bool on);
 
 uint16_t internet_checksum(const void* ptr, size_t count);
 

@@ -4,7 +4,6 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
-#include <AK/LexicalPath.h>
 #include <AK/Singleton.h>
 #include <AK/StringBuilder.h>
 #include <Kernel/Debug.h>
@@ -14,6 +13,7 @@
 #include <Kernel/FileSystem/FileDescription.h>
 #include <Kernel/FileSystem/FileSystem.h>
 #include <Kernel/FileSystem/VirtualFileSystem.h>
+#include <Kernel/KLexicalPath.h>
 #include <Kernel/KSyms.h>
 #include <Kernel/Process.h>
 #include <Kernel/Sections.h>
@@ -56,7 +56,7 @@ KResult VFS::mount(FS& file_system, Custody& mount_point, int flags)
     auto& inode = mount_point.inode();
     dbgln("VFS: Mounting {} at {} (inode: {}) with flags {}",
         file_system.class_name(),
-        mount_point.absolute_path(),
+        mount_point.try_create_absolute_path(),
         inode.identifier(),
         flags);
     // FIXME: check that this is not already a mount point
@@ -69,7 +69,7 @@ KResult VFS::bind_mount(Custody& source, Custody& mount_point, int flags)
 {
     Locker locker(m_lock);
 
-    dbgln("VFS: Bind-mounting {} at {}", source.absolute_path(), mount_point.absolute_path());
+    dbgln("VFS: Bind-mounting {} at {}", source.try_create_absolute_path(), mount_point.try_create_absolute_path());
     // FIXME: check that this is not already a mount point
     Mount mount { source.inode(), mount_point, flags };
     m_mounts.append(move(mount));
@@ -80,7 +80,7 @@ KResult VFS::remount(Custody& mount_point, int new_flags)
 {
     Locker locker(m_lock);
 
-    dbgln("VFS: Remounting {}", mount_point.absolute_path());
+    dbgln("VFS: Remounting {}", mount_point.try_create_absolute_path());
 
     Mount* mount = find_mount_for_guest(mount_point.inode());
     if (!mount)
@@ -353,15 +353,21 @@ KResult VFS::mknod(StringView path, mode_t mode, dev_t dev, Custody& base)
     if (parent_custody->is_readonly())
         return EROFS;
 
-    auto basename = LexicalPath::basename(path);
+    auto basename = KLexicalPath::basename(path);
     dbgln("VFS::mknod: '{}' mode={} dev={} in {}", basename, mode, dev, parent_inode.identifier());
     return parent_inode.create_child(basename, mode, dev, current_process->euid(), current_process->egid()).result();
 }
 
 KResultOr<NonnullRefPtr<FileDescription>> VFS::create(StringView path, int options, mode_t mode, Custody& parent_custody, Optional<UidAndGid> owner)
 {
-    auto basename = LexicalPath::basename(path);
-    if (auto result = validate_path_against_process_veil(String::formatted("{}/{}", parent_custody.absolute_path(), basename), options); result.is_error())
+    auto basename = KLexicalPath::basename(path);
+    auto parent_path = parent_custody.try_create_absolute_path();
+    if (!parent_path)
+        return ENOMEM;
+    auto full_path = KLexicalPath::try_join(parent_path->view(), basename);
+    if (!full_path)
+        return ENOMEM;
+    if (auto result = validate_path_against_process_veil(full_path->view(), options); result.is_error())
         return result;
 
     if (!is_socket(mode) && !is_fifo(mode) && !is_block_device(mode) && !is_character_device(mode)) {
@@ -418,7 +424,7 @@ KResult VFS::mkdir(StringView path, mode_t mode, Custody& base)
     if (parent_custody->is_readonly())
         return EROFS;
 
-    auto basename = LexicalPath::basename(path);
+    auto basename = KLexicalPath::basename(path);
     dbgln_if(VFS_DEBUG, "VFS::mkdir: '{}' in {}", basename, parent_inode.identifier());
     return parent_inode.create_child(basename, S_IFDIR | mode, 0, current_process->euid(), current_process->egid()).result();
 }
@@ -533,7 +539,7 @@ KResult VFS::rename(StringView old_path, StringView new_path, Custody& base)
     if (old_parent_custody->is_readonly() || new_parent_custody->is_readonly())
         return EROFS;
 
-    auto new_basename = LexicalPath::basename(new_path);
+    auto new_basename = KLexicalPath::basename(new_path);
 
     if (!new_custody_or_error.is_error()) {
         auto& new_custody = *new_custody_or_error.value();
@@ -554,7 +560,7 @@ KResult VFS::rename(StringView old_path, StringView new_path, Custody& base)
     if (auto result = new_parent_inode.add_child(old_inode, new_basename, old_inode.mode()); result.is_error())
         return result;
 
-    if (auto result = old_parent_inode.remove_child(LexicalPath::basename(old_path)); result.is_error())
+    if (auto result = old_parent_inode.remove_child(KLexicalPath::basename(old_path)); result.is_error())
         return result;
 
     return KSuccess;
@@ -656,7 +662,7 @@ KResult VFS::link(StringView old_path, StringView new_path, Custody& base)
     if (!hard_link_allowed(old_inode))
         return EPERM;
 
-    return parent_inode.add_child(old_inode, LexicalPath::basename(new_path), old_inode.mode());
+    return parent_inode.add_child(old_inode, KLexicalPath::basename(new_path), old_inode.mode());
 }
 
 KResult VFS::unlink(StringView path, Custody& base)
@@ -689,7 +695,7 @@ KResult VFS::unlink(StringView path, Custody& base)
     if (parent_custody->is_readonly())
         return EROFS;
 
-    if (auto result = parent_inode.remove_child(LexicalPath::basename(path)); result.is_error())
+    if (auto result = parent_inode.remove_child(KLexicalPath::basename(path)); result.is_error())
         return result;
 
     return KSuccess;
@@ -712,7 +718,7 @@ KResult VFS::symlink(StringView target, StringView linkpath, Custody& base)
     if (parent_custody->is_readonly())
         return EROFS;
 
-    auto basename = LexicalPath::basename(linkpath);
+    auto basename = KLexicalPath::basename(linkpath);
     dbgln_if(VFS_DEBUG, "VFS::symlink: '{}' (-> '{}') in {}", basename, target, parent_inode.identifier());
     auto inode_or_error = parent_inode.create_child(basename, S_IFLNK | 0644, 0, current_process->euid(), current_process->egid());
     if (inode_or_error.is_error())
@@ -771,7 +777,7 @@ KResult VFS::rmdir(StringView path, Custody& base)
     if (auto result = inode.remove_child(".."); result.is_error())
         return result;
 
-    return parent_inode.remove_child(LexicalPath::basename(path));
+    return parent_inode.remove_child(KLexicalPath::basename(path));
 }
 
 VFS::Mount::Mount(FS& guest_fs, Custody* host_custody, int flags)
@@ -833,8 +839,7 @@ UnveilNode const& VFS::find_matching_unveiled_path(StringView path)
     VERIFY(Process::current()->veil_state() != VeilState::None);
     auto& unveil_root = Process::current()->unveiled_paths();
 
-    LexicalPath lexical_path { path };
-    auto& path_parts = lexical_path.parts_view();
+    auto path_parts = KLexicalPath::parts(path);
     return unveil_root.traverse_until_last_accessible_node(path_parts.begin(), path_parts.end());
 }
 
@@ -842,7 +847,10 @@ KResult VFS::validate_path_against_process_veil(Custody const& custody, int opti
 {
     if (Process::current()->veil_state() == VeilState::None)
         return KSuccess;
-    return validate_path_against_process_veil(custody.absolute_path(), options);
+    auto absolute_path = custody.try_create_absolute_path();
+    if (!absolute_path)
+        return ENOMEM;
+    return validate_path_against_process_veil(absolute_path->view(), options);
 }
 
 KResult VFS::validate_path_against_process_veil(StringView path, int options)

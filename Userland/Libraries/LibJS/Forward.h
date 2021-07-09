@@ -76,6 +76,10 @@
     __JS_ENUMERATE(Float32Array, float32_array, Float32ArrayPrototype, Float32ArrayConstructor, float)                          \
     __JS_ENUMERATE(Float64Array, float64_array, Float64ArrayPrototype, Float64ArrayConstructor, double)
 
+#define JS_ENUMERATE_TEMPORAL_OBJECTS                                      \
+    __JS_ENUMERATE(Instant, instant, InstantPrototype, InstantConstructor) \
+    __JS_ENUMERATE(TimeZone, time_zone, TimeZonePrototype, TimeZoneConstructor)
+
 #define JS_ENUMERATE_ITERATOR_PROTOTYPES          \
     __JS_ENUMERATE(Iterator, iterator)            \
     __JS_ENUMERATE(ArrayIterator, array_iterator) \
@@ -139,7 +143,6 @@ class HeapBlock;
 class Interpreter;
 class MarkedValueList;
 class NativeFunction;
-class NativeProperty;
 class ObjectEnvironment;
 class PrimitiveString;
 class PromiseReaction;
@@ -184,6 +187,15 @@ JS_ENUMERATE_NATIVE_OBJECTS_EXCLUDING_TEMPLATES
 JS_ENUMERATE_NATIVE_ERRORS
 JS_ENUMERATE_TYPED_ARRAYS
 #undef __JS_ENUMERATE
+
+namespace Temporal {
+#define __JS_ENUMERATE(ClassName, snake_name, ConstructorName, PrototypeName) \
+    class ClassName;                                                          \
+    class ConstructorName;                                                    \
+    class PrototypeName;
+JS_ENUMERATE_TEMPORAL_OBJECTS
+#undef __JS_ENUMERATE
+};
 
 template<class T>
 class Handle;

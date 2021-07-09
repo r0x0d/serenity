@@ -128,6 +128,7 @@ set(KERNEL_SOURCES
     Interrupts/SpuriousInterruptHandler.cpp
     Interrupts/UnhandledInterruptHandler.cpp
     KBufferBuilder.cpp
+    KLexicalPath.cpp
     KString.cpp
     KSyms.cpp
     Lock.cpp
@@ -191,7 +192,6 @@ set(KERNEL_SOURCES
     Syscalls/mmap.cpp
     Syscalls/module.cpp
     Syscalls/mount.cpp
-    Syscalls/num_lock.cpp
     Syscalls/open.cpp
     Syscalls/perf_event.cpp
     Syscalls/pipe.cpp
@@ -303,7 +303,6 @@ set(AK_SOURCES
     ../AK/FlyString.cpp
     ../AK/GenericLexer.cpp
     ../AK/Hex.cpp
-    ../AK/LexicalPath.cpp
     ../AK/String.cpp
     ../AK/StringBuilder.cpp
     ../AK/StringImpl.cpp
@@ -336,10 +335,6 @@ set(CRYPTO_SOURCES
     ../Userland/Libraries/LibCrypto/Hash/SHA2.cpp
 )
 
-set(C_SOURCES
-    ../Userland/Libraries/LibC/ctype.cpp
-)
-
 set(SOURCES
     ${KERNEL_SOURCES}
     ${AK_SOURCES}
@@ -347,7 +342,6 @@ set(SOURCES
     ${VT_SOURCES}
     ${KEYBOARD_SOURCES}
     ${CRYPTO_SOURCES}
-    ${C_SOURCES}
 )
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unknown-warning-option -Wvla -Wnull-dereference")

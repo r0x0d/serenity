@@ -366,6 +366,52 @@ void Image::remove_layer(Layer& layer)
     did_modify_layer_stack();
 }
 
+void Image::flatten_all_layers()
+{
+    if (m_layers.size() < 2)
+        return;
+
+    auto& bottom_layer = m_layers.at(0);
+
+    GUI::Painter painter(bottom_layer.bitmap());
+    paint_into(painter, { 0, 0, m_size.width(), m_size.height() });
+
+    for (size_t index = m_layers.size() - 1; index > 0; index--) {
+        auto& layer = m_layers.at(index);
+        remove_layer(layer);
+    }
+    bottom_layer.set_name("Background");
+    select_layer(&bottom_layer);
+}
+
+void Image::merge_visible_layers()
+{
+    if (m_layers.size() < 2)
+        return;
+
+    size_t index = 0;
+
+    while (index < m_layers.size()) {
+        if (m_layers.at(index).is_visible()) {
+            auto& bottom_layer = m_layers.at(index);
+            GUI::Painter painter(bottom_layer.bitmap());
+            paint_into(painter, { 0, 0, m_size.width(), m_size.height() });
+            select_layer(&bottom_layer);
+            index++;
+            break;
+        }
+        index++;
+    }
+    while (index < m_layers.size()) {
+        if (m_layers.at(index).is_visible()) {
+            auto& layer = m_layers.at(index);
+            remove_layer(layer);
+        } else {
+            index++;
+        }
+    }
+}
+
 void Image::select_layer(Layer* layer)
 {
     for (auto* client : m_clients)
@@ -384,13 +430,13 @@ void Image::remove_client(ImageClient& client)
     m_clients.remove(&client);
 }
 
-void Image::layer_did_modify_bitmap(Badge<Layer>, Layer const& layer)
+void Image::layer_did_modify_bitmap(Badge<Layer>, Layer const& layer, Gfx::IntRect const& modified_layer_rect)
 {
     auto layer_index = index_of(layer);
     for (auto* client : m_clients)
         client->image_did_modify_layer(layer_index);
 
-    did_change();
+    did_change(modified_layer_rect.translated(layer.location()));
 }
 
 void Image::layer_did_modify_properties(Badge<Layer>, Layer const& layer)
@@ -402,10 +448,11 @@ void Image::layer_did_modify_properties(Badge<Layer>, Layer const& layer)
     did_change();
 }
 
-void Image::did_change()
+void Image::did_change(Gfx::IntRect const& a_modified_rect)
 {
+    auto modified_rect = a_modified_rect.is_empty() ? this->rect() : a_modified_rect;
     for (auto* client : m_clients)
-        client->image_did_change();
+        client->image_did_change(modified_rect);
 }
 
 ImageUndoCommand::ImageUndoCommand(Image& image)

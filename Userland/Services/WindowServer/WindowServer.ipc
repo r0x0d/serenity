@@ -127,6 +127,7 @@ endpoint WindowServer
     enable_display_link() =|
     disable_display_link() =|
 
+    set_global_cursor_position(Gfx::IntPoint position) =|
     get_global_cursor_position() => (Gfx::IntPoint position)
 
     set_mouse_acceleration(float factor) =|
@@ -144,4 +145,6 @@ endpoint WindowServer
     get_double_click_speed() => (int speed)
 
     get_desktop_display_scale(u32 screen_index) => (int desktop_display_scale)
+
+    set_flash_flush(bool enabled) =|
 }

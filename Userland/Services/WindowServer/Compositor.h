@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2018-2021, Andreas Kling <kling@serenityos.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -125,6 +125,8 @@ public:
     void register_animation(Badge<Animation>, Animation&);
     void unregister_animation(Badge<Animation>, Animation&);
 
+    void set_flash_flush(bool b) { m_flash_flush = b; }
+
 private:
     Compositor();
     void init_bitmaps();
@@ -210,7 +212,7 @@ private:
             return iterate_flush_rects(m_flush_transparent_rects);
         }
     };
-    friend class ScreenData;
+    friend struct ScreenData;
     Vector<ScreenData, default_screen_count> m_screen_data;
 
     IntrusiveList<Overlay, RawPtr<Overlay>, &Overlay::m_list_node> m_overlay_list;

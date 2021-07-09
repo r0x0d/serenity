@@ -57,7 +57,7 @@ size_t length_of_array_like(GlobalObject& global_object, Object const& object)
 }
 
 // 7.3.19 CreateListFromArrayLike ( obj [ , elementTypes ] ), https://tc39.es/ecma262/#sec-createlistfromarraylike
-MarkedValueList create_list_from_array_like(GlobalObject& global_object, Value value, Function<Result<void, ErrorType>(Value)> check_value)
+MarkedValueList create_list_from_array_like(GlobalObject& global_object, Value value, Function<void(Value)> check_value)
 {
     auto& vm = global_object.vm();
     auto& heap = global_object.heap();
@@ -76,11 +76,9 @@ MarkedValueList create_list_from_array_like(GlobalObject& global_object, Value v
         if (vm.exception())
             return MarkedValueList { heap };
         if (check_value) {
-            auto result = check_value(next);
-            if (result.is_error()) {
-                vm.throw_exception<TypeError>(global_object, result.release_error());
+            check_value(next);
+            if (vm.exception())
                 return MarkedValueList { heap };
-            }
         }
         list.append(next);
     }
@@ -162,7 +160,7 @@ bool is_compatible_property_descriptor(bool extensible, PropertyDescriptor const
     return validate_and_apply_property_descriptor(nullptr, {}, extensible, descriptor, current);
 }
 
-// 10.1.6.3 ValidateAndApplyPropertyDescriptor ( O, P, extensible, Desc, current ),
+// 10.1.6.3 ValidateAndApplyPropertyDescriptor ( O, P, extensible, Desc, current ), https://tc39.es/ecma262/#sec-validateandapplypropertydescriptor
 bool validate_and_apply_property_descriptor(Object* object, PropertyName const& property_name, bool extensible, PropertyDescriptor const& descriptor, Optional<PropertyDescriptor> const& current)
 {
     // 1. Assert: If O is not undefined, then IsPropertyKey(P) is true.

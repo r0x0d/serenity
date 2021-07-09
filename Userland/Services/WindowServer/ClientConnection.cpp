@@ -682,7 +682,7 @@ void ClientConnection::set_window_backing_store(i32 window_id, [[maybe_unused]] 
         }
         auto backing_store = Gfx::Bitmap::create_with_anonymous_buffer(
             has_alpha_channel ? Gfx::BitmapFormat::BGRA8888 : Gfx::BitmapFormat::BGRx8888,
-            buffer,
+            move(buffer),
             size,
             1,
             {});
@@ -894,6 +894,18 @@ void ClientConnection::pong()
     set_unresponsive(false);
 }
 
+void ClientConnection::set_global_cursor_position(Gfx::IntPoint const& position)
+{
+    if (!Screen::main().rect().contains(position)) {
+        did_misbehave("SetGlobalCursorPosition with bad position");
+        return;
+    }
+    if (position != ScreenInput::the().cursor_location()) {
+        ScreenInput::the().set_cursor_location(position);
+        Compositor::the().invalidate_cursor();
+    }
+}
+
 Messages::WindowServer::GetGlobalCursorPositionResponse ClientConnection::get_global_cursor_position()
 {
     return ScreenInput::the().cursor_location();
@@ -1034,7 +1046,6 @@ Messages::WindowServer::GetScreenBitmapAroundCursorResponse ClientConnection::ge
     if (auto bitmap = Gfx::Bitmap::create(Gfx::BitmapFormat::BGRx8888, rect.size(), 1)) {
         auto bounding_screen_src_rect = Screen::bounding_rect().intersected(rect);
         Gfx::Painter painter(*bitmap);
-        Gfx::IntRect last_cursor_rect;
         auto& screen_with_cursor = ScreenInput::the().cursor_location_screen();
         auto cursor_rect = Compositor::the().current_cursor_rect();
         Screen::for_each([&](auto& screen) {
@@ -1097,6 +1108,11 @@ void ClientConnection::set_window_modified(i32 window_id, bool modified)
     }
     auto& window = *it->value;
     window.set_modified(modified);
+}
+
+void ClientConnection::set_flash_flush(bool enabled)
+{
+    Compositor::the().set_flash_flush(enabled);
 }
 
 }

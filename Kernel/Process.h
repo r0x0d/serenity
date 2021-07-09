@@ -17,6 +17,7 @@
 #include <AK/WeakPtr.h>
 #include <AK/Weakable.h>
 #include <Kernel/API/Syscall.h>
+#include <Kernel/AtomicEdgeAction.h>
 #include <Kernel/FileSystem/FileDescription.h>
 #include <Kernel/FileSystem/InodeMetadata.h>
 #include <Kernel/Forward.h>
@@ -290,7 +291,6 @@ public:
     KResultOr<FlatPtr> sys$getresuid(Userspace<uid_t*>, Userspace<uid_t*>, Userspace<uid_t*>);
     KResultOr<FlatPtr> sys$getresgid(Userspace<gid_t*>, Userspace<gid_t*>, Userspace<gid_t*>);
     KResultOr<FlatPtr> sys$umask(mode_t);
-    KResultOr<FlatPtr> sys$set_num_lock(bool);
     KResultOr<FlatPtr> sys$open(Userspace<const Syscall::SC_open_params*>);
     KResultOr<FlatPtr> sys$close(int fd);
     KResultOr<FlatPtr> sys$read(int fd, Userspace<u8*>, size_t);
@@ -570,6 +570,7 @@ private:
 
     RefPtr<ProcessGroup> m_pg;
 
+    AtomicEdgeAction<u32> m_protected_data_refs;
     void protect_data();
     void unprotect_data();
 
