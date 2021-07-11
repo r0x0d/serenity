@@ -19,6 +19,7 @@ class VirtIOFrameBufferDevice final : public BlockDevice {
         size_t framebuffer_offset { 0 };
         u8* framebuffer_data { nullptr };
         VirtIOGPUResourceID resource_id { 0 };
+        VirtIOGPURect dirty_rect {};
     };
 
 public:
@@ -50,7 +51,7 @@ public:
     u8* framebuffer_data();
 
 private:
-    virtual const char* class_name() const override { return "VirtIOFrameBuffer"; }
+    virtual StringView class_name() const override { return "VirtIOFrameBuffer"; }
 
     VirtIOGPURespDisplayInfo::VirtIOGPUDisplayOne const& display_info() const;
     VirtIOGPURespDisplayInfo::VirtIOGPUDisplayOne& display_info();

@@ -53,9 +53,6 @@ set(KERNEL_SOURCES
     Devices/RandomDevice.cpp
     Devices/SB16.cpp
     Devices/SerialDevice.cpp
-    VirtIO/VirtIO.cpp
-    VirtIO/VirtIOQueue.cpp
-    VirtIO/VirtIOConsole.cpp
     Devices/VMWareBackdoor.cpp
     Devices/ZeroDevice.cpp
     Devices/HID/I8042Controller.cpp
@@ -112,9 +109,11 @@ set(KERNEL_SOURCES
     FileSystem/Inode.cpp
     FileSystem/InodeFile.cpp
     FileSystem/InodeWatcher.cpp
+    FileSystem/Mount.cpp
     FileSystem/Plan9FileSystem.cpp
     FileSystem/ProcFS.cpp
     FileSystem/SysFS.cpp
+    FileSystem/SysFSComponent.cpp
     FileSystem/TmpFS.cpp
     FileSystem/VirtualFileSystem.cpp
     FutexQueue.cpp
@@ -229,7 +228,6 @@ set(KERNEL_SOURCES
     Syscalls/waitid.cpp
     Syscalls/inode_watcher.cpp
     Syscalls/write.cpp
-    SystemExposed.cpp
     TTY/ConsoleManagement.cpp
     TTY/MasterPTY.cpp
     TTY/PTYMultiplexer.cpp
@@ -252,6 +250,7 @@ set(KERNEL_SOURCES
     UserOrKernelBuffer.cpp
     VirtIO/VirtIO.cpp
     VirtIO/VirtIOConsole.cpp
+    VirtIO/VirtIOConsolePort.cpp
     VirtIO/VirtIOQueue.cpp
     VirtIO/VirtIORNG.cpp
     VM/AnonymousVMObject.cpp

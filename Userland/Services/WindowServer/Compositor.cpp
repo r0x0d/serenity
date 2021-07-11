@@ -504,7 +504,8 @@ void Compositor::compose()
 
     // Paint the window stack.
     if (m_invalidated_window) {
-        if (auto* fullscreen_window = wm.active_fullscreen_window()) {
+        auto* fullscreen_window = wm.active_fullscreen_window();
+        if (fullscreen_window && fullscreen_window->is_opaque()) {
             compose_window(*fullscreen_window);
             fullscreen_window->clear_dirty_rects();
         } else {
@@ -590,15 +591,28 @@ void Compositor::flush(Screen& screen)
     }
     screen_data.m_have_flush_rects = false;
 
+    auto screen_rect = screen.rect();
     if (m_flash_flush) {
-        for (auto& rect : screen_data.m_flush_rects.rects())
+        Gfx::IntRect bounding_flash;
+        for (auto& rect : screen_data.m_flush_rects.rects()) {
             screen_data.m_front_painter->fill_rect(rect, Color::Yellow);
-        for (auto& rect : screen_data.m_flush_transparent_rects.rects())
+            bounding_flash = bounding_flash.united(rect);
+        }
+        for (auto& rect : screen_data.m_flush_transparent_rects.rects()) {
             screen_data.m_front_painter->fill_rect(rect, Color::Green);
-        usleep(10000);
+            bounding_flash = bounding_flash.united(rect);
+        }
+        if (!bounding_flash.is_empty()) {
+            if (device_can_flush_buffers) {
+                // If the device needs a flush we need to let it know that we
+                // modified the front buffer!
+                bounding_flash.translate_by(-screen_rect.location());
+                screen.flush_display_front_buffer((!screen_data.m_screen_can_set_buffer || !screen_data.m_buffers_are_flipped) ? 0 : 1, bounding_flash);
+            }
+            usleep(10000);
+        }
     }
 
-    auto screen_rect = screen.rect();
     if (device_can_flush_buffers && screen_data.m_screen_can_set_buffer) {
         if (!screen_data.m_has_flipped) {
             // If we have not flipped any buffers before, we should be flushing
@@ -679,7 +693,7 @@ void Compositor::flush(Screen& screen)
         // Instead, we skip this step and just keep track of them until shortly before the next flip.
         // If we however don't support flipping buffers then we need to flush the changed areas right
         // now so that they can be sent to the device.
-        screen.flush_display(screen_data.m_buffers_are_flipped ? 0 : 1);
+        screen.flush_display(screen_data.m_buffers_are_flipped ? 1 : 0);
     }
 }
 
@@ -1071,7 +1085,8 @@ void Compositor::recompute_occlusions()
 
     bool window_stack_transition_in_progress = m_transitioning_to_window_stack != nullptr;
     auto& main_screen = Screen::main();
-    if (auto* fullscreen_window = wm.active_fullscreen_window()) {
+    auto* fullscreen_window = wm.active_fullscreen_window();
+    if (fullscreen_window) {
         // TODO: support fullscreen windows on all screens
         auto screen_rect = main_screen.rect();
         wm.for_each_visible_window_from_front_to_back([&](Window& w) {
@@ -1099,7 +1114,8 @@ void Compositor::recompute_occlusions()
         });
 
         m_opaque_wallpaper_rects.clear();
-    } else {
+    }
+    if (!fullscreen_window || (fullscreen_window && !fullscreen_window->is_opaque())) {
         Gfx::DisjointRectSet visible_rects;
         visible_rects.add_many(Screen::rects());
         bool have_transparent = false;

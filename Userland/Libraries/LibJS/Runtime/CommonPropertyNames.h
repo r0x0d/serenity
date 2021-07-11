@@ -143,6 +143,10 @@ namespace JS {
     P(fromCharCode)                          \
     P(fromCodePoint)                         \
     P(fromEntries)                           \
+    P(fromEpochMicroseconds)                 \
+    P(fromEpochMilliseconds)                 \
+    P(fromEpochNanoseconds)                  \
+    P(fromEpochSeconds)                      \
     P(fround)                                \
     P(gc)                                    \
     P(get)                                   \
@@ -184,6 +188,7 @@ namespace JS {
     P(globalThis)                            \
     P(groups)                                \
     P(has)                                   \
+    P(hasIndices)                            \
     P(hasOwn)                                \
     P(hasOwnProperty)                        \
     P(hypot)                                 \
@@ -193,6 +198,7 @@ namespace JS {
     P(includes)                              \
     P(index)                                 \
     P(indexOf)                               \
+    P(indices)                               \
     P(info)                                  \
     P(input)                                 \
     P(instant)                               \
@@ -299,6 +305,7 @@ namespace JS {
     P(strike)                                \
     P(stringify)                             \
     P(sub)                                   \
+    P(subarray)                              \
     P(substr)                                \
     P(substring)                             \
     P(sup)                                   \

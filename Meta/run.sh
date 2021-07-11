@@ -49,6 +49,14 @@ fi
 
 [ -z "$SERENITY_RAM_SIZE" ] && SERENITY_RAM_SIZE=512M
 
+if command -v wslpath >/dev/null; then
+    case "$SERENITY_QEMU_BIN" in
+        /mnt/c/*)
+            [ -z "$SERENITY_QEMU_CPU" ] && SERENITY_QEMU_CPU="max,vmx=off"
+            SERENITY_KERNEL_CMDLINE="$SERENITY_KERNEL_CMDLINE disable_virtio"
+    esac
+fi
+
 [ -z "$SERENITY_QEMU_CPU" ] && SERENITY_QEMU_CPU="max"
 
 [ -z "$SERENITY_DISK_IMAGE" ] && {
@@ -56,6 +64,13 @@ fi
         SERENITY_DISK_IMAGE="grub_disk_image"
     else
         SERENITY_DISK_IMAGE="_disk_image"
+    fi
+    if command -v wslpath >/dev/null; then
+        case "$SERENITY_QEMU_BIN" in
+            /mnt/c/*)
+                SERENITY_DISK_IMAGE=$(wslpath -w "$SERENITY_DISK_IMAGE")
+                ;;
+        esac
     fi
 }
 

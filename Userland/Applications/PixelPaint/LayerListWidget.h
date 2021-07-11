@@ -41,7 +41,8 @@ private:
 
     virtual void image_did_add_layer(size_t) override;
     virtual void image_did_remove_layer(size_t) override;
-    virtual void image_did_modify_layer(size_t) override;
+    virtual void image_did_modify_layer_properties(size_t) override;
+    virtual void image_did_modify_layer_bitmap(size_t) override;
     virtual void image_did_modify_layer_stack() override;
 
     void rebuild_gadgets();
@@ -52,11 +53,11 @@ private:
     struct Gadget {
         size_t layer_index { 0 };
         Gfx::IntRect rect;
-        Gfx::IntRect temporary_rect_during_move;
         bool is_moving { false };
         Gfx::IntPoint movement_delta;
     };
 
+    void get_gadget_rects(Gadget const&, Gfx::IntRect& outer_rect, Gfx::IntRect& thumbnail_rect, Gfx::IntRect& text_rect);
     bool is_moving_gadget() const { return m_moving_gadget_index.has_value(); }
 
     Optional<size_t> gadget_at(Gfx::IntPoint const&);

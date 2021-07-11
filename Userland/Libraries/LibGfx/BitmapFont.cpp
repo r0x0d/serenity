@@ -5,20 +5,11 @@
  */
 
 #include "BitmapFont.h"
-#include "Bitmap.h"
 #include "Emoji.h"
-#include <AK/StdLibExtras.h>
-#include <AK/StringBuilder.h>
 #include <AK/Utf32View.h>
 #include <AK/Utf8View.h>
-#include <AK/Vector.h>
 #include <LibCore/FileStream.h>
 #include <LibGfx/FontDatabase.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/mman.h>
-#include <unistd.h>
 
 namespace Gfx {
 
@@ -257,14 +248,12 @@ int BitmapFont::glyph_or_emoji_width_for_variable_width_font(u32 code_point) con
     return emoji->size().width();
 }
 
-int BitmapFont::width(const StringView& string) const
-{
-    Utf8View utf8 { string };
-    return width(utf8);
-}
+int BitmapFont::width(StringView const& view) const { return unicode_view_width(Utf8View(view)); }
+int BitmapFont::width(Utf8View const& view) const { return unicode_view_width(view); }
+int BitmapFont::width(Utf32View const& view) const { return unicode_view_width(view); }
 
 template<typename T>
-int BitmapFont::unicode_view_width(T const& view) const
+ALWAYS_INLINE int BitmapFont::unicode_view_width(T const& view) const
 {
     if (view.is_empty())
         return 0;
@@ -275,6 +264,7 @@ int BitmapFont::unicode_view_width(T const& view) const
     for (u32 code_point : view) {
         if (code_point == '\n' || code_point == '\r') {
             first = true;
+            longest_width = max(width, longest_width);
             width = 0;
             continue;
         }
@@ -282,21 +272,9 @@ int BitmapFont::unicode_view_width(T const& view) const
             width += glyph_spacing();
         first = false;
         width += glyph_or_emoji_width(code_point);
-        if (width > longest_width)
-            longest_width = width;
     }
-
+    longest_width = max(width, longest_width);
     return longest_width;
-}
-
-int BitmapFont::width(const Utf8View& utf8) const
-{
-    return unicode_view_width(utf8);
-}
-
-int BitmapFont::width(const Utf32View& view) const
-{
-    return unicode_view_width(view);
 }
 
 void BitmapFont::set_type(FontTypes type)
