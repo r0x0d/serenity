@@ -4,10 +4,8 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
-#include "FullDevice.h"
 #include <AK/Memory.h>
-#include <AK/StdLibExtras.h>
-#include <Kernel/Panic.h>
+#include <Kernel/Devices/FullDevice.h>
 #include <Kernel/Sections.h>
 #include <LibC/errno_numbers.h>
 

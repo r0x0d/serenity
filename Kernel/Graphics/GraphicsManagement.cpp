@@ -4,20 +4,16 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
-#include <AK/Checked.h>
 #include <AK/Singleton.h>
 #include <Kernel/Bus/PCI/IDs.h>
 #include <Kernel/CommandLine.h>
-#include <Kernel/Debug.h>
 #include <Kernel/Graphics/BochsGraphicsAdapter.h>
-#include <Kernel/Graphics/Console/TextModeConsole.h>
 #include <Kernel/Graphics/GraphicsManagement.h>
-#include <Kernel/Graphics/IntelNativeGraphicsAdapter.h>
+#include <Kernel/Graphics/Intel/NativeGraphicsAdapter.h>
 #include <Kernel/Graphics/VGACompatibleAdapter.h>
 #include <Kernel/Graphics/VirtIOGPU/VirtIOGraphicsAdapter.h>
 #include <Kernel/IO.h>
 #include <Kernel/Multiboot.h>
-#include <Kernel/Panic.h>
 #include <Kernel/Sections.h>
 #include <Kernel/VM/AnonymousVMObject.h>
 
@@ -187,7 +183,7 @@ UNMAP_AFTER_INIT bool GraphicsManagement::initialize()
         // Note: Each graphics controller will try to set its native screen resolution
         // upon creation. Later on, if we don't want to have framebuffer devices, a
         // framebuffer console will take the control instead.
-        if (!is_vga_compatible_pci_device(address) || !is_display_controller_pci_device(address))
+        if (!is_vga_compatible_pci_device(address) && !is_display_controller_pci_device(address))
             return;
         determine_and_initialize_graphics_device(address, id);
     });

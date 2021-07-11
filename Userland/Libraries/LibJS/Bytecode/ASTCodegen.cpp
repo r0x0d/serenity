@@ -272,8 +272,10 @@ void Identifier::generate_bytecode(Bytecode::Generator& generator) const
 
 void AssignmentExpression::generate_bytecode(Bytecode::Generator& generator) const
 {
-    if (is<Identifier>(*m_lhs)) {
-        auto& identifier = static_cast<Identifier const&>(*m_lhs);
+    // FIXME: Implement this for BindingPatterns too.
+    auto& lhs = m_lhs.get<NonnullRefPtr<Expression>>();
+    if (is<Identifier>(*lhs)) {
+        auto& identifier = static_cast<Identifier const&>(*lhs);
 
         if (m_op == AssignmentOp::Assignment) {
             m_rhs->generate_bytecode(generator);
@@ -281,7 +283,7 @@ void AssignmentExpression::generate_bytecode(Bytecode::Generator& generator) con
             return;
         }
 
-        m_lhs->generate_bytecode(generator);
+        lhs->generate_bytecode(generator);
 
         Bytecode::BasicBlock* rhs_block_ptr { nullptr };
         Bytecode::BasicBlock* end_block_ptr { nullptr };
@@ -377,8 +379,8 @@ void AssignmentExpression::generate_bytecode(Bytecode::Generator& generator) con
         return;
     }
 
-    if (is<MemberExpression>(*m_lhs)) {
-        auto& expression = static_cast<MemberExpression const&>(*m_lhs);
+    if (is<MemberExpression>(*lhs)) {
+        auto& expression = static_cast<MemberExpression const&>(*lhs);
         expression.object().generate_bytecode(generator);
         auto object_reg = generator.allocate_register();
         generator.emit<Bytecode::Op::Store>(object_reg);
@@ -1213,10 +1215,18 @@ void TryStatement::generate_bytecode(Bytecode::Generator& generator) const
         generator.switch_to_basic_block(handler_block);
         if (!m_finalizer)
             generator.emit<Bytecode::Op::LeaveUnwindContext>();
-        if (!m_handler->parameter().is_empty()) {
-            // FIXME: We need a separate DeclarativeEnvironment here
-            generator.emit<Bytecode::Op::SetVariable>(generator.intern_string(m_handler->parameter()));
-        }
+        m_handler->parameter().visit(
+            [&](FlyString const& parameter) {
+                if (parameter.is_empty()) {
+                    // FIXME: We need a separate DeclarativeEnvironment here
+                    generator.emit<Bytecode::Op::SetVariable>(generator.intern_string(parameter));
+                }
+            },
+            [&](NonnullRefPtr<BindingPattern> const&) {
+                // FIXME: Implement this path when the above DeclrativeEnvironment issue is dealt with.
+                TODO();
+            });
+
         m_handler->body().generate_bytecode(generator);
         handler_target = Bytecode::Label { handler_block };
         if (!generator.is_current_block_terminated()) {

@@ -18,8 +18,6 @@
 #include <Kernel/KSyms.h>
 #include <Kernel/Panic.h>
 #include <Kernel/PerformanceManager.h>
-#include <Kernel/Process.h>
-#include <Kernel/Scheduler.h>
 #include <Kernel/Sections.h>
 #include <Kernel/SpinLock.h>
 #include <Kernel/StdLib.h>
@@ -270,6 +268,12 @@ void* kmalloc(size_t size)
     return ptr;
 }
 
+void kfree_sized(void* ptr, size_t size)
+{
+    (void)size;
+    return kfree(ptr);
+}
+
 void kfree(void* ptr)
 {
     if (!ptr)
@@ -290,13 +294,6 @@ void kfree(void* ptr)
 
     g_kmalloc_global->m_heap.deallocate(ptr);
     --g_nested_kfree_calls;
-}
-
-void* krealloc(void* ptr, size_t new_size)
-{
-    kmalloc_verify_nospinlock_held();
-    ScopedSpinLock lock(s_lock);
-    return g_kmalloc_global->m_heap.reallocate(ptr, new_size);
 }
 
 size_t kmalloc_good_size(size_t size)
@@ -328,24 +325,26 @@ void* operator new[](size_t size, const std::nothrow_t&) noexcept
     return kmalloc(size);
 }
 
-void operator delete(void* ptr) noexcept
+void operator delete(void*) noexcept
 {
-    return kfree(ptr);
+    // All deletes in kernel code should have a known size.
+    VERIFY_NOT_REACHED();
 }
 
-void operator delete(void* ptr, size_t) noexcept
+void operator delete(void* ptr, size_t size) noexcept
 {
-    return kfree(ptr);
+    return kfree_sized(ptr, size);
 }
 
-void operator delete[](void* ptr) noexcept
+void operator delete[](void*) noexcept
 {
-    return kfree(ptr);
+    // All deletes in kernel code should have a known size.
+    VERIFY_NOT_REACHED();
 }
 
-void operator delete[](void* ptr, size_t) noexcept
+void operator delete[](void* ptr, size_t size) noexcept
 {
-    return kfree(ptr);
+    return kfree_sized(ptr, size);
 }
 
 void get_kmalloc_stats(kmalloc_stats& stats)

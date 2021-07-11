@@ -13,7 +13,7 @@
 
 namespace Kernel {
 
-RefPtr<VMObject> AnonymousVMObject::clone()
+RefPtr<VMObject> AnonymousVMObject::try_clone()
 {
     // We need to acquire our lock so we copy a sane state
     ScopedSpinLock lock(m_lock);
@@ -55,7 +55,7 @@ RefPtr<VMObject> AnonymousVMObject::clone()
     return adopt_ref_if_nonnull(new (nothrow) AnonymousVMObject(*this));
 }
 
-RefPtr<AnonymousVMObject> AnonymousVMObject::create_with_size(size_t size, AllocationStrategy commit)
+RefPtr<AnonymousVMObject> AnonymousVMObject::try_create_with_size(size_t size, AllocationStrategy commit)
 {
     if (commit == AllocationStrategy::Reserve || commit == AllocationStrategy::AllocateNow) {
         // We need to attempt to commit before actually creating the object
@@ -65,20 +65,20 @@ RefPtr<AnonymousVMObject> AnonymousVMObject::create_with_size(size_t size, Alloc
     return adopt_ref_if_nonnull(new (nothrow) AnonymousVMObject(size, commit));
 }
 
-RefPtr<AnonymousVMObject> AnonymousVMObject::create_with_physical_pages(NonnullRefPtrVector<PhysicalPage> physical_pages)
+RefPtr<AnonymousVMObject> AnonymousVMObject::try_create_with_physical_pages(NonnullRefPtrVector<PhysicalPage> physical_pages)
 {
     return adopt_ref_if_nonnull(new (nothrow) AnonymousVMObject(physical_pages));
 }
 
-RefPtr<AnonymousVMObject> AnonymousVMObject::create_with_physical_page(PhysicalPage& page)
+RefPtr<AnonymousVMObject> AnonymousVMObject::try_create_with_physical_page(PhysicalPage& page)
 {
     return adopt_ref_if_nonnull(new (nothrow) AnonymousVMObject(page));
 }
 
-RefPtr<AnonymousVMObject> AnonymousVMObject::create_for_physical_range(PhysicalAddress paddr, size_t size)
+RefPtr<AnonymousVMObject> AnonymousVMObject::try_create_for_physical_range(PhysicalAddress paddr, size_t size)
 {
     if (paddr.offset(size) < paddr) {
-        dbgln("Shenanigans! create_for_physical_range({}, {}) would wrap around", paddr, size);
+        dbgln("Shenanigans! try_create_for_physical_range({}, {}) would wrap around", paddr, size);
         return nullptr;
     }
     return adopt_ref_if_nonnull(new (nothrow) AnonymousVMObject(paddr, size));
@@ -117,11 +117,11 @@ AnonymousVMObject::AnonymousVMObject(PhysicalPage& page)
 }
 
 AnonymousVMObject::AnonymousVMObject(NonnullRefPtrVector<PhysicalPage> physical_pages)
-    : VMObject()
+    : VMObject(physical_pages.size())
     , m_volatile_ranges_cache({ 0, page_count() })
 {
-    for (auto& page : physical_pages) {
-        m_physical_pages.append(page);
+    for (size_t i = 0; i < physical_pages.size(); ++i) {
+        m_physical_pages[i] = physical_pages[i];
     }
 }
 

@@ -998,13 +998,21 @@ public:
     {
     }
 
+    AssignmentExpression(SourceRange source_range, AssignmentOp op, NonnullRefPtr<BindingPattern> lhs, NonnullRefPtr<Expression> rhs)
+        : Expression(source_range)
+        , m_op(op)
+        , m_lhs(move(lhs))
+        , m_rhs(move(rhs))
+    {
+    }
+
     virtual Value execute(Interpreter&, GlobalObject&) const override;
     virtual void dump(int indent) const override;
     virtual void generate_bytecode(Bytecode::Generator&) const override;
 
 private:
     AssignmentOp m_op;
-    NonnullRefPtr<Expression> m_lhs;
+    Variant<NonnullRefPtr<Expression>, NonnullRefPtr<BindingPattern>> m_lhs;
     NonnullRefPtr<Expression> m_rhs;
 };
 
@@ -1134,9 +1142,10 @@ private:
 
 class ObjectExpression final : public Expression {
 public:
-    explicit ObjectExpression(SourceRange source_range, NonnullRefPtrVector<ObjectProperty> properties = {})
+    explicit ObjectExpression(SourceRange source_range, NonnullRefPtrVector<ObjectProperty> properties = {}, Optional<SourceRange> first_invalid_property_range = {})
         : Expression(source_range)
         , m_properties(move(properties))
+        , m_first_invalid_property_range(move(first_invalid_property_range))
     {
     }
 
@@ -1144,8 +1153,11 @@ public:
     virtual void dump(int indent) const override;
     virtual void generate_bytecode(Bytecode::Generator&) const override;
 
+    Optional<SourceRange> const& invalid_property_range() const { return m_first_invalid_property_range; }
+
 private:
     NonnullRefPtrVector<ObjectProperty> m_properties;
+    Optional<SourceRange> m_first_invalid_property_range;
 };
 
 class ArrayExpression final : public Expression {
@@ -1291,14 +1303,21 @@ public:
     {
     }
 
-    FlyString const& parameter() const { return m_parameter; }
+    CatchClause(SourceRange source_range, NonnullRefPtr<BindingPattern> parameter, NonnullRefPtr<BlockStatement> body)
+        : ASTNode(source_range)
+        , m_parameter(move(parameter))
+        , m_body(move(body))
+    {
+    }
+
+    auto& parameter() const { return m_parameter; }
     BlockStatement const& body() const { return m_body; }
 
     virtual void dump(int indent) const override;
     virtual Value execute(Interpreter&, GlobalObject&) const override;
 
 private:
-    FlyString m_parameter;
+    Variant<FlyString, NonnullRefPtr<BindingPattern>> m_parameter;
     NonnullRefPtr<BlockStatement> m_body;
 };
 
@@ -1436,6 +1455,10 @@ void BindingPattern::for_each_bound_name(C&& callback) const
             callback(alias.get<NonnullRefPtr<Identifier>>()->string());
         } else if (alias.has<NonnullRefPtr<BindingPattern>>()) {
             alias.get<NonnullRefPtr<BindingPattern>>()->for_each_bound_name(forward<C>(callback));
+        } else {
+            auto& name = entry.name;
+            if (name.has<NonnullRefPtr<Identifier>>())
+                callback(name.get<NonnullRefPtr<Identifier>>()->string());
         }
     }
 }

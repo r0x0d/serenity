@@ -4,14 +4,12 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
-#include "MemoryDevice.h"
 #include <AK/Memory.h>
 #include <AK/StdLibExtras.h>
 #include <Kernel/Arch/PC/BIOS.h>
-#include <Kernel/Panic.h>
+#include <Kernel/Devices/MemoryDevice.h>
 #include <Kernel/Sections.h>
 #include <Kernel/VM/AnonymousVMObject.h>
-#include <Kernel/VM/TypedMapping.h>
 
 namespace Kernel {
 
@@ -49,7 +47,7 @@ KResultOr<Region*> MemoryDevice::mmap(Process& process, FileDescription&, const 
         return EINVAL;
     }
 
-    auto vmobject = AnonymousVMObject::create_for_physical_range(viewed_address, range.size());
+    auto vmobject = AnonymousVMObject::try_create_for_physical_range(viewed_address, range.size());
     if (!vmobject)
         return ENOMEM;
     dbgln("MemoryDevice: Mapped physical memory at {} for range of {} bytes", viewed_address, range.size());

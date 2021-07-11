@@ -18,8 +18,8 @@ class PrivateInodeVMObject final : public InodeVMObject {
 public:
     virtual ~PrivateInodeVMObject() override;
 
-    static RefPtr<PrivateInodeVMObject> create_with_inode(Inode&);
-    virtual RefPtr<VMObject> clone() override;
+    static RefPtr<PrivateInodeVMObject> try_create_with_inode(Inode&);
+    virtual RefPtr<VMObject> try_clone() override;
 
 private:
     virtual bool is_private_inode() const override { return true; }
@@ -27,7 +27,7 @@ private:
     explicit PrivateInodeVMObject(Inode&, size_t);
     explicit PrivateInodeVMObject(const PrivateInodeVMObject&);
 
-    virtual const char* class_name() const override { return "PrivateInodeVMObject"; }
+    virtual StringView class_name() const override { return "PrivateInodeVMObject"sv; }
 
     PrivateInodeVMObject& operator=(const PrivateInodeVMObject&) = delete;
 };

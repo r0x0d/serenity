@@ -6,18 +6,17 @@
 
 #pragma once
 
+#include <AK/FixedArray.h>
 #include <AK/HashTable.h>
 #include <AK/IntrusiveList.h>
 #include <AK/RefCounted.h>
 #include <AK/RefPtr.h>
 #include <AK/Vector.h>
 #include <AK/Weakable.h>
+#include <Kernel/Forward.h>
 #include <Kernel/Lock.h>
 
 namespace Kernel {
-
-class Inode;
-class PhysicalPage;
 
 class VMObjectDeletedHandler {
 public:
@@ -33,7 +32,7 @@ class VMObject : public RefCounted<VMObject>
 public:
     virtual ~VMObject();
 
-    virtual RefPtr<VMObject> clone() = 0;
+    virtual RefPtr<VMObject> try_clone() = 0;
 
     virtual bool is_anonymous() const { return false; }
     virtual bool is_inode() const { return false; }
@@ -42,12 +41,12 @@ public:
     virtual bool is_contiguous() const { return false; }
 
     size_t page_count() const { return m_physical_pages.size(); }
-    const Vector<RefPtr<PhysicalPage>, 16>& physical_pages() const { return m_physical_pages; }
-    Vector<RefPtr<PhysicalPage>, 16>& physical_pages() { return m_physical_pages; }
+    Span<RefPtr<PhysicalPage> const> physical_pages() const { return m_physical_pages.span(); }
+    Span<RefPtr<PhysicalPage>> physical_pages() { return m_physical_pages.span(); }
 
     size_t size() const { return m_physical_pages.size() * PAGE_SIZE; }
 
-    virtual const char* class_name() const = 0;
+    virtual StringView class_name() const = 0;
 
     ALWAYS_INLINE void ref_region() { m_regions_count++; }
     ALWAYS_INLINE void unref_region() { m_regions_count--; }
@@ -63,7 +62,6 @@ public:
     }
 
 protected:
-    VMObject();
     explicit VMObject(size_t);
     explicit VMObject(const VMObject&);
 
@@ -71,7 +69,7 @@ protected:
     void for_each_region(Callback);
 
     IntrusiveListNode<VMObject> m_list_node;
-    Vector<RefPtr<PhysicalPage>, 16> m_physical_pages;
+    FixedArray<RefPtr<PhysicalPage>> m_physical_pages;
     Lock m_paging_lock { "VMObject" };
 
     mutable SpinLock<u8> m_lock;

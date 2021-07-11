@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2020-2021, the SerenityOS developers.
+ * Copyright (c) 2021, Sam Atkins <atkinssj@gmail.com>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -16,7 +17,7 @@ class Token {
     friend class Tokenizer;
 
 public:
-    enum class TokenType {
+    enum class Type {
         Invalid,
         EndOfFile,
         Ident,
@@ -55,31 +56,40 @@ public:
         Number,
     };
 
-    bool is_eof() const { return m_type == TokenType::EndOfFile; }
-    bool is_whitespace() const { return m_type == TokenType::Whitespace; }
-    bool is_cdo() const { return m_type == TokenType::CDO; }
-    bool is_cdc() const { return m_type == TokenType::CDC; }
-    bool is_at() const { return m_type == TokenType::AtKeyword; }
-    bool is_semicolon() const { return m_type == TokenType::Semicolon; }
-    bool is_open_curly() const { return m_type == TokenType::OpenCurly; }
-    bool is_open_square() const { return m_type == TokenType::OpenSquare; }
-    bool is_open_paren() const { return m_type == TokenType::OpenParen; }
-    bool is_close_paren() const { return m_type == TokenType::CloseParen; }
-    bool is_close_square() const { return m_type == TokenType::CloseSquare; }
-    bool is_close_curly() const { return m_type == TokenType::CloseCurly; }
-    bool is_function() const { return m_type == TokenType::Function; }
-    bool is_colon() const { return m_type == TokenType::Colon; }
-    bool is_ident() const { return m_type == TokenType::Ident; }
-    bool is_delim() const { return m_type == TokenType::Delim; }
-    bool is_comma() const { return m_type == TokenType::Comma; }
+    bool is(Type type) const { return m_type == type; }
 
-    TokenType mirror_variant() const;
+    StringView ident() const
+    {
+        VERIFY(m_type == Type::Ident);
+        return m_value.string_view();
+    }
+
+    StringView delim() const
+    {
+        VERIFY(m_type == Type::Delim);
+        return m_value.string_view();
+    }
+
+    StringView string() const
+    {
+        VERIFY(m_type == Type::String);
+        return m_value.string_view();
+    }
+
+    int integer() const
+    {
+        VERIFY(m_type == Type::Number && m_number_type == NumberType::Integer);
+        return m_value.string_view().to_int().value();
+    }
+
+    Type mirror_variant() const;
     String bracket_string() const;
     String bracket_mirror_string() const;
-    String to_string() const;
+
+    String to_debug_string() const;
 
 private:
-    TokenType m_type { TokenType::Invalid };
+    Type m_type { Type::Invalid };
 
     StringBuilder m_value;
     StringBuilder m_unit;

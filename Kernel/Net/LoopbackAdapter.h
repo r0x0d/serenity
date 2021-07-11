@@ -17,11 +17,11 @@ private:
     LoopbackAdapter();
 
 public:
-    static NonnullRefPtr<LoopbackAdapter> create();
+    static RefPtr<LoopbackAdapter> try_create();
     virtual ~LoopbackAdapter() override;
 
     virtual void send_raw(ReadonlyBytes) override;
-    virtual const char* class_name() const override { return "LoopbackAdapter"; }
+    virtual StringView class_name() const override { return "LoopbackAdapter"; }
 };
 
 }

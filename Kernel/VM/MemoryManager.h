@@ -11,10 +11,12 @@
 #include <AK/NonnullRefPtrVector.h>
 #include <AK/String.h>
 #include <Kernel/Arch/x86/PageFault.h>
+#include <Kernel/Arch/x86/TrapFrame.h>
 #include <Kernel/Forward.h>
 #include <Kernel/SpinLock.h>
 #include <Kernel/VM/AllocationStrategy.h>
 #include <Kernel/VM/PhysicalPage.h>
+#include <Kernel/VM/PhysicalRegion.h>
 #include <Kernel/VM/Region.h>
 #include <Kernel/VM/VMObject.h>
 
@@ -184,7 +186,6 @@ public:
             callback(vmobject);
     }
 
-    static Region* find_region_from_vaddr(Space&, VirtualAddress);
     static Region* find_user_region_from_vaddr(Space&, VirtualAddress);
 
     void dump_kernel_regions();
@@ -244,11 +245,10 @@ private:
 
     SystemMemoryInfo m_system_memory_info;
 
-    NonnullRefPtrVector<PhysicalRegion> m_user_physical_regions;
-    NonnullRefPtrVector<PhysicalRegion> m_super_physical_regions;
-    RefPtr<PhysicalRegion> m_physical_pages_region;
+    Vector<PhysicalRegion> m_user_physical_regions;
+    Vector<PhysicalRegion> m_super_physical_regions;
+    Optional<PhysicalRegion> m_physical_pages_region;
     PhysicalPageEntry* m_physical_page_entries { nullptr };
-    size_t m_physical_page_entries_free { 0 };
     size_t m_physical_page_entries_count { 0 };
 
     Region::List m_user_regions;
@@ -278,7 +278,7 @@ void VMObject::for_each_region(Callback callback)
 
 inline bool is_user_address(VirtualAddress vaddr)
 {
-    return vaddr.get() < KERNEL_BASE;
+    return vaddr.get() < USER_RANGE_CEILING;
 }
 
 inline bool is_user_range(VirtualAddress vaddr, size_t size)

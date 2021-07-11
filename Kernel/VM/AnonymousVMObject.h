@@ -21,11 +21,11 @@ class AnonymousVMObject final : public VMObject {
 public:
     virtual ~AnonymousVMObject() override;
 
-    static RefPtr<AnonymousVMObject> create_with_size(size_t, AllocationStrategy);
-    static RefPtr<AnonymousVMObject> create_for_physical_range(PhysicalAddress paddr, size_t size);
-    static RefPtr<AnonymousVMObject> create_with_physical_page(PhysicalPage& page);
-    static RefPtr<AnonymousVMObject> create_with_physical_pages(NonnullRefPtrVector<PhysicalPage>);
-    virtual RefPtr<VMObject> clone() override;
+    static RefPtr<AnonymousVMObject> try_create_with_size(size_t, AllocationStrategy);
+    static RefPtr<AnonymousVMObject> try_create_for_physical_range(PhysicalAddress paddr, size_t size);
+    static RefPtr<AnonymousVMObject> try_create_with_physical_page(PhysicalPage& page);
+    static RefPtr<AnonymousVMObject> try_create_with_physical_pages(NonnullRefPtrVector<PhysicalPage>);
+    virtual RefPtr<VMObject> try_clone() override;
 
     RefPtr<PhysicalPage> allocate_committed_page(size_t);
     PageFaultResponse handle_cow_fault(size_t, VirtualAddress);
@@ -122,7 +122,7 @@ private:
     explicit AnonymousVMObject(NonnullRefPtrVector<PhysicalPage>);
     explicit AnonymousVMObject(const AnonymousVMObject&);
 
-    virtual const char* class_name() const override { return "AnonymousVMObject"; }
+    virtual StringView class_name() const override { return "AnonymousVMObject"sv; }
 
     int purge_impl();
     void update_volatile_cache();

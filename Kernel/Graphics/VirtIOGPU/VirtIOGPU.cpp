@@ -7,7 +7,6 @@
 #include <Kernel/Graphics/VirtIOGPU/VirtIOFrameBufferDevice.h>
 #include <Kernel/Graphics/VirtIOGPU/VirtIOGPU.h>
 #include <Kernel/Graphics/VirtIOGPU/VirtIOGPUConsole.h>
-#include <LibC/sys/ioctl_numbers.h>
 
 #define DEVICE_EVENTS_READ 0x0
 #define DEVICE_EVENTS_CLEAR 0x4
@@ -127,20 +126,9 @@ VirtIOGPUResourceID VirtIOGPU::create_2d_resource(VirtIOGPURect rect)
     return resource_id;
 }
 
-void VirtIOGPU::ensure_backing_storage(Region& region, size_t buffer_offset, size_t buffer_length, VirtIOGPUResourceID resource_id)
+void VirtIOGPU::ensure_backing_storage(Region const& region, size_t buffer_offset, size_t buffer_length, VirtIOGPUResourceID resource_id)
 {
     VERIFY(m_operation_lock.is_locked());
-    // Allocate backing region
-    auto& vm_object = region.vmobject();
-    size_t desired_num_pages = page_round_up(buffer_offset + buffer_length);
-    auto& pages = vm_object.physical_pages();
-    for (size_t i = pages.size(); i < desired_num_pages / PAGE_SIZE; ++i) {
-        auto page = MM.allocate_user_physical_page();
-        // FIXME: Instead of verifying, fail the framebuffer resize operation
-        VERIFY(!page.is_null());
-        pages.append(move(page));
-    }
-    region.remap();
 
     VERIFY(buffer_offset % PAGE_SIZE == 0);
     VERIFY(buffer_length % PAGE_SIZE == 0);

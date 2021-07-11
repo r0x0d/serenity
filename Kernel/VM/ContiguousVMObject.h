@@ -15,14 +15,14 @@ class ContiguousVMObject final : public VMObject {
 public:
     virtual ~ContiguousVMObject() override;
 
-    static RefPtr<ContiguousVMObject> create_with_size(size_t, size_t physical_alignment = PAGE_SIZE);
+    static RefPtr<ContiguousVMObject> try_create_with_size(size_t, size_t physical_alignment = PAGE_SIZE);
 
 private:
     explicit ContiguousVMObject(size_t, NonnullRefPtrVector<PhysicalPage>&);
     explicit ContiguousVMObject(const ContiguousVMObject&);
 
-    virtual const char* class_name() const override { return "ContiguousVMObject"; }
-    virtual RefPtr<VMObject> clone() override;
+    virtual StringView class_name() const override { return "ContiguousVMObject"sv; }
+    virtual RefPtr<VMObject> try_clone() override;
 
     ContiguousVMObject& operator=(const ContiguousVMObject&) = delete;
     ContiguousVMObject& operator=(ContiguousVMObject&&) = delete;

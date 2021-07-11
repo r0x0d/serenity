@@ -40,7 +40,7 @@ void VirtIOFrameBufferDevice::create_framebuffer()
     for (auto i = 0u; i < num_needed_pages; ++i) {
         pages.append(write_sink_page);
     }
-    m_framebuffer_sink_vmobject = AnonymousVMObject::create_with_physical_pages(move(pages));
+    m_framebuffer_sink_vmobject = AnonymousVMObject::try_create_with_physical_pages(move(pages));
 
     Locker locker(m_gpu.operation_lock());
     m_current_buffer = &buffer_from_index(m_last_set_buffer_index.load());
@@ -245,7 +245,7 @@ KResultOr<Region*> VirtIOFrameBufferDevice::mmap(Process& process, FileDescripti
     if (m_userspace_mmap_region)
         return ENOMEM;
 
-    auto vmobject = m_are_writes_active ? m_framebuffer->vmobject().clone() : m_framebuffer_sink_vmobject;
+    auto vmobject = m_are_writes_active ? m_framebuffer->vmobject().try_clone() : m_framebuffer_sink_vmobject;
     if (vmobject.is_null())
         return ENOMEM;
 
@@ -267,7 +267,7 @@ void VirtIOFrameBufferDevice::deactivate_writes()
     m_are_writes_active = false;
     if (m_userspace_mmap_region) {
         auto* region = m_userspace_mmap_region.unsafe_ptr();
-        auto vm_object = m_framebuffer_sink_vmobject->clone();
+        auto vm_object = m_framebuffer_sink_vmobject->try_clone();
         VERIFY(vm_object);
         region->set_vmobject(vm_object.release_nonnull());
         region->remap();
