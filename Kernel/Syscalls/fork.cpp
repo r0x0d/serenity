@@ -102,15 +102,20 @@ KResultOr<FlatPtr> Process::sys$fork(RegisterState& regs)
                 return ENOMEM;
             }
 
-            auto& child_region = child->space().add_region(region_clone.release_nonnull());
-            child_region.map(child->space().page_directory(), ShouldFlushTLB::No);
+            auto* child_region = child->space().add_region(region_clone.release_nonnull());
+            if (!child_region) {
+                dbgln("fork: Cannot add region, insufficient memory");
+                // TODO: tear down new process?
+                return ENOMEM;
+            }
+            child_region->map(child->space().page_directory(), ShouldFlushTLB::No);
 
             if (region == m_master_tls_region.unsafe_ptr())
                 child->m_master_tls_region = child_region;
         }
-
-        Process::register_new(*child);
     }
+
+    Process::register_new(*child);
 
     PerformanceManager::add_process_created_event(*child);
 
@@ -119,9 +124,10 @@ KResultOr<FlatPtr> Process::sys$fork(RegisterState& regs)
     child_first_thread->set_state(Thread::State::Runnable);
 
     auto child_pid = child->pid().value();
-    // We need to leak one reference so we don't destroy the Process,
-    // which will be dropped by Process::reap
+
+    // NOTE: All user processes have a leaked ref on them. It's balanced by Thread::WaitBlockCondition::finalize().
     (void)child.leak_ref();
+
     return child_pid;
 }
 

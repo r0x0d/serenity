@@ -12,6 +12,9 @@ namespace AK {
 
 template<Integral K>
 class BaseRedBlackTree {
+    AK_MAKE_NONCOPYABLE(BaseRedBlackTree);
+    AK_MAKE_NONMOVABLE(BaseRedBlackTree);
+
 public:
     [[nodiscard]] size_t size() const { return m_size; }
     [[nodiscard]] bool is_empty() const { return m_size == 0; }
@@ -403,6 +406,8 @@ public:
     [[nodiscard]] bool is_end() const { return !m_node; }
     [[nodiscard]] bool is_begin() const { return !m_prev; }
 
+    auto key() const { return m_node->key; }
+
 private:
     friend TreeType;
     explicit RedBlackTreeIterator(typename TreeType::Node* node, typename TreeType::Node* prev = nullptr)
@@ -446,10 +451,19 @@ public:
         insert(key, V(value));
     }
 
+    [[nodiscard]] bool try_insert(K key, V&& value)
+    {
+        auto* node = new (nothrow) Node(key, move(value));
+        if (!node)
+            return false;
+        BaseTree::insert(node);
+        return true;
+    }
+
     void insert(K key, V&& value)
     {
-        auto* node = new Node(key, move(value));
-        BaseTree::insert(node);
+        auto success = try_insert(key, move(value));
+        VERIFY(success);
     }
 
     using Iterator = RedBlackTreeIterator<RedBlackTree, V>;

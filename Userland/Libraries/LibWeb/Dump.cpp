@@ -27,14 +27,14 @@
 
 namespace Web {
 
-void dump_tree(const DOM::Node& node)
+void dump_tree(DOM::Node const& node)
 {
     StringBuilder builder;
     dump_tree(builder, node);
     dbgln("{}", builder.string_view());
 }
 
-void dump_tree(StringBuilder& builder, const DOM::Node& node)
+void dump_tree(StringBuilder& builder, DOM::Node const& node)
 {
     static int indent = 0;
     for (int i = 0; i < indent; ++i)
@@ -56,7 +56,7 @@ void dump_tree(StringBuilder& builder, const DOM::Node& node)
     }
     if (is<DOM::ParentNode>(node)) {
         if (!is<HTML::HTMLTemplateElement>(node)) {
-            static_cast<const DOM::ParentNode&>(node).for_each_child([](auto& child) {
+            static_cast<DOM::ParentNode const&>(node).for_each_child([](auto& child) {
                 dump_tree(child);
             });
         } else {
@@ -67,14 +67,14 @@ void dump_tree(StringBuilder& builder, const DOM::Node& node)
     --indent;
 }
 
-void dump_tree(const Layout::Node& layout_node, bool show_box_model, bool show_specified_style)
+void dump_tree(Layout::Node const& layout_node, bool show_box_model, bool show_specified_style)
 {
     StringBuilder builder;
     dump_tree(builder, layout_node, show_box_model, show_specified_style, true);
     dbgln("{}", builder.string_view());
 }
 
-void dump_tree(StringBuilder& builder, const Layout::Node& layout_node, bool show_box_model, bool show_specified_style, bool interactive)
+void dump_tree(StringBuilder& builder, Layout::Node const& layout_node, bool show_box_model, bool show_specified_style, bool interactive)
 {
     static size_t indent = 0;
     for (size_t i = 0; i < indent; ++i)
@@ -104,15 +104,15 @@ void dump_tree(StringBuilder& builder, const Layout::Node& layout_node, bool sho
         identifier = builder.to_string();
     }
 
-    const char* nonbox_color_on = "";
-    const char* box_color_on = "";
-    const char* positioned_color_on = "";
-    const char* floating_color_on = "";
-    const char* inline_block_color_on = "";
-    const char* line_box_color_on = "";
-    const char* fragment_color_on = "";
-    const char* flex_color_on = "";
-    const char* color_off = "";
+    char const* nonbox_color_on = "";
+    char const* box_color_on = "";
+    char const* positioned_color_on = "";
+    char const* floating_color_on = "";
+    char const* inline_block_color_on = "";
+    char const* line_box_color_on = "";
+    char const* fragment_color_on = "";
+    char const* flex_color_on = "";
+    char const* color_off = "";
 
     if (interactive) {
         nonbox_color_on = "\033[33m";
@@ -194,8 +194,8 @@ void dump_tree(StringBuilder& builder, const Layout::Node& layout_node, bool sho
         builder.append("\n");
     }
 
-    if (is<Layout::BlockBox>(layout_node) && static_cast<const Layout::BlockBox&>(layout_node).children_are_inline()) {
-        auto& block = static_cast<const Layout::BlockBox&>(layout_node);
+    if (is<Layout::BlockBox>(layout_node) && static_cast<Layout::BlockBox const&>(layout_node).children_are_inline()) {
+        auto& block = static_cast<Layout::BlockBox const&>(layout_node);
         for (size_t line_box_index = 0; line_box_index < block.line_boxes().size(); ++line_box_index) {
             auto& line_box = block.line_boxes()[line_box_index];
             for (size_t i = 0; i < indent; ++i)
@@ -223,7 +223,7 @@ void dump_tree(StringBuilder& builder, const Layout::Node& layout_node, bool sho
                 if (is<Layout::TextNode>(fragment.layout_node())) {
                     for (size_t i = 0; i < indent; ++i)
                         builder.append("  ");
-                    auto& layout_text = static_cast<const Layout::TextNode&>(fragment.layout_node());
+                    auto& layout_text = static_cast<Layout::TextNode const&>(fragment.layout_node());
                     auto fragment_text = layout_text.text_for_rendering().substring(fragment.start(), fragment.length());
                     builder.appendff("      \"{}\"\n", fragment_text);
                 }
@@ -256,21 +256,21 @@ void dump_tree(StringBuilder& builder, const Layout::Node& layout_node, bool sho
     --indent;
 }
 
-void dump_selector(const CSS::Selector& selector)
+void dump_selector(CSS::Selector const& selector)
 {
     StringBuilder builder;
     dump_selector(builder, selector);
     dbgln("{}", builder.string_view());
 }
 
-void dump_selector(StringBuilder& builder, const CSS::Selector& selector)
+void dump_selector(StringBuilder& builder, CSS::Selector const& selector)
 {
     builder.append("  CSS::Selector:\n");
 
     for (auto& complex_selector : selector.complex_selectors()) {
         builder.append("    ");
 
-        const char* relation_description = "";
+        char const* relation_description = "";
         switch (complex_selector.relation) {
         case CSS::Selector::ComplexSelector::Relation::None:
             relation_description = "None";
@@ -297,7 +297,7 @@ void dump_selector(StringBuilder& builder, const CSS::Selector& selector)
 
         for (size_t i = 0; i < complex_selector.compound_selector.size(); ++i) {
             auto& simple_selector = complex_selector.compound_selector[i];
-            const char* type_description = "Unknown";
+            char const* type_description = "Unknown";
             switch (simple_selector.type) {
             case CSS::Selector::SimpleSelector::Type::Invalid:
                 type_description = "Invalid";
@@ -314,100 +314,149 @@ void dump_selector(StringBuilder& builder, const CSS::Selector& selector)
             case CSS::Selector::SimpleSelector::Type::TagName:
                 type_description = "TagName";
                 break;
-            }
-            const char* attribute_match_type_description = "";
-            switch (simple_selector.attribute_match_type) {
-            case CSS::Selector::SimpleSelector::AttributeMatchType::None:
+            case CSS::Selector::SimpleSelector::Type::Attribute:
+                type_description = "Attribute";
                 break;
-            case CSS::Selector::SimpleSelector::AttributeMatchType::HasAttribute:
-                attribute_match_type_description = "HasAttribute";
+            case CSS::Selector::SimpleSelector::Type::PseudoClass:
+                type_description = "PseudoClass";
                 break;
-            case CSS::Selector::SimpleSelector::AttributeMatchType::ExactValueMatch:
-                attribute_match_type_description = "ExactValueMatch";
-                break;
-            case CSS::Selector::SimpleSelector::AttributeMatchType::ContainsWord:
-                attribute_match_type_description = "ContainsWord";
-                break;
-            case CSS::Selector::SimpleSelector::AttributeMatchType::ContainsString:
-                attribute_match_type_description = "ContainsString";
-                break;
-            case CSS::Selector::SimpleSelector::AttributeMatchType::StartsWithSegment:
-                attribute_match_type_description = "StartsWithSegment";
-                break;
-            case CSS::Selector::SimpleSelector::AttributeMatchType::StartsWithString:
-                attribute_match_type_description = "StartsWithString";
-                break;
-            case CSS::Selector::SimpleSelector::AttributeMatchType::EndsWithString:
-                attribute_match_type_description = "EndsWithString";
-                break;
-            }
-
-            const char* pseudo_class_description = "";
-            switch (simple_selector.pseudo_class) {
-            case CSS::Selector::SimpleSelector::PseudoClass::Link:
-                pseudo_class_description = "Link";
-                break;
-            case CSS::Selector::SimpleSelector::PseudoClass::Visited:
-                pseudo_class_description = "Visited";
-                break;
-            case CSS::Selector::SimpleSelector::PseudoClass::Active:
-                pseudo_class_description = "Active";
-                break;
-            case CSS::Selector::SimpleSelector::PseudoClass::None:
-                pseudo_class_description = "None";
-                break;
-            case CSS::Selector::SimpleSelector::PseudoClass::Root:
-                pseudo_class_description = "Root";
-                break;
-            case CSS::Selector::SimpleSelector::PseudoClass::FirstOfType:
-                pseudo_class_description = "FirstOfType";
-                break;
-            case CSS::Selector::SimpleSelector::PseudoClass::LastOfType:
-                pseudo_class_description = "LastOfType";
-                break;
-            case CSS::Selector::SimpleSelector::PseudoClass::NthChild:
-                pseudo_class_description = "NthChild";
-                break;
-            case CSS::Selector::SimpleSelector::PseudoClass::NthLastChild:
-                pseudo_class_description = "NthLastChild";
-                break;
-            case CSS::Selector::SimpleSelector::PseudoClass::Focus:
-                pseudo_class_description = "Focus";
-                break;
-            case CSS::Selector::SimpleSelector::PseudoClass::Empty:
-                pseudo_class_description = "Empty";
-                break;
-            case CSS::Selector::SimpleSelector::PseudoClass::Hover:
-                pseudo_class_description = "Hover";
-                break;
-            case CSS::Selector::SimpleSelector::PseudoClass::LastChild:
-                pseudo_class_description = "LastChild";
-                break;
-            case CSS::Selector::SimpleSelector::PseudoClass::FirstChild:
-                pseudo_class_description = "FirstChild";
-                break;
-            case CSS::Selector::SimpleSelector::PseudoClass::OnlyChild:
-                pseudo_class_description = "OnlyChild";
-                break;
-            case CSS::Selector::SimpleSelector::PseudoClass::Disabled:
-                pseudo_class_description = "Disabled";
-                break;
-            case CSS::Selector::SimpleSelector::PseudoClass::Enabled:
-                pseudo_class_description = "Enabled";
-                break;
-            case CSS::Selector::SimpleSelector::PseudoClass::Checked:
-                pseudo_class_description = "Checked";
-                break;
-            case CSS::Selector::SimpleSelector::PseudoClass::Not:
-                pseudo_class_description = "Not";
+            case CSS::Selector::SimpleSelector::Type::PseudoElement:
+                type_description = "PseudoElement";
                 break;
             }
 
             builder.appendff("{}:{}", type_description, simple_selector.value);
-            if (simple_selector.pseudo_class != CSS::Selector::SimpleSelector::PseudoClass::None)
+
+            if (simple_selector.type == CSS::Selector::SimpleSelector::Type::PseudoClass) {
+                auto const& pseudo_class = simple_selector.pseudo_class;
+
+                char const* pseudo_class_description = "";
+                switch (pseudo_class.type) {
+                case CSS::Selector::SimpleSelector::PseudoClass::Type::Link:
+                    pseudo_class_description = "Link";
+                    break;
+                case CSS::Selector::SimpleSelector::PseudoClass::Type::Visited:
+                    pseudo_class_description = "Visited";
+                    break;
+                case CSS::Selector::SimpleSelector::PseudoClass::Type::Active:
+                    pseudo_class_description = "Active";
+                    break;
+                case CSS::Selector::SimpleSelector::PseudoClass::Type::None:
+                    pseudo_class_description = "None";
+                    break;
+                case CSS::Selector::SimpleSelector::PseudoClass::Type::Root:
+                    pseudo_class_description = "Root";
+                    break;
+                case CSS::Selector::SimpleSelector::PseudoClass::Type::FirstOfType:
+                    pseudo_class_description = "FirstOfType";
+                    break;
+                case CSS::Selector::SimpleSelector::PseudoClass::Type::LastOfType:
+                    pseudo_class_description = "LastOfType";
+                    break;
+                case CSS::Selector::SimpleSelector::PseudoClass::Type::NthChild:
+                    pseudo_class_description = "NthChild";
+                    break;
+                case CSS::Selector::SimpleSelector::PseudoClass::Type::NthLastChild:
+                    pseudo_class_description = "NthLastChild";
+                    break;
+                case CSS::Selector::SimpleSelector::PseudoClass::Type::Focus:
+                    pseudo_class_description = "Focus";
+                    break;
+                case CSS::Selector::SimpleSelector::PseudoClass::Type::Empty:
+                    pseudo_class_description = "Empty";
+                    break;
+                case CSS::Selector::SimpleSelector::PseudoClass::Type::Hover:
+                    pseudo_class_description = "Hover";
+                    break;
+                case CSS::Selector::SimpleSelector::PseudoClass::Type::LastChild:
+                    pseudo_class_description = "LastChild";
+                    break;
+                case CSS::Selector::SimpleSelector::PseudoClass::Type::FirstChild:
+                    pseudo_class_description = "FirstChild";
+                    break;
+                case CSS::Selector::SimpleSelector::PseudoClass::Type::OnlyChild:
+                    pseudo_class_description = "OnlyChild";
+                    break;
+                case CSS::Selector::SimpleSelector::PseudoClass::Type::Disabled:
+                    pseudo_class_description = "Disabled";
+                    break;
+                case CSS::Selector::SimpleSelector::PseudoClass::Type::Enabled:
+                    pseudo_class_description = "Enabled";
+                    break;
+                case CSS::Selector::SimpleSelector::PseudoClass::Type::Checked:
+                    pseudo_class_description = "Checked";
+                    break;
+                case CSS::Selector::SimpleSelector::PseudoClass::Type::Not:
+                    pseudo_class_description = "Not";
+                    break;
+                }
+
                 builder.appendff(" pseudo_class={}", pseudo_class_description);
-            if (simple_selector.attribute_match_type != CSS::Selector::SimpleSelector::AttributeMatchType::None) {
-                builder.appendff(" [{}, name='{}', value='{}']", attribute_match_type_description, simple_selector.attribute_name, simple_selector.attribute_value);
+                if (pseudo_class.type == CSS::Selector::SimpleSelector::PseudoClass::Type::Not) {
+                    builder.append("(");
+                    for (auto& selector : pseudo_class.not_selector)
+                        dump_selector(builder, selector);
+                    builder.append(")");
+                } else if ((pseudo_class.type == CSS::Selector::SimpleSelector::PseudoClass::Type::NthChild)
+                    || (pseudo_class.type == CSS::Selector::SimpleSelector::PseudoClass::Type::NthLastChild)) {
+                    builder.appendff("(step={}, offset={})", pseudo_class.nth_child_pattern.step_size, pseudo_class.nth_child_pattern.offset);
+                }
+            }
+
+            if (simple_selector.type == CSS::Selector::SimpleSelector::Type::PseudoElement) {
+                char const* pseudo_element_description = "";
+                switch (simple_selector.pseudo_element) {
+                case CSS::Selector::SimpleSelector::PseudoElement::None:
+                    pseudo_element_description = "None";
+                    break;
+                case CSS::Selector::SimpleSelector::PseudoElement::Before:
+                    pseudo_element_description = "before";
+                    break;
+                case CSS::Selector::SimpleSelector::PseudoElement::After:
+                    pseudo_element_description = "after";
+                    break;
+                case CSS::Selector::SimpleSelector::PseudoElement::FirstLine:
+                    pseudo_element_description = "first-line";
+                    break;
+                case CSS::Selector::SimpleSelector::PseudoElement::FirstLetter:
+                    pseudo_element_description = "first-letter";
+                    break;
+                }
+
+                builder.appendff(" pseudo_element={}", pseudo_element_description);
+            }
+
+            if (simple_selector.type == CSS::Selector::SimpleSelector::Type::Attribute) {
+                char const* attribute_match_type_description = "";
+
+                switch (simple_selector.attribute.match_type) {
+                case CSS::Selector::SimpleSelector::Attribute::MatchType::None:
+                    break;
+                case CSS::Selector::SimpleSelector::Attribute::MatchType::HasAttribute:
+                    type_description = "HasAttribute";
+                    break;
+                case CSS::Selector::SimpleSelector::Attribute::MatchType::ExactValueMatch:
+                    type_description = "ExactValueMatch";
+                    break;
+                case CSS::Selector::SimpleSelector::Attribute::MatchType::ContainsWord:
+                    type_description = "ContainsWord";
+                    break;
+                case CSS::Selector::SimpleSelector::Attribute::MatchType::ContainsString:
+                    type_description = "ContainsString";
+                    break;
+                case CSS::Selector::SimpleSelector::Attribute::MatchType::StartsWithSegment:
+                    type_description = "StartsWithSegment";
+                    break;
+                case CSS::Selector::SimpleSelector::Attribute::MatchType::StartsWithString:
+                    type_description = "StartsWithString";
+                    break;
+                case CSS::Selector::SimpleSelector::Attribute::MatchType::EndsWithString:
+                    type_description = "EndsWithString";
+                    break;
+                }
+                break;
+
+                builder.appendff(" [{}, name='{}', value='{}']", attribute_match_type_description, simple_selector.attribute.name, simple_selector.attribute.value);
             }
 
             if (i != complex_selector.compound_selector.size() - 1)
@@ -417,34 +466,34 @@ void dump_selector(StringBuilder& builder, const CSS::Selector& selector)
     }
 }
 
-void dump_rule(const CSS::CSSRule& rule)
+void dump_rule(CSS::CSSRule const& rule)
 {
     StringBuilder builder;
     dump_rule(builder, rule);
     dbgln("{}", builder.string_view());
 }
 
-void dump_rule(StringBuilder& builder, const CSS::CSSRule& rule)
+void dump_rule(StringBuilder& builder, CSS::CSSRule const& rule)
 {
     builder.appendff("{}:\n", rule.class_name());
     switch (rule.type()) {
     case CSS::CSSRule::Type::Style:
-        dump_style_rule(builder, verify_cast<const CSS::CSSStyleRule>(rule));
+        dump_style_rule(builder, verify_cast<CSS::CSSStyleRule const>(rule));
         break;
     case CSS::CSSRule::Type::Import:
-        dump_import_rule(builder, verify_cast<const CSS::CSSImportRule>(rule));
+        dump_import_rule(builder, verify_cast<CSS::CSSImportRule const>(rule));
         break;
     default:
         VERIFY_NOT_REACHED();
     }
 }
 
-void dump_import_rule(StringBuilder& builder, const CSS::CSSImportRule& rule)
+void dump_import_rule(StringBuilder& builder, CSS::CSSImportRule const& rule)
 {
     builder.appendff("  Document URL: {}\n", rule.url());
 }
 
-void dump_style_rule(StringBuilder& builder, const CSS::CSSStyleRule& rule)
+void dump_style_rule(StringBuilder& builder, CSS::CSSStyleRule const& rule)
 {
     for (auto& selector : rule.selectors()) {
         dump_selector(builder, selector);
@@ -455,7 +504,7 @@ void dump_style_rule(StringBuilder& builder, const CSS::CSSStyleRule& rule)
     }
 }
 
-void dump_sheet(const CSS::StyleSheet& sheet)
+void dump_sheet(CSS::StyleSheet const& sheet)
 {
     StringBuilder builder;
     dump_sheet(builder, sheet);

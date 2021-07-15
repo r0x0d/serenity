@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
+#include <AK/ByteReader.h>
 #include <AK/Optional.h>
 #include <AK/StringView.h>
 #include <Kernel/Arch/x86/InterruptDisabler.h>
@@ -22,7 +23,7 @@ UNMAP_AFTER_INIT DeviceConfigurationSpaceMapping::DeviceConfigurationSpaceMappin
     PhysicalAddress segment_lower_addr = mmio_segment.get_paddr();
     PhysicalAddress device_physical_mmio_space = segment_lower_addr.offset(
         PCI_MMIO_CONFIG_SPACE_SIZE * m_device_address.function() + (PCI_MMIO_CONFIG_SPACE_SIZE * PCI_MAX_FUNCTIONS_PER_DEVICE) * m_device_address.device() + (PCI_MMIO_CONFIG_SPACE_SIZE * PCI_MAX_FUNCTIONS_PER_DEVICE * PCI_MAX_DEVICES_PER_BUS) * (m_device_address.bus() - mmio_segment.get_start_bus()));
-    m_mapped_region->physical_page_slot(0) = PhysicalPage::create(device_physical_mmio_space, false, false);
+    m_mapped_region->physical_page_slot(0) = PhysicalPage::create(device_physical_mmio_space, false);
     m_mapped_region->remap();
 }
 
@@ -79,7 +80,7 @@ u16 WindowedMMIOAccess::read16_field(Address address, u32 field)
     VERIFY(field < 0xfff);
     dbgln_if(PCI_DEBUG, "PCI: MMIO Reading 16-bit field {:#08x} for {}", field, address);
     u16 data = 0;
-    read_possibly_unaligned_data<u16>(get_device_configuration_space(address).value().offset(field & 0xfff).as_ptr(), data);
+    ByteReader::load<u16>(get_device_configuration_space(address).value().offset(field & 0xfff).as_ptr(), data);
     return data;
 }
 
@@ -89,7 +90,7 @@ u32 WindowedMMIOAccess::read32_field(Address address, u32 field)
     VERIFY(field <= 0xffc);
     dbgln_if(PCI_DEBUG, "PCI: MMIO Reading 32-bit field {:#08x} for {}", field, address);
     u32 data = 0;
-    read_possibly_unaligned_data<u32>(get_device_configuration_space(address).value().offset(field & 0xfff).as_ptr(), data);
+    ByteReader::load<u32>(get_device_configuration_space(address).value().offset(field & 0xfff).as_ptr(), data);
     return data;
 }
 
@@ -105,14 +106,14 @@ void WindowedMMIOAccess::write16_field(Address address, u32 field, u16 value)
     InterruptDisabler disabler;
     VERIFY(field < 0xfff);
     dbgln_if(PCI_DEBUG, "PCI: MMIO Writing 16-bit field {:#08x}, value={:#02x} for {}", field, value, address);
-    write_possibly_unaligned_data<u16>(get_device_configuration_space(address).value().offset(field & 0xfff).as_ptr(), value);
+    ByteReader::store<u16>(get_device_configuration_space(address).value().offset(field & 0xfff).as_ptr(), value);
 }
 void WindowedMMIOAccess::write32_field(Address address, u32 field, u32 value)
 {
     InterruptDisabler disabler;
     VERIFY(field <= 0xffc);
     dbgln_if(PCI_DEBUG, "PCI: MMIO Writing 32-bit field {:#08x}, value={:#02x} for {}", field, value, address);
-    write_possibly_unaligned_data<u32>(get_device_configuration_space(address).value().offset(field & 0xfff).as_ptr(), value);
+    ByteReader::store<u32>(get_device_configuration_space(address).value().offset(field & 0xfff).as_ptr(), value);
 }
 
 }

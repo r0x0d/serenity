@@ -105,6 +105,33 @@ Thread& Scheduler::pull_next_runnable_thread()
     return *Processor::idle_thread();
 }
 
+Thread* Scheduler::peek_next_runnable_thread()
+{
+    auto affinity_mask = 1u << Processor::current().id();
+
+    ScopedSpinLock lock(g_ready_queues_lock);
+    auto priority_mask = g_ready_queues_mask;
+    while (priority_mask != 0) {
+        auto priority = __builtin_ffsl(priority_mask);
+        VERIFY(priority > 0);
+        auto& ready_queue = g_ready_queues[--priority];
+        for (auto& thread : ready_queue.thread_list) {
+            VERIFY(thread.m_runnable_priority == (int)priority);
+            if (thread.is_active())
+                continue;
+            if (!(thread.affinity() & affinity_mask))
+                continue;
+            return &thread;
+        }
+        priority_mask &= ~(1u << priority);
+    }
+
+    // Unlike in pull_next_runnable_thread() we don't want to fall back to
+    // the idle thread. We just want to see if we have any other thread ready
+    // to be scheduled.
+    return nullptr;
+}
+
 bool Scheduler::dequeue_runnable_thread(Thread& thread, bool check_affinity)
 {
     if (thread.is_idle_thread())
@@ -189,13 +216,6 @@ bool Scheduler::pick_next()
         });
 
     ScopedSpinLock lock(g_scheduler_lock);
-
-    auto current_thread = Thread::current();
-    if (current_thread->should_die() && current_thread->may_die_immediately()) {
-        // Ordinarily the thread would die on syscall exit, however if the thread
-        // doesn't perform any syscalls we still need to mark it for termination here.
-        current_thread->set_state(Thread::Dying);
-    }
 
     if constexpr (SCHEDULER_RUNNABLE_DEBUG) {
         dump_thread_list();
@@ -377,7 +397,7 @@ UNMAP_AFTER_INIT void Scheduler::initialize()
     g_ready_queues = new ThreadReadyQueue[g_ready_queue_buckets];
 
     g_finalizer_has_work.store(false, AK::MemoryOrder::memory_order_release);
-    s_colonel_process = Process::create_kernel_process(idle_thread, "colonel", idle_loop, nullptr, 1).leak_ref();
+    s_colonel_process = Process::create_kernel_process(idle_thread, "colonel", idle_loop, nullptr, 1, Process::RegisterProcess::No).leak_ref();
     VERIFY(s_colonel_process);
     VERIFY(idle_thread);
     idle_thread->set_priority(THREAD_PRIORITY_MIN);
@@ -423,8 +443,28 @@ void Scheduler::timer_tick(const RegisterState& regs)
         return; // TODO: This prevents scheduling on other CPUs!
 #endif
 
+    if (current_thread->previous_mode() == Thread::PreviousMode::UserMode && current_thread->should_die() && !current_thread->is_blocked()) {
+        dbgln_if(SCHEDULER_DEBUG, "Scheduler[{}]: Terminating user mode thread {}", Processor::id(), *current_thread);
+        {
+            ScopedSpinLock scheduler_lock(g_scheduler_lock);
+            current_thread->set_state(Thread::Dying);
+        }
+        VERIFY(!Processor::current().in_critical());
+        Processor::current().invoke_scheduler_async();
+        return;
+    }
     if (current_thread->tick())
         return;
+
+    if (!current_thread->is_idle_thread() && !peek_next_runnable_thread()) {
+        // If no other thread is ready to be scheduled we don't need to
+        // switch to the idle thread. Just give the current thread another
+        // time slice and let it run!
+        current_thread->set_ticks_left(time_slice_for(*current_thread));
+        current_thread->did_schedule();
+        dbgln_if(SCHEDULER_DEBUG, "Scheduler[{}]: No other threads ready, give {} another timeslice", Processor::id(), *current_thread);
+        return;
+    }
 
     VERIFY_INTERRUPTS_DISABLED();
     VERIFY(Processor::current().in_irq());

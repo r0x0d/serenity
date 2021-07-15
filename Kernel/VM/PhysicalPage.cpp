@@ -10,15 +10,14 @@
 
 namespace Kernel {
 
-NonnullRefPtr<PhysicalPage> PhysicalPage::create(PhysicalAddress paddr, bool supervisor, bool may_return_to_freelist)
+NonnullRefPtr<PhysicalPage> PhysicalPage::create(PhysicalAddress paddr, bool may_return_to_freelist)
 {
     auto& physical_page_entry = MM.get_physical_page_entry(paddr);
-    return adopt_ref(*new (&physical_page_entry.physical_page) PhysicalPage(supervisor, may_return_to_freelist));
+    return adopt_ref(*new (&physical_page_entry.allocated.physical_page) PhysicalPage(may_return_to_freelist));
 }
 
-PhysicalPage::PhysicalPage(bool supervisor, bool may_return_to_freelist)
+PhysicalPage::PhysicalPage(bool may_return_to_freelist)
     : m_may_return_to_freelist(may_return_to_freelist)
-    , m_supervisor(supervisor)
 {
 }
 
@@ -29,16 +28,13 @@ PhysicalAddress PhysicalPage::paddr() const
 
 void PhysicalPage::free_this()
 {
+    auto paddr = MM.get_physical_address(*this);
     if (m_may_return_to_freelist) {
-        auto paddr = MM.get_physical_address(*this);
-        bool is_supervisor = m_supervisor;
-
+        auto& this_as_freelist_entry = MM.get_physical_page_entry(paddr).freelist;
         this->~PhysicalPage(); // delete in place
-
-        if (is_supervisor)
-            MM.deallocate_supervisor_physical_page(paddr);
-        else
-            MM.deallocate_user_physical_page(paddr);
+        this_as_freelist_entry.next_index = -1;
+        this_as_freelist_entry.prev_index = -1;
+        MM.deallocate_physical_page(paddr);
     } else {
         this->~PhysicalPage(); // delete in place
     }

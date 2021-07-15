@@ -8,6 +8,7 @@
 
 #include <AK/Concepts.h>
 #include <AK/HashTable.h>
+#include <AK/NonnullOwnPtrVector.h>
 #include <AK/NonnullRefPtrVector.h>
 #include <AK/String.h>
 #include <Kernel/Arch/x86/PageFault.h>
@@ -105,8 +106,6 @@ extern RecursiveSpinLock s_mm_lock;
 class MemoryManager {
     AK_MAKE_ETERNAL
     friend class PageDirectory;
-    friend class PhysicalPage;
-    friend class PhysicalRegion;
     friend class AnonymousVMObject;
     friend class Region;
     friend class VMObject;
@@ -122,7 +121,7 @@ public:
         return Processor::current().get_mm_data();
     }
 
-    PageFaultResponse handle_page_fault(const PageFault&);
+    PageFaultResponse handle_page_fault(PageFault const&);
 
     void set_page_writable_direct(VirtualAddress, bool);
 
@@ -132,7 +131,7 @@ public:
     static void enter_process_paging_scope(Process&);
     static void enter_space(Space&);
 
-    bool validate_user_stack(const Process&, VirtualAddress) const;
+    bool validate_user_stack(Process const&, VirtualAddress) const;
 
     enum class ShouldZeroFill {
         No,
@@ -144,16 +143,15 @@ public:
     NonnullRefPtr<PhysicalPage> allocate_committed_user_physical_page(ShouldZeroFill = ShouldZeroFill::Yes);
     RefPtr<PhysicalPage> allocate_user_physical_page(ShouldZeroFill = ShouldZeroFill::Yes, bool* did_purge = nullptr);
     RefPtr<PhysicalPage> allocate_supervisor_physical_page();
-    NonnullRefPtrVector<PhysicalPage> allocate_contiguous_supervisor_physical_pages(size_t size, size_t physical_alignment = PAGE_SIZE);
-    void deallocate_user_physical_page(PhysicalAddress);
-    void deallocate_supervisor_physical_page(PhysicalAddress);
+    NonnullRefPtrVector<PhysicalPage> allocate_contiguous_supervisor_physical_pages(size_t size);
+    void deallocate_physical_page(PhysicalAddress);
 
-    OwnPtr<Region> allocate_contiguous_kernel_region(size_t, StringView name, Region::Access access, size_t physical_alignment = PAGE_SIZE, Region::Cacheable = Region::Cacheable::Yes);
+    OwnPtr<Region> allocate_contiguous_kernel_region(size_t, StringView name, Region::Access access, Region::Cacheable = Region::Cacheable::Yes);
     OwnPtr<Region> allocate_kernel_region(size_t, StringView name, Region::Access access, AllocationStrategy strategy = AllocationStrategy::Reserve, Region::Cacheable = Region::Cacheable::Yes);
     OwnPtr<Region> allocate_kernel_region(PhysicalAddress, size_t, StringView name, Region::Access access, Region::Cacheable = Region::Cacheable::Yes);
     OwnPtr<Region> allocate_kernel_region_identity(PhysicalAddress, size_t, StringView name, Region::Access access, Region::Cacheable = Region::Cacheable::Yes);
     OwnPtr<Region> allocate_kernel_region_with_vmobject(VMObject&, size_t, StringView name, Region::Access access, Region::Cacheable = Region::Cacheable::Yes);
-    OwnPtr<Region> allocate_kernel_region_with_vmobject(const Range&, VMObject&, StringView name, Region::Access access, Region::Cacheable = Region::Cacheable::Yes);
+    OwnPtr<Region> allocate_kernel_region_with_vmobject(Range const&, VMObject&, StringView name, Region::Access access, Region::Cacheable = Region::Cacheable::Yes);
 
     struct SystemMemoryInfo {
         PhysicalSize user_physical_pages { 0 };
@@ -195,8 +193,8 @@ public:
 
     PageDirectory& kernel_page_directory() { return *m_kernel_page_directory; }
 
-    const Vector<UsedMemoryRange>& used_memory_ranges() { return m_used_memory_ranges; }
-    bool is_allowed_to_mmap_to_userspace(PhysicalAddress, const Range&) const;
+    Vector<UsedMemoryRange> const& used_memory_ranges() { return m_used_memory_ranges; }
+    bool is_allowed_to_mmap_to_userspace(PhysicalAddress, Range const&) const;
 
     PhysicalPageEntry& get_physical_page_entry(PhysicalAddress);
     PhysicalAddress get_physical_address(PhysicalPage const&);
@@ -216,7 +214,7 @@ private:
     void protect_kernel_image();
     void parse_memory_map();
     static void flush_tlb_local(VirtualAddress, size_t page_count = 1);
-    static void flush_tlb(const PageDirectory*, VirtualAddress, size_t page_count = 1);
+    static void flush_tlb(PageDirectory const*, VirtualAddress, size_t page_count = 1);
 
     static Region* kernel_region_from_vaddr(VirtualAddress);
 
@@ -245,9 +243,9 @@ private:
 
     SystemMemoryInfo m_system_memory_info;
 
-    Vector<PhysicalRegion> m_user_physical_regions;
-    Vector<PhysicalRegion> m_super_physical_regions;
-    Optional<PhysicalRegion> m_physical_pages_region;
+    NonnullOwnPtrVector<PhysicalRegion> m_user_physical_regions;
+    NonnullOwnPtrVector<PhysicalRegion> m_super_physical_regions;
+    OwnPtr<PhysicalRegion> m_physical_pages_region;
     PhysicalPageEntry* m_physical_page_entries { nullptr };
     size_t m_physical_page_entries_count { 0 };
 
@@ -288,7 +286,7 @@ inline bool is_user_range(VirtualAddress vaddr, size_t size)
     return is_user_address(vaddr) && is_user_address(vaddr.offset(size));
 }
 
-inline bool is_user_range(const Range& range)
+inline bool is_user_range(Range const& range)
 {
     return is_user_range(range.base(), range.size());
 }

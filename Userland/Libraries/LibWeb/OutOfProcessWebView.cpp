@@ -412,4 +412,14 @@ void OutOfProcessWebView::js_console_input(const String& js_source)
     client().async_js_console_input(js_source);
 }
 
+String OutOfProcessWebView::selected_text()
+{
+    return client().get_selected_text();
+}
+
+void OutOfProcessWebView::select_all()
+{
+    client().async_select_all();
+}
+
 }

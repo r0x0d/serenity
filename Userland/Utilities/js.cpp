@@ -41,6 +41,7 @@
 #include <LibJS/Runtime/Set.h>
 #include <LibJS/Runtime/Shape.h>
 #include <LibJS/Runtime/StringObject.h>
+#include <LibJS/Runtime/Temporal/Calendar.h>
 #include <LibJS/Runtime/Temporal/Instant.h>
 #include <LibJS/Runtime/Temporal/TimeZone.h>
 #include <LibJS/Runtime/TypedArray.h>
@@ -427,12 +428,20 @@ static void print_data_view(JS::Object const& object, HashTable<JS::Object*>& se
     out(" @ {:p}", data_view.viewed_array_buffer());
 }
 
+static void print_temporal_calendar(JS::Object const& object, HashTable<JS::Object*>& seen_objects)
+{
+    auto& calendar = static_cast<JS::Temporal::Calendar const&>(object);
+    print_type("Temporal.Calendar");
+    out(" ");
+    print_value(JS::js_string(object.vm(), calendar.identifier()), seen_objects);
+}
+
 static void print_temporal_instant(JS::Object const& object, HashTable<JS::Object*>& seen_objects)
 {
     auto& instant = static_cast<JS::Temporal::Instant const&>(object);
     print_type("Temporal.Instant");
+    out(" ");
     // FIXME: Print human readable date and time, like in print_date() - ideally handling arbitrarily large values since we get a bigint.
-    out("\n  nanoseconds: ");
     print_value(&instant.nanoseconds(), seen_objects);
 }
 
@@ -440,7 +449,7 @@ static void print_temporal_time_zone(JS::Object const& object, HashTable<JS::Obj
 {
     auto& time_zone = static_cast<JS::Temporal::TimeZone const&>(object);
     print_type("Temporal.TimeZone");
-    out("\n  identifier: ");
+    out(" ");
     print_value(JS::js_string(object.vm(), time_zone.identifier()), seen_objects);
     if (time_zone.offset_nanoseconds().has_value()) {
         out("\n  offset (ns): ");
@@ -505,6 +514,8 @@ static void print_value(JS::Value value, HashTable<JS::Object*>& seen_objects)
             return print_primitive_wrapper_object("Number", object, seen_objects);
         if (is<JS::BooleanObject>(object))
             return print_primitive_wrapper_object("Boolean", object, seen_objects);
+        if (is<JS::Temporal::Calendar>(object))
+            return print_temporal_calendar(object, seen_objects);
         if (is<JS::Temporal::Instant>(object))
             return print_temporal_instant(object, seen_objects);
         if (is<JS::Temporal::TimeZone>(object))

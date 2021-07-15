@@ -19,6 +19,14 @@ EOF
 
 This will configure your keymap to German (`de`) instead of US English. See [`Base/res/keymaps/`](../Base/res/keymaps/) for a full list. Note that the `keymap` program itself will also modify the `/etc/Keyboard.ini` config file, but this way the change will persist across image rebuilds.
 
+## Ninja build targets
+
+The `Meta/serenity.sh` script provides an abstraction over the build targets which are made available by CMake. The
+following build targets cannot be accessed through the script and have to be used directly by changing the current
+directory to `Build/i686` and then running `ninja <target>`:
+
+- `ninja grub-image`: Builds a disk image (`grub_disk_image`) with GRUB
+
 ## CMake build options
 
 There are some optional features that can be enabled during compilation that are intended to help with specific types of development work or introduce experimental features. Currently, the following build options are available:
@@ -32,9 +40,8 @@ There are some optional features that can be enabled during compilation that are
 - `ENABLE_COMPILETIME_FORMAT_CHECK`: checks for the validity of `std::format`-style format string during compilation. Enabled by default.
 - `ENABLE_PCI_IDS_DOWNLOAD`: downloads the [`pci.ids` database](https://pci-ids.ucw.cz/) that contains information about PCI devices at build time, if not already present. Enabled by default.
 - `BUILD_LAGOM`: builds [Lagom](../Meta/Lagom/ReadMe.md), which makes various SerenityOS libraries and programs available on the host system.
-- `PRECOMPILE_COMMON_HEADERS`: precompiles some common headers to speedup compilation.
 - `ENABLE_KERNEL_LTO`: builds the kernel with link-time optimization.
-- `INCLUDE_WASM_SPEC_TESTS`: downloads and includes the WebAssembly spec testsuite tests
+- `INCLUDE_WASM_SPEC_TESTS`: downloads and includes the WebAssembly spec testsuite tests. In order to use this option, you will need to install `prettier` and `wabt`. wabt version 1.0.23 or higher is required to pre-process the WebAssembly spec testsuite.
 - `BUILD_<component>`: builds the specified component, e.g. `BUILD_HEARTS` (note: must be all caps). Check the components.ini file in your build directory for a list of available components. Make sure to run `ninja clean` and `rm -rf Build/i686/Root` after disabling components. These options can be easily configured by using the `ConfigureComponents` utility. See the [Component Configuration](#component-configuration) section below.
 - `BUILD_EVERYTHING`: builds all optional components, overrides other `BUILD_<component>` flags when enabled
 
@@ -72,3 +79,13 @@ Outside of QEMU, Serenity will run on VirtualBox and VMware. If you're curious, 
 ## Running SerenityOS on bare metal
 
 Bare curious users may even consider sourcing suitable hardware to [install Serenity on a physical PC.](BareMetalInstallation.md)
+
+## Filesystem performance on Windows
+
+If you're using the native Windows QEMU binary, QEMU is not able to access the ext4 root partition
+of the WSL2 installation without going via the 9P network file share. The root of your WSL2 distro will begin at the
+network path `\\wsl$\{distro-name}`.
+
+Alternatively, you may prefer to copy `Build/_disk_image` and `Build/Kernel/Kernel` to a native Windows partition (e.g.
+`/mnt/c`) before running `ninja run`, in which case `SERENITY_DISK_IMAGE` will be a regular Windows path (e.g.
+`'D:\serenity\_disk_image'`).

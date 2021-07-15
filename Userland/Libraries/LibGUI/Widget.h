@@ -314,6 +314,7 @@ protected:
     virtual void drag_leave_event(Event&);
     virtual void drop_event(DropEvent&);
     virtual void theme_change_event(ThemeChangeEvent&);
+    virtual void fonts_change_event(FontsChangeEvent&);
     virtual void screen_rects_change_event(ScreenRectsChangeEvent&);
 
     virtual void did_begin_inspection() override;
@@ -360,6 +361,7 @@ private:
     bool m_updates_enabled { true };
     bool m_accepts_emoji_input { false };
     bool m_shrink_to_fit { false };
+    bool m_default_font { true };
 
     NonnullRefPtr<Gfx::PaletteImpl> m_palette;
 

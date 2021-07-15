@@ -7,7 +7,6 @@
 #include <AK/URL.h>
 #include <LibCore/File.h>
 #include <LibCore/MimeData.h>
-#include <LibGUI/Action.h>
 #include <LibGUI/Application.h>
 #include <LibGUI/Clipboard.h>
 #include <LibGUI/InputBox.h>
@@ -38,14 +37,6 @@ InProcessWebView::InProcessWebView()
     set_should_hide_unnecessary_scrollbars(true);
     set_background_role(ColorRole::Base);
     set_focus_policy(GUI::FocusPolicy::StrongFocus);
-
-    m_copy_action = GUI::CommonActions::make_copy_action([this](auto&) {
-        GUI::Clipboard::the().set_plain_text(selected_text());
-    });
-
-    m_select_all_action = GUI::CommonActions::make_select_all_action([this](auto&) {
-        select_all();
-    });
 }
 
 InProcessWebView::~InProcessWebView()
@@ -54,36 +45,7 @@ InProcessWebView::~InProcessWebView()
 
 void InProcessWebView::select_all()
 {
-    auto* layout_root = this->layout_root();
-    if (!layout_root)
-        return;
-
-    const Layout::Node* first_layout_node = layout_root;
-
-    for (;;) {
-        auto* next = first_layout_node->next_in_pre_order();
-        if (!next)
-            break;
-        first_layout_node = next;
-        if (is<Layout::TextNode>(*first_layout_node))
-            break;
-    }
-
-    const Layout::Node* last_layout_node = first_layout_node;
-
-    for (const Layout::Node* layout_node = first_layout_node; layout_node; layout_node = layout_node->next_in_pre_order()) {
-        if (is<Layout::TextNode>(*layout_node))
-            last_layout_node = layout_node;
-    }
-
-    VERIFY(first_layout_node);
-    VERIFY(last_layout_node);
-
-    int last_layout_node_index_in_node = 0;
-    if (is<Layout::TextNode>(*last_layout_node))
-        last_layout_node_index_in_node = verify_cast<Layout::TextNode>(*last_layout_node).text_for_rendering().length() - 1;
-
-    layout_root->set_selection({ { first_layout_node, 0 }, { last_layout_node, last_layout_node_index_in_node } });
+    page().focused_context().select_all();
     update();
 }
 

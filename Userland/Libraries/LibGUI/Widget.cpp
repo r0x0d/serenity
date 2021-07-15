@@ -295,6 +295,8 @@ void Widget::event(Core::Event& event)
         return drop_event(static_cast<DropEvent&>(event));
     case Event::ThemeChange:
         return theme_change_event(static_cast<ThemeChangeEvent&>(event));
+    case Event::FontsChange:
+        return fonts_change_event(static_cast<FontsChangeEvent&>(event));
     case Event::Enter:
         return handle_enter_event(event);
     case Event::Leave:
@@ -552,10 +554,17 @@ void Widget::drag_leave_event(Event&)
 void Widget::drop_event(DropEvent& event)
 {
     dbgln("{} {:p} DROP @ {}, '{}'", class_name(), this, event.position(), event.text());
+    event.ignore();
 }
 
 void Widget::theme_change_event(ThemeChangeEvent&)
 {
+}
+
+void Widget::fonts_change_event(FontsChangeEvent&)
+{
+    if (m_default_font)
+        set_font(nullptr);
 }
 
 void Widget::screen_rects_change_event(ScreenRectsChangeEvent&)
@@ -699,10 +708,13 @@ void Widget::set_font(const Gfx::Font* font)
     if (m_font.ptr() == font)
         return;
 
-    if (!font)
+    if (!font) {
         m_font = Gfx::FontDatabase::default_font();
-    else
+        m_default_font = true;
+    } else {
         m_font = *font;
+        m_default_font = false;
+    }
 
     did_change_font();
     update();

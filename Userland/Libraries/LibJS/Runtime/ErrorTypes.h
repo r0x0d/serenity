@@ -27,10 +27,12 @@
     M(DivisionByZero, "Division by zero")                                                                                               \
     M(FinalizationRegistrySameTargetAndValue, "Target and held value must not be the same")                                             \
     M(GetCapabilitiesExecutorCalledMultipleTimes, "GetCapabilitiesExecutor was called multiple times")                                  \
+    M(IndexOutOfRange, "Index {} is out of range of array length {}")                                                                   \
     M(InOperatorWithObject, "'in' operator must be used on an object")                                                                  \
     M(InstanceOfOperatorBadPrototype, "'prototype' property of {} is not an object")                                                    \
     M(InvalidAssignToConst, "Invalid assignment to const variable")                                                                     \
     M(InvalidCodePoint, "Invalid code point {}, must be an integer no less than 0 and no greater than 0x10FFFF")                        \
+    M(InvalidFormat, "Invalid {} format")                                                                                               \
     M(InvalidFractionDigits, "Fraction Digits must be an integer no less than 0, and no greater than 100")                              \
     M(InvalidHint, "Invalid hint: \"{}\"")                                                                                              \
     M(InvalidIndex, "Index must be a positive integer")                                                                                 \
@@ -69,6 +71,7 @@
     M(ObjectPrototypeNullOrUndefinedOnSuperPropertyAccess,                                                                              \
         "Object prototype must not be {} on a super property access")                                                                   \
     M(ObjectPrototypeWrongType, "Prototype must be an object or null")                                                                  \
+    M(OptionIsNotValidValue, "{} is not a valid value for option {}")                                                                   \
     M(PromiseExecutorNotAFunction, "Promise executor must be a function")                                                               \
     M(ProxyConstructBadReturnType, "Proxy handler's construct trap violates invariant: must return "                                    \
                                    "an object")                                                                                         \
@@ -163,7 +166,10 @@
     M(StringNonGlobalRegExp, "RegExp argument is non-global")                                                                           \
     M(StringRawCannotConvert, "Cannot convert property 'raw' to object from {}")                                                        \
     M(StringRepeatCountMustBe, "repeat count must be a {} number")                                                                      \
+    M(TemporalInvalidCalendarIdentifier, "Invalid calendar identifier '{}'")                                                            \
     M(TemporalInvalidEpochNanoseconds, "Invalid epoch nanoseconds value, must be in range -86400 * 10^17 to 86400 * 10^17")             \
+    M(TemporalInvalidISODate, "Invalid ISO date")                                                                                       \
+    M(TemporalInvalidTime, "Invalid time")                                                                                              \
     M(TemporalInvalidTimeZoneName, "Invalid time zone name")                                                                            \
     M(ThisHasNotBeenInitialized, "|this| has not been initialized")                                                                     \
     M(ThisIsAlreadyInitialized, "|this| is already initialized")                                                                        \
@@ -176,6 +182,7 @@
     M(TypedArrayOutOfRangeByteOffsetOrLength, "Typed array range {}:{} is out of range for buffer with length {}")                      \
     M(TypedArrayPrototypeOneArg, "TypedArray.prototype.{}() requires at least one argument")                                            \
     M(TypedArrayFailedSettingIndex, "Failed setting value of index {} of typed array")                                                  \
+    M(TypedArrayTypeIsNot, "Typed array {} element type is not {}")                                                                     \
     M(UnknownIdentifier, "'{}' is not defined")                                                                                         \
     M(UnsupportedDeleteSuperProperty, "Can't delete a property on 'super'")                                                             \
     M(URIMalformed, "URI malformed") /* LibWeb bindings */                                                                              \

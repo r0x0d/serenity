@@ -4,7 +4,6 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
-#include <AK/ScopeGuard.h>
 #include <Kernel/API/Syscall.h>
 #include <Kernel/Arch/x86/Interrupts.h>
 #include <Kernel/Arch/x86/TrapFrame.h>
@@ -154,16 +153,14 @@ NEVER_INLINE void syscall_handler(TrapFrame* trap)
 {
     auto& regs = *trap->regs;
     auto current_thread = Thread::current();
-    {
-        ScopedSpinLock lock(g_scheduler_lock);
-        current_thread->set_may_die_immediately(false);
-    }
-    ScopeGuard reset_may_die_immediately = [&current_thread] {
-        ScopedSpinLock lock(g_scheduler_lock);
-        current_thread->set_may_die_immediately(true);
-    };
     VERIFY(current_thread->previous_mode() == Thread::PreviousMode::UserMode);
     auto& process = current_thread->process();
+    if (process.is_dying()) {
+        // It's possible this thread is just about to make a syscall while another is
+        // is killing our process.
+        current_thread->die_if_needed();
+        return;
+    }
 
     if (auto tracer = process.tracer(); tracer && tracer->is_tracing_syscalls()) {
         tracer->set_trace_syscalls(false);

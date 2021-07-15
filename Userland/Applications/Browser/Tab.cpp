@@ -150,7 +150,7 @@ Tab::Tab(BrowserWindow& window, Type type)
         view().set_focus(true);
     };
 
-    m_location_box->add_custom_context_menu_action(GUI::Action::create("Paste & Go", [this](auto&) {
+    m_location_box->add_custom_context_menu_action(GUI::Action::create("Paste && Go", [this](auto&) {
         m_location_box->set_text(GUI::Clipboard::the().data());
         m_location_box->on_return_pressed();
     }));
@@ -331,6 +331,9 @@ Tab::Tab(BrowserWindow& window, Type type)
     m_page_context_menu->add_action(window.go_back_action());
     m_page_context_menu->add_action(window.go_forward_action());
     m_page_context_menu->add_action(window.reload_action());
+    m_page_context_menu->add_separator();
+    m_page_context_menu->add_action(window.copy_selection_action());
+    m_page_context_menu->add_action(window.select_all_action());
     m_page_context_menu->add_separator();
     m_page_context_menu->add_action(window.view_source_action());
     m_page_context_menu->add_action(window.inspect_dom_tree_action());

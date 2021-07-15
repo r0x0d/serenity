@@ -7,16 +7,15 @@
 #pragma once
 
 #include <AK/NonnullRefPtr.h>
-#include <Kernel/Assertions.h>
-#include <Kernel/Heap/SlabAllocator.h>
 #include <Kernel/PhysicalAddress.h>
 
 namespace Kernel {
 
 class PhysicalPage {
+    AK_MAKE_NONCOPYABLE(PhysicalPage);
+    AK_MAKE_NONMOVABLE(PhysicalPage);
+
     friend class MemoryManager;
-    friend class PageDirectory;
-    friend class VMObject;
 
 public:
     PhysicalAddress paddr() const;
@@ -32,7 +31,7 @@ public:
             free_this();
     }
 
-    static NonnullRefPtr<PhysicalPage> create(PhysicalAddress, bool supervisor, bool may_return_to_freelist = true);
+    static NonnullRefPtr<PhysicalPage> create(PhysicalAddress, bool may_return_to_freelist = true);
 
     u32 ref_count() const { return m_ref_count.load(AK::memory_order_consume); }
 
@@ -40,21 +39,27 @@ public:
     bool is_lazy_committed_page() const;
 
 private:
-    PhysicalPage(bool supervisor, bool may_return_to_freelist = true);
+    explicit PhysicalPage(bool may_return_to_freelist = true);
     ~PhysicalPage() = default;
 
     void free_this();
 
     Atomic<u32> m_ref_count { 1 };
     bool m_may_return_to_freelist { true };
-    bool m_supervisor { false };
 };
 
 struct PhysicalPageEntry {
-    // This structure either holds a valid PhysicalPage
-    // or a PhysicalAllocator's free list information!
     union {
-        PhysicalPage physical_page;
+        // If it's a live PhysicalPage object:
+        struct {
+            PhysicalPage physical_page;
+        } allocated;
+
+        // If it's an entry in a PhysicalZone::Bucket's freelist.
+        struct {
+            i16 next_index;
+            i16 prev_index;
+        } freelist;
     };
 };
 

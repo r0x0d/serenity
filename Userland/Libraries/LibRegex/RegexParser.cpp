@@ -13,6 +13,8 @@
 
 namespace regex {
 
+static constexpr size_t s_maximum_repetition_count = 1024 * 1024;
+
 ALWAYS_INLINE bool Parser::set_error(Error error)
 {
     if (m_parser_state.error == Error::NoError) {
@@ -191,6 +193,9 @@ ALWAYS_INLINE bool AbstractPosixParser::parse_bracket_expression(Vector<CompareT
             } else if (values.last().type == CharacterCompareType::Char) {
                 values.append({ CharacterCompareType::RangeExpressionDummy, 0 });
 
+                if (done())
+                    return set_error(Error::MismatchingBracket);
+
                 if (match(TokenType::HyphenMinus)) {
                     consume();
                     // Valid range, add ordinary character
@@ -216,7 +221,7 @@ ALWAYS_INLINE bool AbstractPosixParser::parse_bracket_expression(Vector<CompareT
 
                 // FIXME: Parse collating element, this is needed when we have locale support
                 //        This could have impact on length parameter, I guess.
-                VERIFY_NOT_REACHED();
+                set_error(Error::InvalidCollationElement);
 
                 consume(TokenType::Period, Error::InvalidCollationElement);
                 consume(TokenType::RightBracket, Error::MismatchingBracket);
@@ -225,7 +230,7 @@ ALWAYS_INLINE bool AbstractPosixParser::parse_bracket_expression(Vector<CompareT
                 consume();
                 // FIXME: Parse collating element, this is needed when we have locale support
                 //        This could have impact on length parameter, I guess.
-                VERIFY_NOT_REACHED();
+                set_error(Error::InvalidCollationElement);
 
                 consume(TokenType::EqualSign, Error::InvalidCollationElement);
                 consume(TokenType::RightBracket, Error::MismatchingBracket);
@@ -302,11 +307,11 @@ ALWAYS_INLINE bool AbstractPosixParser::parse_bracket_expression(Vector<CompareT
         }
     }
 
-    if (values.size())
+    if (!values.is_empty()) {
         match_length_minimum = 1;
-
-    if (values.first().type == CharacterCompareType::Inverse)
-        match_length_minimum = 0;
+        if (values.first().type == CharacterCompareType::Inverse)
+            match_length_minimum = 0;
+    }
 
     return true;
 }
@@ -394,6 +399,12 @@ bool PosixBasicParser::parse_simple_re(ByteCode& bytecode, size_t& match_length_
 
         if (!try_skip("\\}"))
             return set_error(Error::MismatchingBrace);
+
+        if (max_limit.value_or(min_limit) < min_limit)
+            return set_error(Error::InvalidBraceContent);
+
+        if (min_limit > s_maximum_repetition_count || (max_limit.has_value() && *max_limit > s_maximum_repetition_count))
+            return set_error(Error::InvalidBraceContent);
 
         ByteCode::transform_bytecode_repetition_min_max(simple_re_bytecode, min_limit, max_limit, true);
         match_length_minimum += re_match_length_minimum * min_limit;
@@ -489,7 +500,8 @@ bool PosixBasicParser::parse_one_char_or_collation_element(ByteCode& bytecode, s
 
         consume(TokenType::RightBracket, Error::MismatchingBracket);
 
-        bytecode.insert_bytecode_compare_values(move(values));
+        if (!has_error())
+            bytecode.insert_bytecode_compare_values(move(values));
         match_length_minimum += bracket_minimum_length;
         return !has_error();
     }
@@ -533,6 +545,9 @@ ALWAYS_INLINE bool PosixExtendedParser::parse_repetition_symbol(ByteCode& byteco
         auto minimum = maybe_minimum.value();
         match_length_minimum *= minimum;
 
+        if (minimum > s_maximum_repetition_count)
+            return set_error(Error::InvalidBraceContent);
+
         if (match(TokenType::Comma)) {
             consume();
         } else {
@@ -551,7 +566,7 @@ ALWAYS_INLINE bool PosixExtendedParser::parse_repetition_symbol(ByteCode& byteco
         }
         if (!number_builder.is_empty()) {
             auto value = number_builder.build().to_uint();
-            if (!value.has_value() || minimum > value.value())
+            if (!value.has_value() || minimum > value.value() || *value > s_maximum_repetition_count)
                 return set_error(Error::InvalidBraceContent);
 
             maybe_maximum = value.value();
@@ -606,7 +621,8 @@ ALWAYS_INLINE bool PosixExtendedParser::parse_bracket_expression(ByteCode& stack
     if (!AbstractPosixParser::parse_bracket_expression(values, match_length_minimum))
         return false;
 
-    stack.insert_bytecode_compare_values(move(values));
+    if (!has_error())
+        stack.insert_bytecode_compare_values(move(values));
 
     return !has_error();
 }
@@ -700,6 +716,13 @@ ALWAYS_INLINE bool PosixExtendedParser::parse_sub_expression(ByteCode& stack, si
             return false;
 
         if (match(TokenType::LeftParen)) {
+            enum GroupMode {
+                Normal,
+                Lookahead,
+                NegativeLookahead,
+                Lookbehind,
+                NegativeLookbehind,
+            } group_mode { Normal };
             consume();
             Optional<StringView> capture_group_name;
             bool prevent_capture_group = false;
@@ -728,16 +751,16 @@ ALWAYS_INLINE bool PosixExtendedParser::parse_sub_expression(ByteCode& stack, si
 
                 } else if (match(TokenType::EqualSign)) { // positive lookahead
                     consume();
-                    VERIFY_NOT_REACHED();
+                    group_mode = Lookahead;
                 } else if (consume("!")) { // negative lookahead
-                    VERIFY_NOT_REACHED();
+                    group_mode = NegativeLookahead;
                 } else if (consume("<")) {
                     if (match(TokenType::EqualSign)) { // positive lookbehind
                         consume();
-                        VERIFY_NOT_REACHED();
+                        group_mode = Lookbehind;
                     }
                     if (consume("!")) // negative lookbehind
-                        VERIFY_NOT_REACHED();
+                        group_mode = NegativeLookbehind;
                 } else {
                     return set_error(Error::InvalidRepetitionMarker);
                 }
@@ -755,7 +778,23 @@ ALWAYS_INLINE bool PosixExtendedParser::parse_sub_expression(ByteCode& stack, si
             if (!parse_root(capture_group_bytecode, length))
                 return set_error(Error::InvalidPattern);
 
-            bytecode.extend(move(capture_group_bytecode));
+            switch (group_mode) {
+            case Normal:
+                bytecode.extend(move(capture_group_bytecode));
+                break;
+            case Lookahead:
+                bytecode.insert_bytecode_lookaround(move(capture_group_bytecode), ByteCode::LookAroundType::LookAhead, length);
+                break;
+            case NegativeLookahead:
+                bytecode.insert_bytecode_lookaround(move(capture_group_bytecode), ByteCode::LookAroundType::NegatedLookAhead, length);
+                break;
+            case Lookbehind:
+                bytecode.insert_bytecode_lookaround(move(capture_group_bytecode), ByteCode::LookAroundType::LookBehind, length);
+                break;
+            case NegativeLookbehind:
+                bytecode.insert_bytecode_lookaround(move(capture_group_bytecode), ByteCode::LookAroundType::NegatedLookBehind, length);
+                break;
+            }
 
             consume(TokenType::RightParen, Error::MismatchingParen);
 

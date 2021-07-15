@@ -424,29 +424,34 @@ public:
         if (!peek() || peek() == '{' || peek() == ',' || is_combinator(peek()))
             return {};
 
-        CSS::Selector::SimpleSelector::Type type;
+        CSS::Selector::SimpleSelector simple_selector;
 
         if (peek() == '*') {
-            type = CSS::Selector::SimpleSelector::Type::Universal;
+            simple_selector.type = CSS::Selector::SimpleSelector::Type::Universal;
             consume_one();
-            CSS::Selector::SimpleSelector result;
-            result.type = type;
-            return result;
+            return simple_selector;
         }
 
         if (peek() == '.') {
-            type = CSS::Selector::SimpleSelector::Type::Class;
+            simple_selector.type = CSS::Selector::SimpleSelector::Type::Class;
             consume_one();
         } else if (peek() == '#') {
-            type = CSS::Selector::SimpleSelector::Type::Id;
+            simple_selector.type = CSS::Selector::SimpleSelector::Type::Id;
             consume_one();
         } else if (isalpha(peek())) {
-            type = CSS::Selector::SimpleSelector::Type::TagName;
+            simple_selector.type = CSS::Selector::SimpleSelector::Type::TagName;
+        } else if (peek() == '[') {
+            simple_selector.type = CSS::Selector::SimpleSelector::Type::Attribute;
+        } else if (peek() == ':') {
+            simple_selector.type = CSS::Selector::SimpleSelector::Type::PseudoClass;
         } else {
-            type = CSS::Selector::SimpleSelector::Type::Universal;
+            simple_selector.type = CSS::Selector::SimpleSelector::Type::Universal;
         }
 
-        if (type != CSS::Selector::SimpleSelector::Type::Universal) {
+        if ((simple_selector.type != CSS::Selector::SimpleSelector::Type::Universal)
+            && (simple_selector.type != CSS::Selector::SimpleSelector::Type::Attribute)
+            && (simple_selector.type != CSS::Selector::SimpleSelector::Type::PseudoClass)) {
+
             while (is_valid_selector_char(peek()))
                 buffer.append(consume_one());
             PARSE_VERIFY(!buffer.is_empty());
@@ -454,18 +459,16 @@ public:
 
         auto value = String::copy(buffer);
 
-        if (type == CSS::Selector::SimpleSelector::Type::TagName) {
+        if (simple_selector.type == CSS::Selector::SimpleSelector::Type::TagName) {
             // Some stylesheets use uppercase tag names, so here's a hack to just lowercase them internally.
             value = value.to_lowercase();
         }
 
-        CSS::Selector::SimpleSelector simple_selector;
-        simple_selector.type = type;
         simple_selector.value = value;
         buffer.clear();
 
-        if (peek() == '[') {
-            CSS::Selector::SimpleSelector::AttributeMatchType attribute_match_type = CSS::Selector::SimpleSelector::AttributeMatchType::HasAttribute;
+        if (simple_selector.type == CSS::Selector::SimpleSelector::Type::Attribute) {
+            CSS::Selector::SimpleSelector::Attribute::MatchType attribute_match_type = CSS::Selector::SimpleSelector::Attribute::MatchType::HasAttribute;
             String attribute_name;
             String attribute_value;
             bool in_value = false;
@@ -475,10 +478,10 @@ public:
                 char ch = consume_one();
                 if (ch == '=' || (ch == '~' && peek() == '=')) {
                     if (ch == '=') {
-                        attribute_match_type = CSS::Selector::SimpleSelector::AttributeMatchType::ExactValueMatch;
+                        attribute_match_type = CSS::Selector::SimpleSelector::Attribute::MatchType::ExactValueMatch;
                     } else if (ch == '~') {
                         consume_one();
-                        attribute_match_type = CSS::Selector::SimpleSelector::AttributeMatchType::ContainsWord;
+                        attribute_match_type = CSS::Selector::SimpleSelector::Attribute::MatchType::ContainsWord;
                     }
                     attribute_name = String::copy(buffer);
                     buffer.clear();
@@ -503,9 +506,9 @@ public:
             else
                 attribute_name = String::copy(buffer);
             buffer.clear();
-            simple_selector.attribute_match_type = attribute_match_type;
-            simple_selector.attribute_name = attribute_name;
-            simple_selector.attribute_value = attribute_value;
+            simple_selector.attribute.match_type = attribute_match_type;
+            simple_selector.attribute.name = attribute_name;
+            simple_selector.attribute.value = attribute_value;
             if (expected_end_of_attribute_selector != ']') {
                 if (!consume_specific(expected_end_of_attribute_selector))
                     return {};
@@ -515,7 +518,7 @@ public:
                 return {};
         }
 
-        if (peek() == ':') {
+        if (simple_selector.type == CSS::Selector::SimpleSelector::Type::PseudoClass) {
             // FIXME: Implement pseudo elements.
             [[maybe_unused]] bool is_pseudo_element = false;
             consume_one();
@@ -559,49 +562,55 @@ public:
             if (is_pseudo_element)
                 return {};
 
+            auto& pseudo_class = simple_selector.pseudo_class;
+
             if (pseudo_name.equals_ignoring_case("link")) {
-                simple_selector.pseudo_class = CSS::Selector::SimpleSelector::PseudoClass::Link;
+                pseudo_class.type = CSS::Selector::SimpleSelector::PseudoClass::Type::Link;
             } else if (pseudo_name.equals_ignoring_case("visited")) {
-                simple_selector.pseudo_class = CSS::Selector::SimpleSelector::PseudoClass::Visited;
+                pseudo_class.type = CSS::Selector::SimpleSelector::PseudoClass::Type::Visited;
             } else if (pseudo_name.equals_ignoring_case("active")) {
-                simple_selector.pseudo_class = CSS::Selector::SimpleSelector::PseudoClass::Active;
+                pseudo_class.type = CSS::Selector::SimpleSelector::PseudoClass::Type::Active;
             } else if (pseudo_name.equals_ignoring_case("hover")) {
-                simple_selector.pseudo_class = CSS::Selector::SimpleSelector::PseudoClass::Hover;
+                pseudo_class.type = CSS::Selector::SimpleSelector::PseudoClass::Type::Hover;
             } else if (pseudo_name.equals_ignoring_case("focus")) {
-                simple_selector.pseudo_class = CSS::Selector::SimpleSelector::PseudoClass::Focus;
+                pseudo_class.type = CSS::Selector::SimpleSelector::PseudoClass::Type::Focus;
             } else if (pseudo_name.equals_ignoring_case("first-child")) {
-                simple_selector.pseudo_class = CSS::Selector::SimpleSelector::PseudoClass::FirstChild;
+                pseudo_class.type = CSS::Selector::SimpleSelector::PseudoClass::Type::FirstChild;
             } else if (pseudo_name.equals_ignoring_case("last-child")) {
-                simple_selector.pseudo_class = CSS::Selector::SimpleSelector::PseudoClass::LastChild;
+                pseudo_class.type = CSS::Selector::SimpleSelector::PseudoClass::Type::LastChild;
             } else if (pseudo_name.equals_ignoring_case("only-child")) {
-                simple_selector.pseudo_class = CSS::Selector::SimpleSelector::PseudoClass::OnlyChild;
+                pseudo_class.type = CSS::Selector::SimpleSelector::PseudoClass::Type::OnlyChild;
             } else if (pseudo_name.equals_ignoring_case("empty")) {
-                simple_selector.pseudo_class = CSS::Selector::SimpleSelector::PseudoClass::Empty;
+                pseudo_class.type = CSS::Selector::SimpleSelector::PseudoClass::Type::Empty;
             } else if (pseudo_name.equals_ignoring_case("root")) {
-                simple_selector.pseudo_class = CSS::Selector::SimpleSelector::PseudoClass::Root;
+                pseudo_class.type = CSS::Selector::SimpleSelector::PseudoClass::Type::Root;
             } else if (pseudo_name.equals_ignoring_case("first-of-type")) {
-                simple_selector.pseudo_class = CSS::Selector::SimpleSelector::PseudoClass::FirstOfType;
+                pseudo_class.type = CSS::Selector::SimpleSelector::PseudoClass::Type::FirstOfType;
             } else if (pseudo_name.equals_ignoring_case("last-of-type")) {
-                simple_selector.pseudo_class = CSS::Selector::SimpleSelector::PseudoClass::LastOfType;
+                pseudo_class.type = CSS::Selector::SimpleSelector::PseudoClass::Type::LastOfType;
             } else if (pseudo_name.starts_with("nth-child", CaseSensitivity::CaseInsensitive)) {
-                simple_selector.pseudo_class = CSS::Selector::SimpleSelector::PseudoClass::NthChild;
-                simple_selector.nth_child_pattern = CSS::Selector::SimpleSelector::NthChildPattern::parse(capture_selector_args(pseudo_name));
+                pseudo_class.type = CSS::Selector::SimpleSelector::PseudoClass::Type::NthChild;
+                pseudo_class.nth_child_pattern = CSS::Selector::SimpleSelector::NthChildPattern::parse(capture_selector_args(pseudo_name));
             } else if (pseudo_name.starts_with("nth-last-child", CaseSensitivity::CaseInsensitive)) {
-                simple_selector.pseudo_class = CSS::Selector::SimpleSelector::PseudoClass::NthLastChild;
-                simple_selector.nth_child_pattern = CSS::Selector::SimpleSelector::NthChildPattern::parse(capture_selector_args(pseudo_name));
+                pseudo_class.type = CSS::Selector::SimpleSelector::PseudoClass::Type::NthLastChild;
+                pseudo_class.nth_child_pattern = CSS::Selector::SimpleSelector::NthChildPattern::parse(capture_selector_args(pseudo_name));
             } else if (pseudo_name.equals_ignoring_case("before")) {
                 simple_selector.pseudo_element = CSS::Selector::SimpleSelector::PseudoElement::Before;
             } else if (pseudo_name.equals_ignoring_case("after")) {
                 simple_selector.pseudo_element = CSS::Selector::SimpleSelector::PseudoElement::After;
             } else if (pseudo_name.equals_ignoring_case("disabled")) {
-                simple_selector.pseudo_class = CSS::Selector::SimpleSelector::PseudoClass::Disabled;
+                pseudo_class.type = CSS::Selector::SimpleSelector::PseudoClass::Type::Disabled;
             } else if (pseudo_name.equals_ignoring_case("enabled")) {
-                simple_selector.pseudo_class = CSS::Selector::SimpleSelector::PseudoClass::Enabled;
+                pseudo_class.type = CSS::Selector::SimpleSelector::PseudoClass::Type::Enabled;
             } else if (pseudo_name.equals_ignoring_case("checked")) {
-                simple_selector.pseudo_class = CSS::Selector::SimpleSelector::PseudoClass::Checked;
+                pseudo_class.type = CSS::Selector::SimpleSelector::PseudoClass::Type::Checked;
             } else if (pseudo_name.starts_with("not", CaseSensitivity::CaseInsensitive)) {
-                simple_selector.pseudo_class = CSS::Selector::SimpleSelector::PseudoClass::Not;
-                simple_selector.not_selector = capture_selector_args(pseudo_name);
+                pseudo_class.type = CSS::Selector::SimpleSelector::PseudoClass::Type::Not;
+                auto not_selector = Web::parse_selector(m_context, capture_selector_args(pseudo_name));
+                if (not_selector) {
+                    pseudo_class.not_selector.clear();
+                    pseudo_class.not_selector.append(not_selector.release_nonnull());
+                }
             } else {
                 dbgln("Unknown pseudo class: '{}'", pseudo_name);
                 return {};
@@ -678,10 +687,10 @@ public:
             return;
         complex_selectors.first().relation = CSS::Selector::ComplexSelector::Relation::None;
 
-        current_rule.selectors.append(CSS::Selector(move(complex_selectors)));
+        current_rule.selectors.append(CSS::Selector::create(move(complex_selectors)));
     }
 
-    Optional<CSS::Selector> parse_individual_selector()
+    RefPtr<CSS::Selector> parse_individual_selector()
     {
         parse_selector();
         if (current_rule.selectors.is_empty())
@@ -1032,7 +1041,7 @@ private:
     NonnullRefPtrVector<CSS::CSSRule> rules;
 
     struct CurrentRule {
-        Vector<CSS::Selector> selectors;
+        NonnullRefPtrVector<CSS::Selector> selectors;
         Vector<CSS::StyleProperty> properties;
         HashMap<String, CSS::StyleProperty> custom_properties;
     };
@@ -1045,7 +1054,7 @@ private:
     StringView css;
 };
 
-Optional<CSS::Selector> parse_selector(const CSS::DeprecatedParsingContext& context, const StringView& selector_text)
+RefPtr<CSS::Selector> parse_selector(const CSS::DeprecatedParsingContext& context, const StringView& selector_text)
 {
     CSSParser parser(context, selector_text);
     return parser.parse_individual_selector();

@@ -148,6 +148,12 @@ class Process
         Process& m_process;
     };
 
+    enum class State : u8 {
+        Running = 0,
+        Dying,
+        Dead
+    };
+
 public:
     inline static Process* current()
     {
@@ -163,14 +169,19 @@ public:
         delete func;
     }
 
+    enum class RegisterProcess {
+        No,
+        Yes
+    };
+
     template<typename EntryFunction>
-    static RefPtr<Process> create_kernel_process(RefPtr<Thread>& first_thread, String&& name, EntryFunction entry, u32 affinity = THREAD_AFFINITY_DEFAULT)
+    static RefPtr<Process> create_kernel_process(RefPtr<Thread>& first_thread, String&& name, EntryFunction entry, u32 affinity = THREAD_AFFINITY_DEFAULT, RegisterProcess do_register = RegisterProcess::Yes)
     {
         auto* entry_func = new EntryFunction(move(entry));
-        return create_kernel_process(first_thread, move(name), &Process::kernel_process_trampoline<EntryFunction>, entry_func, affinity);
+        return create_kernel_process(first_thread, move(name), &Process::kernel_process_trampoline<EntryFunction>, entry_func, affinity, do_register);
     }
 
-    static RefPtr<Process> create_kernel_process(RefPtr<Thread>& first_thread, String&& name, void (*entry)(void*), void* entry_data = nullptr, u32 affinity = THREAD_AFFINITY_DEFAULT);
+    static RefPtr<Process> create_kernel_process(RefPtr<Thread>& first_thread, String&& name, void (*entry)(void*), void* entry_data = nullptr, u32 affinity = THREAD_AFFINITY_DEFAULT, RegisterProcess do_register = RegisterProcess::Yes);
     static RefPtr<Process> create_user_process(RefPtr<Thread>& first_thread, const String& path, uid_t, gid_t, ProcessID ppid, int& error, Vector<String>&& arguments = Vector<String>(), Vector<String>&& environment = Vector<String>(), TTY* = nullptr);
     static void register_new(Process&);
     ~Process();
@@ -196,7 +207,8 @@ public:
     bool should_core_dump() const { return m_should_dump_core; }
     void set_dump_core(bool dump_core) { m_should_dump_core = dump_core; }
 
-    bool is_dead() const { return m_dead; }
+    bool is_dying() const { return m_state.load(AK::MemoryOrder::memory_order_acquire) != State::Running; }
+    bool is_dead() const { return m_state.load(AK::MemoryOrder::memory_order_acquire) == State::Dead; }
 
     bool is_stopped() const { return m_is_stopped; }
     bool set_stopped(bool stopped) { return m_is_stopped.exchange(stopped); }
@@ -665,7 +677,7 @@ private:
     mutable RecursiveSpinLock m_thread_list_lock;
 
     const bool m_is_kernel_process;
-    bool m_dead { false };
+    Atomic<State> m_state { State::Running };
     bool m_profiling { false };
     Atomic<bool, AK::MemoryOrder::memory_order_relaxed> m_is_stopped { false };
     bool m_should_dump_core { false };

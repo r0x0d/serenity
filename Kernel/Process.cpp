@@ -117,7 +117,9 @@ void Process::kill_threads_except_self()
         thread.set_should_die();
     });
 
-    big_lock().clear_waiters();
+    u32 dropped_lock_count = 0;
+    if (big_lock().force_unlock_if_locked(dropped_lock_count) != LockMode::Unlocked)
+        dbgln("Process {} big lock had {} locks", *this, dropped_lock_count);
 }
 
 void Process::kill_all_threads()
@@ -133,8 +135,10 @@ void Process::register_new(Process& process)
 {
     // Note: this is essentially the same like process->ref()
     RefPtr<Process> new_process = process;
-    ScopedSpinLock lock(g_processes_lock);
-    g_processes->prepend(process);
+    {
+        ScopedSpinLock lock(g_processes_lock);
+        g_processes->prepend(process);
+    }
     ProcFSComponentRegistry::the().register_new_process(process);
 }
 
@@ -177,10 +181,14 @@ RefPtr<Process> Process::create_user_process(RefPtr<Thread>& first_thread, const
 
     register_new(*process);
     error = 0;
+
+    // NOTE: All user processes have a leaked ref on them. It's balanced by Thread::WaitBlockCondition::finalize().
+    (void)process.leak_ref();
+
     return process;
 }
 
-RefPtr<Process> Process::create_kernel_process(RefPtr<Thread>& first_thread, String&& name, void (*entry)(void*), void* entry_data, u32 affinity)
+RefPtr<Process> Process::create_kernel_process(RefPtr<Thread>& first_thread, String&& name, void (*entry)(void*), void* entry_data, u32 affinity, RegisterProcess do_register)
 {
     auto process = Process::create(first_thread, move(name), (uid_t)0, (gid_t)0, ProcessID(0), true);
     if (!first_thread || !process)
@@ -193,9 +201,8 @@ RefPtr<Process> Process::create_kernel_process(RefPtr<Thread>& first_thread, Str
     first_thread->regs().rdi = FlatPtr(entry_data); // entry function argument is expected to be in regs.rdi
 #endif
 
-    if (process->pid() != 0) {
+    if (do_register == RegisterProcess::Yes)
         register_new(*process);
-    }
 
     ScopedSpinLock lock(g_scheduler_lock);
     first_thread->set_affinity(affinity);
@@ -578,7 +585,7 @@ void Process::finalize()
     // allow us to take references anymore.
     ProcFSComponentRegistry::the().unregister_process(*this);
 
-    m_dead = true;
+    m_state.store(State::Dead, AK::MemoryOrder::memory_order_release);
 
     {
         // FIXME: PID/TID BUG
@@ -623,6 +630,15 @@ void Process::unblock_waiters(Thread::WaitBlocker::UnblockFlags flags, u8 signal
 
 void Process::die()
 {
+    auto expected = State::Running;
+    if (!m_state.compare_exchange_strong(expected, State::Dying, AK::memory_order_acquire)) {
+        // It's possible that another thread calls this at almost the same time
+        // as we can't always instantly kill other threads (they may be blocked)
+        // So if we already were called then other threads should stop running
+        // momentarily and we only really need to service the first thread
+        return;
+    }
+
     // Let go of the TTY, otherwise a slave PTY may keep the master PTY from
     // getting an EOF when the last process using the slave PTY dies.
     // If the master PTY owner relies on an EOF to know when to wait() on a

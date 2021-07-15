@@ -51,7 +51,7 @@ fi
 
 if command -v wslpath >/dev/null; then
     case "$SERENITY_QEMU_BIN" in
-        /mnt/c/*)
+        /mnt/?/*)
             [ -z "$SERENITY_QEMU_CPU" ] && SERENITY_QEMU_CPU="max,vmx=off"
             SERENITY_KERNEL_CMDLINE="$SERENITY_KERNEL_CMDLINE disable_virtio"
     esac
@@ -67,7 +67,7 @@ fi
     fi
     if command -v wslpath >/dev/null; then
         case "$SERENITY_QEMU_BIN" in
-            /mnt/c/*)
+            /mnt/?/*)
                 SERENITY_DISK_IMAGE=$(wslpath -w "$SERENITY_DISK_IMAGE")
                 ;;
         esac
@@ -86,8 +86,16 @@ if [ "$installed_major_version" -lt "$SERENITY_QEMU_MIN_REQ_VERSION" ]; then
     die
 fi
 
+if [ -z "$SERENITY_SPICE" ] && "${SERENITY_QEMU_BIN}" -chardev help | grep -iq qemu-vdagent; then
+    SERENITY_SPICE_SERVER_CHARDEV="-chardev qemu-vdagent,clipboard=on,mouse=off,id=vdagent,name=vdagent"
+elif "${SERENITY_QEMU_BIN}" -chardev help | grep -iq spicevmc; then
+    SERENITY_SPICE_SERVER_CHARDEV="-chardev spicevmc,id=vdagent,name=vdagent"
+fi
+
 SERENITY_SCREENS="${SERENITY_SCREENS:-1}"
-if (uname -a | grep -iq WSL) || (uname -a | grep -iq microsoft); then
+if  [ "$SERENITY_SPICE" ]; then
+    SERENITY_QEMU_DISPLAY_BACKEND="${SERENITY_QEMU_DISPLAY_BACKEND:-spice-app}"
+elif (uname -a | grep -iq WSL) || (uname -a | grep -iq microsoft); then
     # QEMU for windows does not like gl=on, so detect if we are building in wsl, and if so, disable it
     # Also, when using the GTK backend we run into this problem: https://github.com/SerenityOS/serenity/issues/7657
     SERENITY_QEMU_DISPLAY_BACKEND="${SERENITY_QEMU_DISPLAY_BACKEND:-sdl,gl=off}"
@@ -126,7 +134,8 @@ $SERENITY_EXTRA_QEMU_ARGS
 -device $SERENITY_QEMU_DISPLAY_DEVICE
 -drive file=${SERENITY_DISK_IMAGE},format=raw,index=0,media=disk
 -usb
--device virtio-serial
+$SERENITY_SPICE_SERVER_CHARDEV
+-device virtio-serial,max_ports=2
 -chardev stdio,id=stdout,mux=on
 -device virtconsole,chardev=stdout
 -device isa-debugcon,chardev=stdout
@@ -139,6 +148,13 @@ $SERENITY_EXTRA_QEMU_ARGS
 -device ich9-ahci,bus=bridge3
 "
 
+if "${SERENITY_QEMU_BIN}" -chardev help | grep -iq spice; then
+    SERENITY_COMMON_QEMU_ARGS="$SERENITY_COMMON_QEMU_ARGS
+    -spice port=5930,agent-mouse=off,disable-ticketing=on
+    -device virtserialport,chardev=vdagent,nr=1
+    "
+fi
+
 [ -z "$SERENITY_COMMON_QEMU_Q35_ARGS" ] && SERENITY_COMMON_QEMU_Q35_ARGS="
 $SERENITY_EXTRA_QEMU_ARGS
 -m $SERENITY_RAM_SIZE
@@ -146,11 +162,16 @@ $SERENITY_EXTRA_QEMU_ARGS
 -machine q35
 -d guest_errors
 -smp 2
+-device pcie-root-port,port=0x10,chassis=1,id=pcie.1,bus=pcie.0,multifunction=on,addr=0x2
+-device pcie-root-port,port=0x11,chassis=2,id=pcie.2,bus=pcie.0,addr=0x2.0x1
+-device pcie-root-port,port=0x12,chassis=3,id=pcie.3,bus=pcie.0,addr=0x2.0x2
+-device pcie-root-port,port=0x13,chassis=4,id=pcie.4,bus=pcie.0,addr=0x2.0x3
+-device pcie-root-port,port=0x14,chassis=5,id=pcie.5,bus=pcie.0,addr=0x2.0x4
+-device pcie-root-port,port=0x15,chassis=6,id=pcie.6,bus=pcie.0,addr=0x2.0x5
 -display $SERENITY_QEMU_DISPLAY_BACKEND
 -device $SERENITY_QEMU_DISPLAY_DEVICE
 -device secondary-vga
--device bochs-display
--device VGA,vgamem_mb=64
+-device bochs-display,bus=pcie.6,addr=0x10.0x0
 -device piix3-ide
 -drive file=${SERENITY_DISK_IMAGE},id=disk,if=none
 -device ahci,id=ahci
@@ -206,25 +227,11 @@ elif [ "$SERENITY_RUN" = "qgrub" ]; then
         $SERENITY_PACKET_LOGGING_ARG \
         -netdev user,id=breh,hostfwd=tcp:127.0.0.1:8888-10.0.2.15:8888,hostfwd=tcp:127.0.0.1:8823-10.0.2.15:23 \
         -device e1000,netdev=breh
-elif [ "$SERENITY_RUN" = "q35_cmd" ]; then
-    # Meta/run.sh q35_cmd: qemu (q35 chipset) with SerenityOS with custom commandline
-    shift
-    SERENITY_KERNEL_CMDLINE="$*"
-    echo "Starting SerenityOS, Commandline: ${SERENITY_KERNEL_CMDLINE}"
+elif [ "$SERENITY_RUN" = "q35" ]; then
+    # Meta/run.sh q35: qemu (q35 chipset) with SerenityOS
+    echo "Starting SerenityOS with QEMU Q35 machine, Commandline: ${SERENITY_KERNEL_CMDLINE}"
     "$SERENITY_QEMU_BIN" \
         $SERENITY_COMMON_QEMU_Q35_ARGS \
-        $SERENITY_VIRT_TECH_ARG \
-        -netdev user,id=breh,hostfwd=tcp:127.0.0.1:8888-10.0.2.15:8888,hostfwd=tcp:127.0.0.1:8823-10.0.2.15:23 \
-        -device e1000,netdev=breh \
-        -kernel Kernel/Kernel \
-        -append "${SERENITY_KERNEL_CMDLINE}"
-elif [ "$SERENITY_RUN" = "qcmd" ]; then
-    # Meta/run.sh qcmd: qemu with SerenityOS with custom commandline
-    shift
-    SERENITY_KERNEL_CMDLINE="$*"
-    echo "Starting SerenityOS, Commandline: ${SERENITY_KERNEL_CMDLINE}"
-    "$SERENITY_QEMU_BIN" \
-        $SERENITY_COMMON_QEMU_ARGS \
         $SERENITY_VIRT_TECH_ARG \
         -netdev user,id=breh,hostfwd=tcp:127.0.0.1:8888-10.0.2.15:8888,hostfwd=tcp:127.0.0.1:8823-10.0.2.15:23 \
         -device e1000,netdev=breh \
