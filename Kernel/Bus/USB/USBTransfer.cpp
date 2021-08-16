@@ -5,26 +5,26 @@
  */
 
 #include <Kernel/Bus/USB/USBTransfer.h>
-#include <Kernel/VM/MemoryManager.h>
+#include <Kernel/Memory/MemoryManager.h>
 
 namespace Kernel::USB {
 
 RefPtr<Transfer> Transfer::try_create(Pipe& pipe, u16 len)
 {
-    auto vmobject = ContiguousVMObject::try_create_with_size(PAGE_SIZE);
-    if (!vmobject)
-        return nullptr;
-
-    return AK::try_create<Transfer>(pipe, len, *vmobject);
-}
-
-Transfer::Transfer(Pipe& pipe, u16 len, ContiguousVMObject& vmobject)
-    : m_pipe(pipe)
-    , m_transfer_data_size(len)
-{
     // Initialize data buffer for transfer
     // This will definitely need to be refactored in the future, I doubt this will scale well...
-    m_data_buffer = MemoryManager::the().allocate_kernel_region_with_vmobject(vmobject, PAGE_SIZE, "USB Transfer Buffer", Region::Access::Read | Region::Access::Write);
+    auto data_buffer = MM.allocate_kernel_region(PAGE_SIZE, "USB Transfer Buffer", Memory::Region::Access::ReadWrite);
+    if (!data_buffer)
+        return {};
+
+    return AK::try_create<Transfer>(pipe, len, data_buffer.release_nonnull());
+}
+
+Transfer::Transfer(Pipe& pipe, u16 len, NonnullOwnPtr<Memory::Region> data_buffer)
+    : m_pipe(pipe)
+    , m_data_buffer(move(data_buffer))
+    , m_transfer_data_size(len)
+{
 }
 
 Transfer::~Transfer()

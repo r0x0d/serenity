@@ -5,6 +5,7 @@
  */
 
 #include <AK/Assertions.h>
+#include <AK/Format.h>
 #include <AK/ScopeGuard.h>
 #include <AK/StdLibExtras.h>
 #include <AK/Vector.h>
@@ -23,6 +24,13 @@ extern "C" {
 DIR* opendir(const char* name)
 {
     int fd = open(name, O_RDONLY | O_DIRECTORY);
+    if (fd == -1)
+        return nullptr;
+    return fdopendir(fd);
+}
+
+DIR* fdopendir(int fd)
+{
     if (fd == -1)
         return nullptr;
     DIR* dirp = (DIR*)malloc(sizeof(DIR));
@@ -255,7 +263,7 @@ int scandir(const char* dir_name,
     }
 
     const int size = tmp_names.size();
-    auto names = (struct dirent**)malloc(size * sizeof(struct dirent*));
+    auto** names = static_cast<struct dirent**>(kmalloc_array(size, sizeof(struct dirent*)));
     for (auto i = 0; i < size; i++) {
         names[i] = tmp_names[i];
     }

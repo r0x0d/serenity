@@ -83,6 +83,18 @@ void ImageEditor::paint_event(GUI::PaintEvent& event)
         painter.draw_rect(enclosing_int_rect(image_rect_to_editor_rect(m_active_layer->relative_rect())).inflated(2, 2), Color::Black);
     }
 
+    if (m_show_guides) {
+        for (auto& guide : m_guides) {
+            if (guide.orientation() == Guide::Orientation::Horizontal) {
+                int y_coordinate = (int)image_position_to_editor_position({ 0.0f, guide.offset() }).y();
+                painter.draw_line({ 0, y_coordinate }, { rect().width(), y_coordinate }, Color::Cyan, 1, Gfx::Painter::LineStyle::Dashed, Color::LightGray);
+            } else if (guide.orientation() == Guide::Orientation::Vertical) {
+                int x_coordinate = (int)image_position_to_editor_position({ guide.offset(), 0.0f }).x();
+                painter.draw_line({ x_coordinate, 0 }, { x_coordinate, rect().height() }, Color::Cyan, 1, Gfx::Painter::LineStyle::Dashed, Color::LightGray);
+            }
+        }
+    }
+
     if (!m_selection.is_empty())
         m_selection.paint(painter);
 }
@@ -169,6 +181,7 @@ void ImageEditor::mousedown_event(GUI::MouseEvent& event)
     if (event.button() == GUI::MouseButton::Middle) {
         m_click_position = event.position();
         m_saved_pan_origin = m_pan_origin;
+        set_override_cursor(Gfx::StandardCursor::Drag);
         return;
     }
 
@@ -207,10 +220,16 @@ void ImageEditor::mousemove_event(GUI::MouseEvent& event)
     auto image_event = event_with_pan_and_scale_applied(event);
 
     m_active_tool->on_mousemove(*m_active_layer, layer_event, image_event);
+
+    if (on_image_mouse_position_change) {
+        on_image_mouse_position_change(image_event.position());
+    }
 }
 
 void ImageEditor::mouseup_event(GUI::MouseEvent& event)
 {
+    set_override_cursor(m_active_cursor);
+
     if (!m_active_layer || !m_active_tool)
         return;
     auto layer_event = event_adjusted_for_layer(event, *m_active_layer);
@@ -249,6 +268,19 @@ void ImageEditor::keyup_event(GUI::KeyEvent& event)
         m_active_tool->on_keyup(event);
 }
 
+void ImageEditor::enter_event(Core::Event&)
+{
+    set_override_cursor(m_active_cursor);
+}
+
+void ImageEditor::leave_event(Core::Event&)
+{
+    set_override_cursor(Gfx::StandardCursor::None);
+
+    if (on_leave)
+        on_leave();
+}
+
 void ImageEditor::set_active_layer(Layer* layer)
 {
     if (m_active_layer == layer)
@@ -282,8 +314,24 @@ void ImageEditor::set_active_tool(Tool* tool)
 
     m_active_tool = tool;
 
-    if (m_active_tool)
+    if (m_active_tool) {
         m_active_tool->setup(*this);
+        m_active_tool->on_tool_activation();
+        m_active_cursor = m_active_tool->cursor();
+    }
+}
+
+void ImageEditor::set_guide_visibility(bool show_guides)
+{
+    if (m_show_guides == show_guides)
+        return;
+
+    m_show_guides = show_guides;
+
+    if (on_set_guide_visibility)
+        on_set_guide_visibility(m_show_guides);
+
+    update();
 }
 
 void ImageEditor::layers_did_change()
@@ -414,5 +462,4 @@ void ImageEditor::image_select_layer(Layer* layer)
 {
     set_active_layer(layer);
 }
-
 }

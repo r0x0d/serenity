@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include "Guide.h"
 #include "Image.h"
 #include "Selection.h"
 #include <LibGUI/Frame.h>
@@ -38,6 +39,12 @@ public:
     bool undo();
     bool redo();
 
+    void add_guide(NonnullRefPtr<Guide> guide) { m_guides.append(guide); }
+    void remove_guide(Guide const& guide)
+    {
+        m_guides.remove_first_matching([&](auto& entry) { return &guide == entry.ptr(); });
+    }
+
     void layers_did_change();
 
     Layer* layer_at_editor_position(Gfx::IntPoint const&);
@@ -66,12 +73,21 @@ public:
 
     Function<void(String const&)> on_image_title_change;
 
+    Function<void(Gfx::IntPoint const&)> on_image_mouse_position_change;
+
+    Function<void(void)> on_leave;
+
     Gfx::FloatRect layer_rect_to_editor_rect(Layer const&, Gfx::IntRect const&) const;
     Gfx::FloatRect image_rect_to_editor_rect(Gfx::IntRect const&) const;
     Gfx::FloatRect editor_rect_to_image_rect(Gfx::IntRect const&) const;
     Gfx::FloatPoint layer_position_to_editor_position(Layer const&, Gfx::IntPoint const&) const;
     Gfx::FloatPoint image_position_to_editor_position(Gfx::IntPoint const&) const;
     Gfx::FloatPoint editor_position_to_image_position(Gfx::IntPoint const&) const;
+
+    NonnullRefPtrVector<Guide> const& guides() const { return m_guides; }
+    bool guide_visibility() { return m_show_guides; }
+    void set_guide_visibility(bool show_guides);
+    Function<void(bool)> on_set_guide_visibility;
 
 private:
     explicit ImageEditor(NonnullRefPtr<Image>);
@@ -86,6 +102,8 @@ private:
     virtual void keyup_event(GUI::KeyEvent&) override;
     virtual void context_menu_event(GUI::ContextMenuEvent&) override;
     virtual void resize_event(GUI::ResizeEvent&) override;
+    virtual void enter_event(Core::Event&) override;
+    virtual void leave_event(Core::Event&) override;
 
     virtual void image_did_change(Gfx::IntRect const&) override;
     virtual void image_select_layer(Layer*) override;
@@ -101,6 +119,9 @@ private:
     RefPtr<Layer> m_active_layer;
     OwnPtr<GUI::UndoStack> m_undo_stack;
 
+    NonnullRefPtrVector<Guide> m_guides;
+    bool m_show_guides { true };
+
     Tool* m_active_tool { nullptr };
 
     Color m_primary_color { Color::Black };
@@ -111,6 +132,8 @@ private:
     Gfx::FloatPoint m_pan_origin;
     Gfx::FloatPoint m_saved_pan_origin;
     Gfx::IntPoint m_click_position;
+
+    Gfx::StandardCursor m_active_cursor { Gfx::StandardCursor::None };
 
     Selection m_selection;
 };

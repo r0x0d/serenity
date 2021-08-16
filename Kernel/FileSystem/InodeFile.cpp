@@ -9,9 +9,9 @@
 #include <Kernel/FileSystem/Inode.h>
 #include <Kernel/FileSystem/InodeFile.h>
 #include <Kernel/FileSystem/VirtualFileSystem.h>
+#include <Kernel/Memory/PrivateInodeVMObject.h>
+#include <Kernel/Memory/SharedInodeVMObject.h>
 #include <Kernel/Process.h>
-#include <Kernel/VM/PrivateInodeVMObject.h>
-#include <Kernel/VM/SharedInodeVMObject.h>
 #include <LibC/errno_numbers.h>
 #include <LibC/sys/ioctl_numbers.h>
 
@@ -62,47 +62,48 @@ KResultOr<size_t> InodeFile::write(FileDescription& description, u64 offset, con
     return nwritten;
 }
 
-int InodeFile::ioctl(FileDescription& description, unsigned request, FlatPtr arg)
+KResult InodeFile::ioctl(FileDescription& description, unsigned request, Userspace<void*> arg)
 {
     (void)description;
 
     switch (request) {
     case FIBMAP: {
         if (!Process::current()->is_superuser())
-            return -EPERM;
+            return EPERM;
 
+        auto user_block_number = static_ptr_cast<int*>(arg);
         int block_number = 0;
-        if (!copy_from_user(&block_number, (int*)arg))
-            return -EFAULT;
+        if (!copy_from_user(&block_number, user_block_number))
+            return EFAULT;
 
         if (block_number < 0)
-            return -EINVAL;
+            return EINVAL;
 
         auto block_address = inode().get_block_address(block_number);
         if (block_address.is_error())
             return block_address.error();
 
-        if (!copy_to_user((int*)arg, &block_address.value()))
-            return -EFAULT;
+        if (!copy_to_user(user_block_number, &block_address.value()))
+            return EFAULT;
 
-        return 0;
+        return KSuccess;
     }
     default:
-        return -EINVAL;
+        return EINVAL;
     }
 }
 
-KResultOr<Region*> InodeFile::mmap(Process& process, FileDescription& description, const Range& range, u64 offset, int prot, bool shared)
+KResultOr<Memory::Region*> InodeFile::mmap(Process& process, FileDescription& description, Memory::VirtualRange const& range, u64 offset, int prot, bool shared)
 {
     // FIXME: If PROT_EXEC, check that the underlying file system isn't mounted noexec.
-    RefPtr<InodeVMObject> vmobject;
+    RefPtr<Memory::InodeVMObject> vmobject;
     if (shared)
-        vmobject = SharedInodeVMObject::try_create_with_inode(inode());
+        vmobject = Memory::SharedInodeVMObject::try_create_with_inode(inode());
     else
-        vmobject = PrivateInodeVMObject::try_create_with_inode(inode());
+        vmobject = Memory::PrivateInodeVMObject::try_create_with_inode(inode());
     if (!vmobject)
         return ENOMEM;
-    return process.space().allocate_region_with_vmobject(range, vmobject.release_nonnull(), offset, description.absolute_path(), prot, shared);
+    return process.address_space().allocate_region_with_vmobject(range, vmobject.release_nonnull(), offset, description.absolute_path(), prot, shared);
 }
 
 String InodeFile::absolute_path(const FileDescription& description) const

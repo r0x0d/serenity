@@ -5,8 +5,6 @@
  */
 
 #include <AK/Assertions.h>
-#include <AK/ByteBuffer.h>
-#include <AK/Demangle.h>
 #include <AK/HashMap.h>
 #include <AK/NonnullOwnPtr.h>
 #include <AK/StringBuilder.h>
@@ -17,7 +15,6 @@
 #include <LibELF/Image.h>
 #include <LibX86/Disassembler.h>
 #include <LibX86/Instruction.h>
-#include <math.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -52,7 +49,7 @@ static void print_syscall(PtraceRegisters& regs, size_t depth)
     const char* begin_color = g_should_output_color ? "\033[34;1m" : "";
     const char* end_color = g_should_output_color ? "\033[0m" : "";
 #if ARCH(I386)
-    outln("=> {}SC_{}(0x{:x}, 0x{:x}, 0x{:x}){}",
+    outln("=> {}SC_{}({:#x}, {:#x}, {:#x}){}",
         begin_color,
         Syscall::to_string((Syscall::Function)regs.eax),
         regs.edx,
@@ -60,7 +57,7 @@ static void print_syscall(PtraceRegisters& regs, size_t depth)
         regs.ebx,
         end_color);
 #else
-    outln("=> {}SC_{}(0x{:x}, 0x{:x}, 0x{:x}){}",
+    outln("=> {}SC_{}({:#x}, {:#x}, {:#x}){}",
         begin_color,
         Syscall::to_string((Syscall::Function)regs.rax),
         regs.rdx,

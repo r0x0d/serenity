@@ -7,6 +7,7 @@
 #pragma once
 
 #include <Kernel/FileSystem/FileBackedFileSystem.h>
+#include <Kernel/Locking/ProtectedValue.h>
 
 namespace Kernel {
 
@@ -15,6 +16,7 @@ public:
     TYPEDEF_DISTINCT_ORDERED_ID(u64, BlockIndex);
 
     virtual ~BlockBasedFileSystem() override;
+    virtual KResult initialize() override;
 
     u64 logical_block_size() const { return m_logical_block_size; };
 
@@ -42,7 +44,7 @@ private:
     DiskCache& cache() const;
     void flush_specific_block_if_needed(BlockIndex index);
 
-    mutable OwnPtr<DiskCache> m_cache;
+    mutable ProtectedValue<OwnPtr<DiskCache>> m_cache;
 };
 
 }

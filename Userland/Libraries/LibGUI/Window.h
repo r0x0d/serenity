@@ -83,6 +83,7 @@ public:
     Function<void()> on_close;
     Function<CloseRequestDecision()> on_close_request;
     Function<void(bool is_active_input)> on_active_input_change;
+    Function<void(bool is_active_window)> on_active_window_change;
 
     int x() const { return rect().x(); }
     int y() const { return rect().y(); }
@@ -200,12 +201,15 @@ public:
 
     void did_disable_focused_widget(Badge<Widget>);
 
-    void set_menubar(RefPtr<Menubar>);
+    Menu& add_menu(String name);
 
 protected:
     Window(Core::Object* parent = nullptr);
     virtual void wm_event(WMEvent&);
     virtual void screen_rects_change_event(ScreenRectsChangeEvent&);
+
+    virtual void enter_event(Core::Event&);
+    virtual void leave_event(Core::Event&);
 
 private:
     void update_cursor();
@@ -223,7 +227,8 @@ private:
     void handle_fonts_change_event(FontsChangeEvent&);
     void handle_screen_rects_change_event(ScreenRectsChangeEvent&);
     void handle_drag_move_event(DragEvent&);
-    void handle_left_event();
+    void handle_entered_event(Core::Event&);
+    void handle_left_event(Core::Event&);
 
     void server_did_destroy();
 
@@ -237,7 +242,7 @@ private:
     OwnPtr<WindowBackingStore> m_front_store;
     OwnPtr<WindowBackingStore> m_back_store;
 
-    RefPtr<Menubar> m_menubar;
+    NonnullRefPtr<Menubar> m_menubar;
 
     RefPtr<Gfx::Bitmap> m_icon;
     RefPtr<Gfx::Bitmap> m_custom_cursor;

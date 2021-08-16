@@ -90,13 +90,13 @@ enum RotationDirection {
 
 class Bitmap : public RefCounted<Bitmap> {
 public:
-    static RefPtr<Bitmap> create(BitmapFormat, const IntSize&, int intrinsic_scale = 1);
-    static RefPtr<Bitmap> create_shareable(BitmapFormat, const IntSize&, int intrinsic_scale = 1);
-    static RefPtr<Bitmap> create_purgeable(BitmapFormat, const IntSize&, int intrinsic_scale = 1);
-    static RefPtr<Bitmap> create_wrapper(BitmapFormat, const IntSize&, int intrinsic_scale, size_t pitch, void*);
-    static RefPtr<Bitmap> load_from_file(String const& path, int scale_factor = 1);
-    static RefPtr<Bitmap> create_with_anonymous_buffer(BitmapFormat, Core::AnonymousBuffer, const IntSize&, int intrinsic_scale, const Vector<RGBA32>& palette);
-    static RefPtr<Bitmap> create_from_serialized_byte_buffer(ByteBuffer&& buffer);
+    [[nodiscard]] static RefPtr<Bitmap> try_create(BitmapFormat, const IntSize&, int intrinsic_scale = 1);
+    [[nodiscard]] static RefPtr<Bitmap> try_create_shareable(BitmapFormat, const IntSize&, int intrinsic_scale = 1);
+    [[nodiscard]] static RefPtr<Bitmap> try_create_wrapper(BitmapFormat, const IntSize&, int intrinsic_scale, size_t pitch, void*);
+    [[nodiscard]] static RefPtr<Bitmap> try_load_from_file(String const& path, int scale_factor = 1);
+    [[nodiscard]] static RefPtr<Bitmap> try_create_with_anonymous_buffer(BitmapFormat, Core::AnonymousBuffer, const IntSize&, int intrinsic_scale, const Vector<RGBA32>& palette);
+    [[nodiscard]] static RefPtr<Bitmap> try_create_from_serialized_byte_buffer(ByteBuffer&& buffer);
+
     static bool is_path_a_supported_image_format(const StringView& path)
     {
 #define __ENUMERATE_IMAGE_FORMAT(Name, Ext)                    \
@@ -108,49 +108,49 @@ public:
         return false;
     }
 
-    RefPtr<Gfx::Bitmap> clone() const;
+    [[nodiscard]] RefPtr<Gfx::Bitmap> clone() const;
 
-    RefPtr<Gfx::Bitmap> rotated(Gfx::RotationDirection) const;
-    RefPtr<Gfx::Bitmap> flipped(Gfx::Orientation) const;
-    RefPtr<Gfx::Bitmap> scaled(int sx, int sy) const;
-    RefPtr<Gfx::Bitmap> scaled(float sx, float sy) const;
-    RefPtr<Gfx::Bitmap> cropped(Gfx::IntRect) const;
-    RefPtr<Bitmap> to_bitmap_backed_by_anonymous_buffer() const;
-    ByteBuffer serialize_to_byte_buffer() const;
+    [[nodiscard]] RefPtr<Gfx::Bitmap> rotated(Gfx::RotationDirection) const;
+    [[nodiscard]] RefPtr<Gfx::Bitmap> flipped(Gfx::Orientation) const;
+    [[nodiscard]] RefPtr<Gfx::Bitmap> scaled(int sx, int sy) const;
+    [[nodiscard]] RefPtr<Gfx::Bitmap> scaled(float sx, float sy) const;
+    [[nodiscard]] RefPtr<Gfx::Bitmap> cropped(Gfx::IntRect) const;
+    [[nodiscard]] RefPtr<Bitmap> to_bitmap_backed_by_anonymous_buffer() const;
+    [[nodiscard]] ByteBuffer serialize_to_byte_buffer() const;
 
-    ShareableBitmap to_shareable_bitmap() const;
+    [[nodiscard]] ShareableBitmap to_shareable_bitmap() const;
 
     ~Bitmap();
 
-    u8* scanline_u8(int physical_y);
-    const u8* scanline_u8(int physical_y) const;
-    RGBA32* scanline(int physical_y);
-    const RGBA32* scanline(int physical_y) const;
+    [[nodiscard]] u8* scanline_u8(int physical_y);
+    [[nodiscard]] const u8* scanline_u8(int physical_y) const;
+    [[nodiscard]] RGBA32* scanline(int physical_y);
+    [[nodiscard]] const RGBA32* scanline(int physical_y) const;
 
-    IntRect rect() const { return { {}, m_size }; }
-    IntSize size() const { return m_size; }
-    int width() const { return m_size.width(); }
-    int height() const { return m_size.height(); }
-    int scale() const { return m_scale; }
+    [[nodiscard]] IntRect rect() const { return { {}, m_size }; }
+    [[nodiscard]] IntSize size() const { return m_size; }
+    [[nodiscard]] int width() const { return m_size.width(); }
+    [[nodiscard]] int height() const { return m_size.height(); }
+    [[nodiscard]] int scale() const { return m_scale; }
 
-    IntRect physical_rect() const { return rect() * scale(); }
-    IntSize physical_size() const { return size() * scale(); }
-    int physical_width() const { return physical_size().width(); }
-    int physical_height() const { return physical_size().height(); }
-    size_t pitch() const { return m_pitch; }
+    [[nodiscard]] IntRect physical_rect() const { return rect() * scale(); }
+    [[nodiscard]] IntSize physical_size() const { return size() * scale(); }
+    [[nodiscard]] int physical_width() const { return physical_size().width(); }
+    [[nodiscard]] int physical_height() const { return physical_size().height(); }
+    [[nodiscard]] size_t pitch() const { return m_pitch; }
 
-    ALWAYS_INLINE bool is_indexed() const
+    [[nodiscard]] ALWAYS_INLINE bool is_indexed() const
     {
         return is_indexed(m_format);
     }
 
-    ALWAYS_INLINE static bool is_indexed(BitmapFormat format)
+    [[nodiscard]] ALWAYS_INLINE static bool is_indexed(BitmapFormat format)
     {
         return format == BitmapFormat::Indexed8 || format == BitmapFormat::Indexed4
             || format == BitmapFormat::Indexed2 || format == BitmapFormat::Indexed1;
     }
 
-    static size_t palette_size(BitmapFormat format)
+    [[nodiscard]] static size_t palette_size(BitmapFormat format)
     {
         switch (format) {
         case BitmapFormat::Indexed1:
@@ -166,9 +166,9 @@ public:
         }
     }
 
-    Vector<RGBA32> palette_to_vector() const;
+    [[nodiscard]] Vector<RGBA32> palette_to_vector() const;
 
-    static unsigned bpp_for_format(BitmapFormat format)
+    [[nodiscard]] static unsigned bpp_for_format(BitmapFormat format)
     {
         switch (format) {
         case BitmapFormat::Indexed1:
@@ -189,30 +189,30 @@ public:
         }
     }
 
-    static size_t minimum_pitch(size_t physical_width, BitmapFormat);
+    [[nodiscard]] static size_t minimum_pitch(size_t physical_width, BitmapFormat);
 
-    unsigned bpp() const
+    [[nodiscard]] unsigned bpp() const
     {
         return bpp_for_format(m_format);
     }
 
     void fill(Color);
 
-    bool has_alpha_channel() const { return m_format == BitmapFormat::BGRA8888; }
-    BitmapFormat format() const { return m_format; }
+    [[nodiscard]] bool has_alpha_channel() const { return m_format == BitmapFormat::BGRA8888; }
+    [[nodiscard]] BitmapFormat format() const { return m_format; }
 
     void set_mmap_name(String const&);
 
-    static constexpr size_t size_in_bytes(size_t pitch, int physical_height) { return pitch * physical_height; }
-    size_t size_in_bytes() const { return size_in_bytes(m_pitch, physical_height()); }
+    [[nodiscard]] static constexpr size_t size_in_bytes(size_t pitch, int physical_height) { return pitch * physical_height; }
+    [[nodiscard]] size_t size_in_bytes() const { return size_in_bytes(m_pitch, physical_height()); }
 
-    Color palette_color(u8 index) const { return Color::from_rgba(m_palette[index]); }
+    [[nodiscard]] Color palette_color(u8 index) const { return Color::from_rgba(m_palette[index]); }
     void set_palette_color(u8 index, Color color) { m_palette[index] = color.value(); }
 
     template<StorageFormat>
-    Color get_pixel(int physical_x, int physical_y) const;
-    Color get_pixel(int physical_x, int physical_y) const;
-    Color get_pixel(const IntPoint& physical_position) const
+    [[nodiscard]] Color get_pixel(int physical_x, int physical_y) const;
+    [[nodiscard]] Color get_pixel(int physical_x, int physical_y) const;
+    [[nodiscard]] Color get_pixel(const IntPoint& physical_position) const
     {
         return get_pixel(physical_position.x(), physical_position.y());
     }
@@ -225,24 +225,22 @@ public:
         set_pixel(physical_position.x(), physical_position.y(), color);
     }
 
-    bool is_purgeable() const { return m_purgeable; }
-    bool is_volatile() const { return m_volatile; }
+    [[nodiscard]] bool is_volatile() const { return m_volatile; }
     void set_volatile();
-    [[nodiscard]] bool set_nonvolatile();
 
-    Core::AnonymousBuffer& anonymous_buffer() { return m_buffer; }
-    const Core::AnonymousBuffer& anonymous_buffer() const { return m_buffer; }
+    // Returns true if making the bitmap non-volatile succeeded. `was_purged` indicates status of contents.
+    // Returns false if there was not enough memory.
+    [[nodiscard]] bool set_nonvolatile(bool& was_purged);
+
+    [[nodiscard]] Core::AnonymousBuffer& anonymous_buffer() { return m_buffer; }
+    [[nodiscard]] Core::AnonymousBuffer const& anonymous_buffer() const { return m_buffer; }
 
 private:
-    enum class Purgeable {
-        No,
-        Yes
-    };
-    Bitmap(BitmapFormat, const IntSize&, int, Purgeable, const BackingStore&);
+    Bitmap(BitmapFormat, IntSize const&, int, BackingStore const&);
     Bitmap(BitmapFormat, const IntSize&, int, size_t pitch, void*);
     Bitmap(BitmapFormat, Core::AnonymousBuffer, const IntSize&, int, const Vector<RGBA32>& palette);
 
-    static Optional<BackingStore> allocate_backing_store(BitmapFormat, const IntSize&, int, Purgeable);
+    static Optional<BackingStore> try_allocate_backing_store(BitmapFormat format, IntSize const& size, int scale_factor);
 
     void allocate_palette_from_format(BitmapFormat, const Vector<RGBA32>& source_palette);
 
@@ -253,7 +251,6 @@ private:
     size_t m_pitch { 0 };
     BitmapFormat m_format { BitmapFormat::Invalid };
     bool m_needs_munmap { false };
-    bool m_purgeable { false };
     bool m_volatile { false };
     Core::AnonymousBuffer m_buffer;
 };

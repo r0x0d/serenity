@@ -10,7 +10,6 @@
 #include <LibJS/Bytecode/BasicBlock.h>
 #include <LibJS/Bytecode/Generator.h>
 #include <LibJS/Bytecode/Interpreter.h>
-#include <LibJS/Bytecode/PassManager.h>
 #include <LibJS/Interpreter.h>
 #include <LibJS/Runtime/Array.h>
 #include <LibJS/Runtime/Error.h>
@@ -59,7 +58,7 @@ OrdinaryFunctionObject::OrdinaryFunctionObject(GlobalObject& global_object, cons
         set_this_mode(ThisMode::Global);
 
     // 15.1.3 Static Semantics: IsSimpleParameterList, https://tc39.es/ecma262/#sec-static-semantics-issimpleparameterlist
-    set_has_simple_parameter_list(all_of(m_parameters.begin(), m_parameters.end(), [&](auto& parameter) {
+    set_has_simple_parameter_list(all_of(m_parameters, [&](auto& parameter) {
         if (parameter.is_rest)
             return false;
         if (parameter.default_value)
@@ -133,6 +132,7 @@ FunctionEnvironment* OrdinaryFunctionObject::create_environment(FunctionObject& 
     auto* environment = heap().allocate<FunctionEnvironment>(global_object(), m_environment, variables);
     environment->set_function_object(function_being_invoked);
     if (m_is_arrow_function) {
+        environment->set_this_binding_status(FunctionEnvironment::ThisBindingStatus::Lexical);
         if (is<FunctionEnvironment>(m_environment))
             environment->set_new_target(static_cast<FunctionEnvironment*>(m_environment)->new_target());
     }

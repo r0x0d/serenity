@@ -35,6 +35,10 @@
 #include <sys/time.h>
 #include <unistd.h>
 
+#ifdef __serenity__
+#    include <serenity.h>
+#endif
+
 #define STRCAT(x, y) __STRCAT(x, y)
 #define STRSTRCAT(x, y) __STRSTRCAT(x, y)
 #define __STRCAT(x, y) x #y
@@ -190,7 +194,7 @@ inline void TestRunnerGlobalObject::initialize_global_object()
     }
 }
 
-inline AK::Result<NonnullRefPtr<JS::Program>, ParserError> parse_file(const String& file_path)
+inline AK::Result<NonnullRefPtr<JS::Program>, ParserError> parse_file(const String& file_path, JS::Program::Type program_type = JS::Program::Type::Script)
 {
     auto file = Core::File::construct(file_path);
     auto result = file->open(Core::OpenMode::ReadOnly);
@@ -203,7 +207,7 @@ inline AK::Result<NonnullRefPtr<JS::Program>, ParserError> parse_file(const Stri
     String test_file_string(reinterpret_cast<const char*>(contents.data()), contents.size());
     file->close();
 
-    auto parser = JS::Parser(JS::Lexer(test_file_string));
+    auto parser = JS::Parser(JS::Lexer(test_file_string), program_type);
     auto program = parser.parse_program();
 
     if (parser.has_errors()) {
@@ -249,6 +253,11 @@ inline Vector<String> TestRunner::get_test_paths() const
 inline JSFileResult TestRunner::run_file_test(const String& test_path)
 {
     g_currently_running_test = test_path;
+
+#ifdef __serenity__
+    auto string_id = perf_register_string(test_path.characters(), test_path.length());
+    perf_event(PERF_EVENT_SIGNPOST, string_id, 0);
+#endif
 
     double start_time = get_time_in_ms();
     auto interpreter = JS::Interpreter::create<TestRunnerGlobalObject>(*g_vm);

@@ -8,6 +8,7 @@
 #include <AK/Assertions.h>
 #include <AK/GenericLexer.h>
 #include <AK/StringBuilder.h>
+#include <LibCpp/Lexer.h>
 #include <ctype.h>
 
 namespace Cpp {
@@ -15,10 +16,28 @@ Preprocessor::Preprocessor(const String& filename, const StringView& program)
     : m_filename(filename)
     , m_program(program)
 {
-    m_lines = m_program.split_view('\n', true);
+    GenericLexer program_lexer { m_program };
+    for (;;) {
+        if (program_lexer.is_eof())
+            break;
+        auto line = program_lexer.consume_until('\n');
+        bool has_multiline = false;
+        while (line.ends_with('\\') && !program_lexer.is_eof()) {
+            auto continuation = program_lexer.consume_until('\n');
+            line = StringView { line.characters_without_null_termination(), line.length() + continuation.length() + 1 };
+            // Append an empty line to keep the line count correct.
+            m_lines.append({});
+            has_multiline = true;
+        }
+
+        if (has_multiline)
+            m_lines.last() = line;
+        else
+            m_lines.append(line);
+    }
 }
 
-const String& Preprocessor::process()
+Vector<Token> Preprocessor::process_and_lex()
 {
     for (; m_line_index < m_lines.size(); ++m_line_index) {
         auto& line = m_lines[m_line_index];
@@ -33,21 +52,37 @@ const String& Preprocessor::process()
         }
 
         if (include_in_processed_text) {
-            m_builder.append(line);
+            process_line(line);
         }
-
-        m_builder.append("\n");
     }
 
-    m_processed_text = m_builder.to_string();
-    return m_processed_text;
+    return m_tokens;
 }
 
 static void consume_whitespace(GenericLexer& lexer)
 {
-    lexer.ignore_while([](char ch) { return isspace(ch); });
-    if (lexer.peek() == '/' && lexer.peek(1) == '/')
-        lexer.ignore_until([](char ch) { return ch == '\n'; });
+    auto ignore_line = [&] {
+        for (;;) {
+            if (lexer.consume_specific("\\\n"sv)) {
+                lexer.ignore(2);
+            } else {
+                lexer.ignore_until('\n');
+                break;
+            }
+        }
+    };
+    for (;;) {
+        if (lexer.consume_specific("//"sv))
+            ignore_line();
+        else if (lexer.consume_specific("/*"sv))
+            lexer.ignore_until("*/");
+        else if (lexer.next_is("\\\n"sv))
+            lexer.ignore(2);
+        else if (lexer.is_eof() || !lexer.next_is(isspace))
+            break;
+        else
+            lexer.ignore();
+    }
 }
 
 Preprocessor::PreprocessorKeyword Preprocessor::handle_preprocessor_line(const StringView& line)
@@ -69,7 +104,12 @@ void Preprocessor::handle_preprocessor_keyword(const StringView& keyword, Generi
 {
     if (keyword == "include") {
         consume_whitespace(line_lexer);
-        m_included_paths.append(line_lexer.consume_all());
+        auto include_path = line_lexer.consume_all();
+        m_included_paths.append(include_path);
+        if (definitions_in_header_callback) {
+            for (auto& def : definitions_in_header_callback(include_path))
+                m_definitions.set(def.key, def.value);
+        }
         return;
     }
 
@@ -100,18 +140,9 @@ void Preprocessor::handle_preprocessor_keyword(const StringView& keyword, Generi
 
     if (keyword == "define") {
         if (m_state == State::Normal) {
-            auto key = line_lexer.consume_until(' ');
-            consume_whitespace(line_lexer);
-
-            DefinedValue value;
-            value.filename = m_filename;
-            value.line = m_line_index;
-
-            auto string_value = line_lexer.consume_all();
-            if (!string_value.is_empty())
-                value.value = string_value;
-
-            m_definitions.set(key, value);
+            auto definition = create_definition(line_lexer.consume_all());
+            if (definition.has_value())
+                m_definitions.set(definition->key, *definition);
         }
         return;
     }
@@ -187,10 +218,178 @@ void Preprocessor::handle_preprocessor_keyword(const StringView& keyword, Generi
     }
 }
 
-const String& Preprocessor::processed_text()
+void Preprocessor::process_line(StringView const& line)
 {
-    VERIFY(!m_processed_text.is_null());
-    return m_processed_text;
+    Lexer line_lexer { line, m_line_index };
+    line_lexer.set_ignore_whitespace(true);
+    auto tokens = line_lexer.lex();
+
+    for (size_t i = 0; i < tokens.size(); ++i) {
+        auto& token = tokens[i];
+        if (token.type() == Token::Type::Identifier) {
+            if (auto defined_value = m_definitions.find(token.text()); defined_value != m_definitions.end()) {
+                auto last_substituted_token_index = do_substitution(tokens, i, defined_value->value);
+                i = last_substituted_token_index;
+                continue;
+            }
+        }
+        m_tokens.append(token);
+    }
+}
+
+size_t Preprocessor::do_substitution(Vector<Token> const& tokens, size_t token_index, Definition const& defined_value)
+{
+    if (defined_value.value.is_null())
+        return token_index;
+
+    Substitution sub;
+    sub.defined_value = defined_value;
+
+    auto macro_call = parse_macro_call(tokens, token_index);
+
+    if (!macro_call.has_value())
+        return token_index;
+
+    Vector<Token> original_tokens;
+    for (size_t i = token_index; i <= macro_call->end_token_index; ++i) {
+        original_tokens.append(tokens[i]);
+    }
+    VERIFY(!original_tokens.is_empty());
+
+    auto processed_value = evaluate_macro_call(*macro_call, defined_value);
+    m_substitutions.append({ original_tokens, defined_value, processed_value });
+
+    Lexer lexer(processed_value);
+    for (auto& token : lexer.lex()) {
+        if (token.type() == Token::Type::Whitespace)
+            continue;
+        token.set_start(original_tokens.first().start());
+        token.set_end(original_tokens.first().end());
+        m_tokens.append(token);
+    }
+    return macro_call->end_token_index;
+}
+
+Optional<Preprocessor::MacroCall> Preprocessor::parse_macro_call(Vector<Token> const& tokens, size_t token_index)
+{
+    auto name = tokens[token_index];
+    ++token_index;
+
+    if (token_index >= tokens.size() || tokens[token_index].type() != Token::Type::LeftParen)
+        return MacroCall { name, {}, token_index - 1 };
+    ++token_index;
+
+    Vector<MacroCall::Argument> arguments;
+    MacroCall::Argument current_argument;
+
+    size_t paren_depth = 1;
+    for (; token_index < tokens.size(); ++token_index) {
+        auto& token = tokens[token_index];
+        if (token.type() == Token::Type::LeftParen)
+            ++paren_depth;
+        if (token.type() == Token::Type::RightParen)
+            --paren_depth;
+
+        if (paren_depth == 0) {
+            arguments.append(move(current_argument));
+            break;
+        }
+
+        if (paren_depth == 1 && token.type() == Token::Type::Comma) {
+            arguments.append(move(current_argument));
+            current_argument = {};
+        } else {
+            current_argument.tokens.append(token);
+        }
+    }
+
+    if (token_index >= tokens.size())
+        return {};
+
+    return MacroCall { name, move(arguments), token_index };
+}
+
+Optional<Preprocessor::Definition> Preprocessor::create_definition(StringView line)
+{
+    Lexer lexer { line };
+    lexer.set_ignore_whitespace(true);
+    auto tokens = lexer.lex();
+    if (tokens.is_empty())
+        return {};
+
+    if (tokens.first().type() != Token::Type::Identifier)
+        return {};
+
+    Definition definition;
+    definition.filename = m_filename;
+    definition.line = m_line_index;
+
+    definition.key = tokens.first().text();
+
+    if (tokens.size() == 1)
+        return definition;
+
+    size_t token_index = 1;
+    // Parse macro parameters (if any)
+    if (tokens[token_index].type() == Token::Type::LeftParen) {
+        ++token_index;
+        while (token_index < tokens.size() && tokens[token_index].type() != Token::Type::RightParen) {
+            auto param = tokens[token_index];
+            if (param.type() != Token::Type::Identifier)
+                return {};
+
+            if (token_index + 1 >= tokens.size())
+                return {};
+
+            ++token_index;
+
+            if (tokens[token_index].type() == Token::Type::Comma)
+                ++token_index;
+            else if (tokens[token_index].type() != Token::Type::RightParen)
+                return {};
+
+            definition.parameters.empend(param.text());
+        }
+        if (token_index >= tokens.size())
+            return {};
+        ++token_index;
+    }
+
+    if (token_index < tokens.size())
+        definition.value = line.substring_view(tokens[token_index].start().column);
+
+    return definition;
+}
+
+String Preprocessor::evaluate_macro_call(MacroCall const& macro_call, Definition const& definition)
+{
+    if (macro_call.arguments.size() != definition.parameters.size()) {
+        dbgln("mismatch in # of arguments for macro call: {}", macro_call.name.text());
+        return {};
+    }
+
+    Lexer lexer { definition.value };
+    auto tokens = lexer.lex();
+
+    StringBuilder processed_value;
+    for (auto& token : tokens) {
+        if (token.type() != Token::Type::Identifier) {
+            processed_value.append(token.text());
+            continue;
+        }
+
+        auto param_index = definition.parameters.find_first_index(token.text());
+        if (!param_index.has_value()) {
+            processed_value.append(token.text());
+            continue;
+        }
+
+        auto& argument = macro_call.arguments[*param_index];
+        for (auto& arg_token : argument.tokens) {
+            processed_value.append(arg_token.text());
+        }
+    }
+    return processed_value.to_string();
 }
 
 };

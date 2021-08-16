@@ -27,6 +27,7 @@
 #include <Kernel/Net/Routing.h>
 #include <Kernel/Net/TCPSocket.h>
 #include <Kernel/Net/UDPSocket.h>
+#include <Kernel/Process.h>
 #include <Kernel/ProcessExposed.h>
 #include <Kernel/Sections.h>
 #include <Kernel/TTY/TTY.h>
@@ -58,6 +59,8 @@ private:
             obj.add("packets_out", adapter.packets_out());
             obj.add("bytes_out", adapter.bytes_out());
             obj.add("link_up", adapter.link_up());
+            obj.add("link_speed", adapter.link_speed());
+            obj.add("link_full_duplex", adapter.link_full_duplex());
             obj.add("mtu", adapter.mtu());
         });
         array.finish();
@@ -74,12 +77,11 @@ private:
     virtual bool output(KBufferBuilder& builder) override
     {
         JsonArraySerializer array { builder };
-        Locker locker(arp_table().lock(), Lock::Mode::Shared);
-        for (auto& it : arp_table().resource()) {
+        arp_table().for_each_shared([&](const auto& it) {
             auto obj = array.add_object();
             obj.add("mac_address", it.value.to_string());
             obj.add("ip_address", it.key.to_string());
-        }
+        });
         array.finish();
         return true;
     }
@@ -107,6 +109,11 @@ private:
             obj.add("bytes_in", socket.bytes_in());
             obj.add("packets_out", socket.packets_out());
             obj.add("bytes_out", socket.bytes_out());
+            if (Process::current()->is_superuser() || Process::current()->uid() == socket.origin_uid()) {
+                obj.add("origin_pid", socket.origin_pid());
+                obj.add("origin_uid", socket.origin_uid());
+                obj.add("origin_gid", socket.origin_gid());
+            }
         });
         array.finish();
         return true;
@@ -152,6 +159,11 @@ private:
             obj.add("local_port", socket.local_port());
             obj.add("peer_address", socket.peer_address().to_string());
             obj.add("peer_port", socket.peer_port());
+            if (Process::current()->is_superuser() || Process::current()->uid() == socket.origin_uid()) {
+                obj.add("origin_pid", socket.origin_pid());
+                obj.add("origin_uid", socket.origin_uid());
+                obj.add("origin_gid", socket.origin_gid());
+            }
         });
         array.finish();
         return true;
@@ -160,18 +172,18 @@ private:
 
 class ProcFSNetworkDirectory : public ProcFSExposedDirectory {
 public:
-    static NonnullRefPtr<ProcFSNetworkDirectory> must_create(const ProcFSRootDirectory& parent_folder);
+    static NonnullRefPtr<ProcFSNetworkDirectory> must_create(const ProcFSRootDirectory& parent_directory);
 
 private:
-    ProcFSNetworkDirectory(const ProcFSRootDirectory& parent_folder);
+    ProcFSNetworkDirectory(const ProcFSRootDirectory& parent_directory);
 };
 
 class ProcFSSystemDirectory : public ProcFSExposedDirectory {
 public:
-    static NonnullRefPtr<ProcFSSystemDirectory> must_create(const ProcFSRootDirectory& parent_folder);
+    static NonnullRefPtr<ProcFSSystemDirectory> must_create(const ProcFSRootDirectory& parent_directory);
 
 private:
-    ProcFSSystemDirectory(const ProcFSRootDirectory& parent_folder);
+    ProcFSSystemDirectory(const ProcFSRootDirectory& parent_directory);
 };
 
 UNMAP_AFTER_INIT NonnullRefPtr<ProcFSAdapters> ProcFSAdapters::must_create()
@@ -195,15 +207,15 @@ UNMAP_AFTER_INIT NonnullRefPtr<ProcFSUDP> ProcFSUDP::must_create()
     return adopt_ref_if_nonnull(new (nothrow) ProcFSUDP).release_nonnull();
 }
 
-UNMAP_AFTER_INIT NonnullRefPtr<ProcFSNetworkDirectory> ProcFSNetworkDirectory::must_create(const ProcFSRootDirectory& parent_folder)
+UNMAP_AFTER_INIT NonnullRefPtr<ProcFSNetworkDirectory> ProcFSNetworkDirectory::must_create(const ProcFSRootDirectory& parent_directory)
 {
-    auto folder = adopt_ref(*new (nothrow) ProcFSNetworkDirectory(parent_folder));
-    folder->m_components.append(ProcFSAdapters::must_create());
-    folder->m_components.append(ProcFSARP::must_create());
-    folder->m_components.append(ProcFSTCP::must_create());
-    folder->m_components.append(ProcFSLocalNet::must_create());
-    folder->m_components.append(ProcFSUDP::must_create());
-    return folder;
+    auto directory = adopt_ref(*new (nothrow) ProcFSNetworkDirectory(parent_directory));
+    directory->m_components.append(ProcFSAdapters::must_create());
+    directory->m_components.append(ProcFSARP::must_create());
+    directory->m_components.append(ProcFSTCP::must_create());
+    directory->m_components.append(ProcFSLocalNet::must_create());
+    directory->m_components.append(ProcFSUDP::must_create());
+    return directory;
 }
 
 UNMAP_AFTER_INIT ProcFSAdapters::ProcFSAdapters()
@@ -226,8 +238,8 @@ UNMAP_AFTER_INIT ProcFSUDP::ProcFSUDP()
     : ProcFSGlobalInformation("udp"sv)
 {
 }
-UNMAP_AFTER_INIT ProcFSNetworkDirectory::ProcFSNetworkDirectory(const ProcFSRootDirectory& parent_folder)
-    : ProcFSExposedDirectory("net"sv, parent_folder)
+UNMAP_AFTER_INIT ProcFSNetworkDirectory::ProcFSNetworkDirectory(const ProcFSRootDirectory& parent_directory)
+    : ProcFSExposedDirectory("net"sv, parent_directory)
 {
 }
 
@@ -236,18 +248,18 @@ public:
     static NonnullRefPtr<ProcFSDumpKmallocStacks> must_create(const ProcFSSystemDirectory&);
     virtual bool value() const override
     {
-        Locker locker(m_lock);
+        MutexLocker locker(m_lock);
         return g_dump_kmalloc_stacks;
     }
     virtual void set_value(bool new_value) override
     {
-        Locker locker(m_lock);
+        MutexLocker locker(m_lock);
         g_dump_kmalloc_stacks = new_value;
     }
 
 private:
     ProcFSDumpKmallocStacks();
-    mutable Lock m_lock;
+    mutable Mutex m_lock;
 };
 
 class ProcFSUBSanDeadly : public ProcFSSystemBoolean {
@@ -255,18 +267,18 @@ public:
     static NonnullRefPtr<ProcFSUBSanDeadly> must_create(const ProcFSSystemDirectory&);
     virtual bool value() const override
     {
-        Locker locker(m_lock);
+        MutexLocker locker(m_lock);
         return AK::UBSanitizer::g_ubsan_is_deadly;
     }
     virtual void set_value(bool new_value) override
     {
-        Locker locker(m_lock);
+        MutexLocker locker(m_lock);
         AK::UBSanitizer::g_ubsan_is_deadly = new_value;
     }
 
 private:
     ProcFSUBSanDeadly();
-    mutable Lock m_lock;
+    mutable Mutex m_lock;
 };
 
 class ProcFSCapsLockRemap : public ProcFSSystemBoolean {
@@ -274,18 +286,18 @@ public:
     static NonnullRefPtr<ProcFSCapsLockRemap> must_create(const ProcFSSystemDirectory&);
     virtual bool value() const override
     {
-        Locker locker(m_lock);
+        MutexLocker locker(m_lock);
         return g_caps_lock_remapped_to_ctrl.load();
     }
     virtual void set_value(bool new_value) override
     {
-        Locker locker(m_lock);
+        MutexLocker locker(m_lock);
         g_caps_lock_remapped_to_ctrl.exchange(new_value);
     }
 
 private:
     ProcFSCapsLockRemap();
-    mutable Lock m_lock;
+    mutable Mutex m_lock;
 };
 
 UNMAP_AFTER_INIT NonnullRefPtr<ProcFSDumpKmallocStacks> ProcFSDumpKmallocStacks::must_create(const ProcFSSystemDirectory&)
@@ -374,7 +386,7 @@ private:
         kmalloc_stats stats;
         get_kmalloc_stats(stats);
 
-        auto system_memory = MemoryManager::the().get_system_memory_info();
+        auto system_memory = MM.get_system_memory_info();
 
         JsonObjectSerializer<KBufferBuilder> json { builder };
         json.add("kmalloc_allocated", stats.bytes_allocated);
@@ -406,10 +418,10 @@ private:
     ProcFSOverallProcesses();
     virtual bool output(KBufferBuilder& builder) override
     {
-        JsonArraySerializer array { builder };
+        JsonObjectSerializer<KBufferBuilder> json { builder };
 
         // Keep this in sync with CProcessStatistics.
-        auto build_process = [&](const Process& process) {
+        auto build_process = [&](JsonArraySerializer<KBufferBuilder>& array, const Process& process) {
             auto process_object = array.add_object();
 
             if (process.is_user_process()) {
@@ -451,17 +463,18 @@ private:
             process_object.add("name", process.name());
             process_object.add("executable", process.executable() ? process.executable()->absolute_path() : "");
             process_object.add("tty", process.tty() ? process.tty()->tty_name() : "notty");
-            process_object.add("amount_virtual", process.space().amount_virtual());
-            process_object.add("amount_resident", process.space().amount_resident());
-            process_object.add("amount_dirty_private", process.space().amount_dirty_private());
-            process_object.add("amount_clean_inode", process.space().amount_clean_inode());
-            process_object.add("amount_shared", process.space().amount_shared());
-            process_object.add("amount_purgeable_volatile", process.space().amount_purgeable_volatile());
-            process_object.add("amount_purgeable_nonvolatile", process.space().amount_purgeable_nonvolatile());
+            process_object.add("amount_virtual", process.address_space().amount_virtual());
+            process_object.add("amount_resident", process.address_space().amount_resident());
+            process_object.add("amount_dirty_private", process.address_space().amount_dirty_private());
+            process_object.add("amount_clean_inode", process.address_space().amount_clean_inode());
+            process_object.add("amount_shared", process.address_space().amount_shared());
+            process_object.add("amount_purgeable_volatile", process.address_space().amount_purgeable_volatile());
+            process_object.add("amount_purgeable_nonvolatile", process.address_space().amount_purgeable_nonvolatile());
             process_object.add("dumpable", process.is_dumpable());
             process_object.add("kernel", process.is_kernel_process());
             auto thread_array = process_object.add_array("threads");
             process.for_each_thread([&](const Thread& thread) {
+                ScopedSpinLock locker(thread.get_lock());
                 auto thread_object = thread_array.add_object();
 #if LOCK_DEBUG
                 thread_object.add("lock_count", thread.lock_count());
@@ -469,8 +482,8 @@ private:
                 thread_object.add("tid", thread.tid().value());
                 thread_object.add("name", thread.name());
                 thread_object.add("times_scheduled", thread.times_scheduled());
-                thread_object.add("ticks_user", thread.ticks_in_user());
-                thread_object.add("ticks_kernel", thread.ticks_in_kernel());
+                thread_object.add("time_user", thread.time_in_user());
+                thread_object.add("time_kernel", thread.time_in_kernel());
                 thread_object.add("state", thread.state_string());
                 thread_object.add("cpu", thread.cpu());
                 thread_object.add("priority", thread.priority());
@@ -488,11 +501,19 @@ private:
         };
 
         ScopedSpinLock lock(g_scheduler_lock);
-        auto processes = Process::all_processes();
-        build_process(*Scheduler::colonel());
-        for (auto& process : processes)
-            build_process(process);
-        array.finish();
+        {
+            {
+                auto array = json.add_array("processes");
+                auto processes = Process::all_processes();
+                build_process(array, *Scheduler::colonel());
+                for (auto& process : processes)
+                    build_process(array, process);
+            }
+
+            auto total_time_scheduled = Scheduler::get_total_time_scheduled();
+            json.add("total_time", total_time_scheduled.total);
+            json.add("total_time_kernel", total_time_scheduled.total_kernel);
+        }
         return true;
     }
 };
@@ -530,6 +551,8 @@ private:
 class ProcFSDmesg final : public ProcFSGlobalInformation {
 public:
     static NonnullRefPtr<ProcFSDmesg> must_create();
+
+    virtual mode_t required_mode() const override { return 0400; }
 
 private:
     ProcFSDmesg();
@@ -662,6 +685,8 @@ class ProcFSModules final : public ProcFSGlobalInformation {
 public:
     static NonnullRefPtr<ProcFSModules> must_create();
 
+    virtual mode_t required_mode() const override { return 0400; }
+
 private:
     ProcFSModules();
     virtual bool output(KBufferBuilder& builder) override
@@ -687,6 +712,8 @@ class ProcFSProfile final : public ProcFSGlobalInformation {
 public:
     static NonnullRefPtr<ProcFSProfile> must_create();
 
+    virtual mode_t required_mode() const override { return 0400; }
+
 private:
     ProcFSProfile();
     virtual bool output(KBufferBuilder& builder) override
@@ -696,6 +723,24 @@ private:
             return false;
 
         return g_global_perf_events->to_json(builder);
+    }
+};
+
+class ProcFSKernelBase final : public ProcFSGlobalInformation {
+public:
+    static NonnullRefPtr<ProcFSKernelBase> must_create();
+
+private:
+    ProcFSKernelBase();
+
+    virtual mode_t required_mode() const override { return 0400; }
+
+    virtual bool output(KBufferBuilder& builder) override
+    {
+        if (!Process::current()->is_superuser())
+            return false;
+        builder.append(String::number(kernel_load_base));
+        return true;
     }
 };
 
@@ -756,6 +801,11 @@ UNMAP_AFTER_INIT NonnullRefPtr<ProcFSProfile> ProcFSProfile::must_create()
     return adopt_ref_if_nonnull(new (nothrow) ProcFSProfile).release_nonnull();
 }
 
+UNMAP_AFTER_INIT NonnullRefPtr<ProcFSKernelBase> ProcFSKernelBase::must_create()
+{
+    return adopt_ref_if_nonnull(new (nothrow) ProcFSKernelBase).release_nonnull();
+}
+
 UNMAP_AFTER_INIT ProcFSSelfProcessDirectory::ProcFSSelfProcessDirectory()
     : ProcFSExposedLink("self"sv)
 {
@@ -813,59 +863,52 @@ UNMAP_AFTER_INIT ProcFSProfile::ProcFSProfile()
 {
 }
 
-UNMAP_AFTER_INIT NonnullRefPtr<ProcFSBusDirectory> ProcFSBusDirectory::must_create(const ProcFSRootDirectory& parent_folder)
+UNMAP_AFTER_INIT ProcFSKernelBase::ProcFSKernelBase()
+    : ProcFSGlobalInformation("kernel_base"sv)
 {
-    auto folder = adopt_ref(*new (nothrow) ProcFSBusDirectory(parent_folder));
-    return folder;
 }
 
-UNMAP_AFTER_INIT NonnullRefPtr<ProcFSSystemDirectory> ProcFSSystemDirectory::must_create(const ProcFSRootDirectory& parent_folder)
+UNMAP_AFTER_INIT NonnullRefPtr<ProcFSSystemDirectory> ProcFSSystemDirectory::must_create(const ProcFSRootDirectory& parent_directory)
 {
-    auto folder = adopt_ref(*new (nothrow) ProcFSSystemDirectory(parent_folder));
-    folder->m_components.append(ProcFSDumpKmallocStacks::must_create(folder));
-    folder->m_components.append(ProcFSUBSanDeadly::must_create(folder));
-    folder->m_components.append(ProcFSCapsLockRemap::must_create(folder));
-    return folder;
+    auto directory = adopt_ref(*new (nothrow) ProcFSSystemDirectory(parent_directory));
+    directory->m_components.append(ProcFSDumpKmallocStacks::must_create(directory));
+    directory->m_components.append(ProcFSUBSanDeadly::must_create(directory));
+    directory->m_components.append(ProcFSCapsLockRemap::must_create(directory));
+    return directory;
 }
 
-UNMAP_AFTER_INIT ProcFSBusDirectory::ProcFSBusDirectory(const ProcFSRootDirectory& parent_folder)
-    : ProcFSExposedDirectory("bus"sv, parent_folder)
-{
-}
-UNMAP_AFTER_INIT ProcFSSystemDirectory::ProcFSSystemDirectory(const ProcFSRootDirectory& parent_folder)
-    : ProcFSExposedDirectory("sys"sv, parent_folder)
+UNMAP_AFTER_INIT ProcFSSystemDirectory::ProcFSSystemDirectory(const ProcFSRootDirectory& parent_directory)
+    : ProcFSExposedDirectory("sys"sv, parent_directory)
 {
 }
 
 UNMAP_AFTER_INIT NonnullRefPtr<ProcFSRootDirectory> ProcFSRootDirectory::must_create()
 {
-    auto folder = adopt_ref(*new (nothrow) ProcFSRootDirectory);
-    folder->m_components.append(ProcFSSelfProcessDirectory::must_create());
-    folder->m_components.append(ProcFSDiskUsage::must_create());
-    folder->m_components.append(ProcFSMemoryStatus::must_create());
-    folder->m_components.append(ProcFSOverallProcesses::must_create());
-    folder->m_components.append(ProcFSCPUInformation::must_create());
-    folder->m_components.append(ProcFSDmesg::must_create());
-    folder->m_components.append(ProcFSInterrupts::must_create());
-    folder->m_components.append(ProcFSKeymap::must_create());
-    folder->m_components.append(ProcFSPCI::must_create());
-    folder->m_components.append(ProcFSDevices::must_create());
-    folder->m_components.append(ProcFSUptime::must_create());
-    folder->m_components.append(ProcFSCommandLine::must_create());
-    folder->m_components.append(ProcFSModules::must_create());
-    folder->m_components.append(ProcFSProfile::must_create());
+    auto directory = adopt_ref(*new (nothrow) ProcFSRootDirectory);
+    directory->m_components.append(ProcFSSelfProcessDirectory::must_create());
+    directory->m_components.append(ProcFSDiskUsage::must_create());
+    directory->m_components.append(ProcFSMemoryStatus::must_create());
+    directory->m_components.append(ProcFSOverallProcesses::must_create());
+    directory->m_components.append(ProcFSCPUInformation::must_create());
+    directory->m_components.append(ProcFSDmesg::must_create());
+    directory->m_components.append(ProcFSInterrupts::must_create());
+    directory->m_components.append(ProcFSKeymap::must_create());
+    directory->m_components.append(ProcFSPCI::must_create());
+    directory->m_components.append(ProcFSDevices::must_create());
+    directory->m_components.append(ProcFSUptime::must_create());
+    directory->m_components.append(ProcFSCommandLine::must_create());
+    directory->m_components.append(ProcFSModules::must_create());
+    directory->m_components.append(ProcFSProfile::must_create());
+    directory->m_components.append(ProcFSKernelBase::must_create());
 
-    folder->m_components.append(ProcFSNetworkDirectory::must_create(*folder));
-    auto buses_folder = ProcFSBusDirectory::must_create(*folder);
-    folder->m_components.append(buses_folder);
-    folder->m_buses_folder = buses_folder;
-    folder->m_components.append(ProcFSSystemDirectory::must_create(*folder));
-    return folder;
+    directory->m_components.append(ProcFSNetworkDirectory::must_create(*directory));
+    directory->m_components.append(ProcFSSystemDirectory::must_create(*directory));
+    return directory;
 }
 
 KResult ProcFSRootDirectory::traverse_as_directory(unsigned fsid, Function<bool(FileSystem::DirectoryEntryView const&)> callback) const
 {
-    Locker locker(ProcFSComponentRegistry::the().get_lock());
+    MutexLocker locker(ProcFSComponentRegistry::the().get_lock());
     callback({ ".", { fsid, component_index() }, 0 });
     callback({ "..", { fsid, 0 }, 0 });
 
@@ -873,24 +916,38 @@ KResult ProcFSRootDirectory::traverse_as_directory(unsigned fsid, Function<bool(
         InodeIdentifier identifier = { fsid, component.component_index() };
         callback({ component.name(), identifier, 0 });
     }
-    for (auto& component : m_process_folders) {
-        InodeIdentifier identifier = { fsid, component.component_index() };
-        callback({ component.name(), identifier, 0 });
-    }
+    processes().for_each_shared([&](Process& process) {
+        VERIFY(!(process.pid() < 0));
+        u64 process_id = (u64)process.pid().value();
+        InodeIdentifier identifier = { fsid, static_cast<InodeIndex>(process_id << 36) };
+        callback({ String::formatted("{:d}", process.pid().value()), identifier, 0 });
+        return IterationDecision::Continue;
+    });
     return KSuccess;
 }
 
-RefPtr<ProcFSExposedComponent> ProcFSRootDirectory::lookup(StringView name)
+KResultOr<NonnullRefPtr<ProcFSExposedComponent>> ProcFSRootDirectory::lookup(StringView name)
 {
-    if (auto candidate = ProcFSExposedDirectory::lookup(name); !candidate.is_null())
-        return candidate;
-
-    for (auto& component : m_process_folders) {
-        if (component.name() == name) {
-            return component;
+    auto maybe_candidate = ProcFSExposedDirectory::lookup(name);
+    if (maybe_candidate.is_error()) {
+        if (maybe_candidate.error() != ENOENT) {
+            return maybe_candidate.error();
         }
+    } else {
+        return maybe_candidate.release_value();
     }
-    return {};
+
+    String process_directory_name = name;
+    auto pid = process_directory_name.to_uint<unsigned>();
+    if (!pid.has_value())
+        return ESRCH;
+    auto actual_pid = pid.value();
+
+    auto maybe_process = Process::from_pid(actual_pid);
+    if (maybe_process) {
+        return maybe_process->procfs_traits();
+    }
+    return ENOENT;
 }
 
 UNMAP_AFTER_INIT ProcFSRootDirectory::ProcFSRootDirectory()
@@ -900,16 +957,6 @@ UNMAP_AFTER_INIT ProcFSRootDirectory::ProcFSRootDirectory()
 
 UNMAP_AFTER_INIT ProcFSRootDirectory::~ProcFSRootDirectory()
 {
-}
-
-RefPtr<ProcFSProcessDirectory> ProcFSRootDirectory::process_folder_for(Process& process)
-{
-    RefPtr<Process> checked_process = process;
-    for (auto& folder : m_process_folders) {
-        if (folder.associated_process().ptr() == checked_process.ptr())
-            return folder;
-    }
-    return {};
 }
 
 }

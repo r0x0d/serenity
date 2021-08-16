@@ -45,11 +45,8 @@ int main(int argc, char** argv)
     auto app_icon = GUI::Icon::default_icon("app-breakout");
     window->set_icon(app_icon.bitmap_for_size(16));
     auto& game = window->set_main_widget<Breakout::Game>();
-    window->show();
 
-    auto menubar = GUI::Menubar::construct();
-
-    auto& game_menu = menubar->add_menu("&Game");
+    auto& game_menu = window->add_menu("&Game");
     game_menu.add_action(GUI::Action::create_checkable("&Pause", { {}, Key_P }, [&](auto& action) {
         game.set_paused(action.is_checked());
     }));
@@ -60,10 +57,10 @@ int main(int argc, char** argv)
         GUI::Application::the()->quit();
     }));
 
-    auto& help_menu = menubar->add_menu("&Help");
+    auto& help_menu = window->add_menu("&Help");
     help_menu.add_action(GUI::CommonActions::make_about_action("Breakout", app_icon, window));
 
-    window->set_menubar(move(menubar));
+    window->show();
 
     return app->exec();
 }

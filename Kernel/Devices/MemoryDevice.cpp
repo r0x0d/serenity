@@ -8,8 +8,8 @@
 #include <AK/StdLibExtras.h>
 #include <Kernel/Arch/PC/BIOS.h>
 #include <Kernel/Devices/MemoryDevice.h>
+#include <Kernel/Memory/AnonymousVMObject.h>
 #include <Kernel/Sections.h>
-#include <Kernel/VM/AnonymousVMObject.h>
 
 namespace Kernel {
 
@@ -37,7 +37,7 @@ void MemoryDevice::did_seek(FileDescription&, off_t)
     TODO();
 }
 
-KResultOr<Region*> MemoryDevice::mmap(Process& process, FileDescription&, const Range& range, u64 offset, int prot, bool shared)
+KResultOr<Memory::Region*> MemoryDevice::mmap(Process& process, FileDescription&, Memory::VirtualRange const& range, u64 offset, int prot, bool shared)
 {
     auto viewed_address = PhysicalAddress(offset);
 
@@ -47,13 +47,14 @@ KResultOr<Region*> MemoryDevice::mmap(Process& process, FileDescription&, const 
         return EINVAL;
     }
 
-    auto vmobject = AnonymousVMObject::try_create_for_physical_range(viewed_address, range.size());
-    if (!vmobject)
-        return ENOMEM;
+    auto maybe_vmobject = Memory::AnonymousVMObject::try_create_for_physical_range(viewed_address, range.size());
+    if (maybe_vmobject.is_error())
+        return maybe_vmobject.error();
+
     dbgln("MemoryDevice: Mapped physical memory at {} for range of {} bytes", viewed_address, range.size());
-    return process.space().allocate_region_with_vmobject(
+    return process.address_space().allocate_region_with_vmobject(
         range,
-        vmobject.release_nonnull(),
+        maybe_vmobject.release_value(),
         0,
         "Mapped Physical Memory",
         prot,

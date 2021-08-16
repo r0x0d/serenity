@@ -21,6 +21,7 @@
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
+#include <sys/select.h>
 #include <sys/types.h>
 #include <syscall.h>
 #include <termios.h>
@@ -257,7 +258,11 @@ pid_t setsid()
 
 pid_t tcgetpgrp(int fd)
 {
-    return ioctl(fd, TIOCGPGRP);
+    pid_t pgrp;
+    int rc = ioctl(fd, TIOCGPGRP, &pgrp);
+    if (rc < 0)
+        return rc;
+    return pgrp;
 }
 
 int tcsetpgrp(int fd, pid_t pgid)
@@ -758,21 +763,6 @@ int set_process_name(const char* name, size_t name_length)
     __RETURN_WITH_ERRNO(rc, rc, -1);
 }
 
-int chroot(const char* path)
-{
-    return chroot_with_mount_flags(path, -1);
-}
-
-int chroot_with_mount_flags(const char* path, int mount_flags)
-{
-    if (!path) {
-        errno = EFAULT;
-        return -1;
-    }
-    int rc = syscall(SC_chroot, path, strlen(path), mount_flags);
-    __RETURN_WITH_ERRNO(rc, rc, -1);
-}
-
 int pledge(const char* promises, const char* execpromises)
 {
     Syscall::SC_pledge_params params {
@@ -808,5 +798,10 @@ long sysconf(int name)
 int getpagesize()
 {
     return PAGE_SIZE;
+}
+
+int pause()
+{
+    return select(0, nullptr, nullptr, nullptr, nullptr);
 }
 }

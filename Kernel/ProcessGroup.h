@@ -9,8 +9,7 @@
 #include <AK/IntrusiveList.h>
 #include <AK/RefCounted.h>
 #include <AK/Weakable.h>
-#include <Kernel/Lock.h>
-#include <Kernel/SpinLock.h>
+#include <Kernel/Locking/SpinLockProtectedValue.h>
 #include <Kernel/UnixTypes.h>
 
 namespace Kernel {
@@ -44,7 +43,6 @@ public:
     using List = IntrusiveList<ProcessGroup, RawPtr<ProcessGroup>, &ProcessGroup::m_list_node>;
 };
 
-extern ProcessGroup::List* g_process_groups;
-extern RecursiveSpinLock g_process_groups_lock;
+SpinLockProtectedValue<ProcessGroup::List>& process_groups();
 
 }

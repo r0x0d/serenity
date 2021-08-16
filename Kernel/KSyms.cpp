@@ -83,7 +83,7 @@ UNMAP_AFTER_INIT static void load_kernel_symbols_from_data(ReadonlyBytes const& 
             }
         }
         auto& ksym = s_symbols[current_symbol_index];
-        ksym.address = address;
+        ksym.address = kernel_load_base + address;
         char* name = static_cast<char*>(kmalloc_eternal((bufptr - start_of_name) + 1));
         memcpy(name, start_of_name, bufptr - start_of_name);
         name[bufptr - start_of_name] = '\0';
@@ -100,8 +100,16 @@ UNMAP_AFTER_INIT static void load_kernel_symbols_from_data(ReadonlyBytes const& 
     g_kernel_symbols_available = true;
 }
 
-NEVER_INLINE static void dump_backtrace_impl(FlatPtr base_pointer, bool use_ksyms)
+NEVER_INLINE static void dump_backtrace_impl(FlatPtr base_pointer, bool use_ksyms, PrintToScreen print_to_screen)
 {
+#define PRINT_LINE(fmtstr, ...)                    \
+    do {                                           \
+        if (print_to_screen == PrintToScreen::No)  \
+            dbgln(fmtstr, __VA_ARGS__);            \
+        else                                       \
+            critical_dmesgln(fmtstr, __VA_ARGS__); \
+    } while (0)
+
     SmapDisabler disabler;
     if (use_ksyms && !g_kernel_symbols_available) {
         Processor::halt();
@@ -118,7 +126,7 @@ NEVER_INLINE static void dump_backtrace_impl(FlatPtr base_pointer, bool use_ksym
     if (use_ksyms) {
         FlatPtr copied_stack_ptr[2];
         for (FlatPtr* stack_ptr = (FlatPtr*)base_pointer; stack_ptr && recognized_symbol_count < max_recognized_symbol_count; stack_ptr = (FlatPtr*)copied_stack_ptr[0]) {
-            if ((FlatPtr)stack_ptr < KERNEL_BASE)
+            if ((FlatPtr)stack_ptr < kernel_load_base)
                 break;
 
             void* fault_at;
@@ -133,7 +141,7 @@ NEVER_INLINE static void dump_backtrace_impl(FlatPtr base_pointer, bool use_ksym
         FlatPtr* stack_ptr = (FlatPtr*)base_pointer;
         while (stack_ptr && safe_memcpy(copied_stack_ptr, stack_ptr, sizeof(copied_stack_ptr), fault_at)) {
             FlatPtr retaddr = copied_stack_ptr[1];
-            dbgln("{:p} (next: {:p})", retaddr, stack_ptr ? (FlatPtr*)copied_stack_ptr[0] : 0);
+            PRINT_LINE("{:p} (next: {:p})", retaddr, stack_ptr ? (FlatPtr*)copied_stack_ptr[0] : 0);
             stack_ptr = (FlatPtr*)copied_stack_ptr[0];
         }
         return;
@@ -144,18 +152,18 @@ NEVER_INLINE static void dump_backtrace_impl(FlatPtr base_pointer, bool use_ksym
         if (!symbol.address)
             break;
         if (!symbol.symbol) {
-            dbgln("{:p}", symbol.address);
+            PRINT_LINE("Kernel + {:p}", symbol.address - kernel_load_base);
             continue;
         }
         size_t offset = symbol.address - symbol.symbol->address;
         if (symbol.symbol->address == g_highest_kernel_symbol_address && offset > 4096)
-            dbgln("{:p}", symbol.address);
+            PRINT_LINE("Kernel + {:p}", symbol.address - kernel_load_base);
         else
-            dbgln("{:p}  {} +0x{:x}", symbol.address, symbol.symbol->name, offset);
+            PRINT_LINE("Kernel + {:p}  {} +{:#x}", symbol.address - kernel_load_base, symbol.symbol->name, offset);
     }
 }
 
-void dump_backtrace()
+void dump_backtrace(PrintToScreen print_to_screen)
 {
     static bool in_dump_backtrace = false;
     if (in_dump_backtrace)
@@ -165,7 +173,7 @@ void dump_backtrace()
     FlatPtr ebp;
     asm volatile("movl %%ebp, %%eax"
                  : "=a"(ebp));
-    dump_backtrace_impl(ebp, g_kernel_symbols_available);
+    dump_backtrace_impl(ebp, g_kernel_symbols_available, print_to_screen);
 }
 
 UNMAP_AFTER_INIT void load_kernel_symbol_table()

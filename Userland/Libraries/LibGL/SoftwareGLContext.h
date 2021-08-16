@@ -68,11 +68,20 @@ public:
     virtual void gl_read_buffer(GLenum mode) override;
     virtual void gl_read_pixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type, GLvoid* pixels) override;
     virtual void gl_tex_image_2d(GLenum target, GLint level, GLint internal_format, GLsizei width, GLsizei height, GLint border, GLenum format, GLenum type, const GLvoid* data) override;
+    virtual void gl_tex_parameter(GLenum target, GLenum pname, GLfloat param) override;
     virtual void gl_tex_coord(GLfloat s, GLfloat t, GLfloat r, GLfloat q) override;
     virtual void gl_bind_texture(GLenum target, GLuint texture) override;
     virtual void gl_active_texture(GLenum texture) override;
     virtual void gl_get_floatv(GLenum pname, GLfloat* params) override;
-
+    virtual void gl_depth_mask(GLboolean flag) override;
+    virtual void gl_enable_client_state(GLenum cap) override;
+    virtual void gl_disable_client_state(GLenum cap) override;
+    virtual void gl_vertex_pointer(GLint size, GLenum type, GLsizei stride, const void* pointer) override;
+    virtual void gl_color_pointer(GLint size, GLenum type, GLsizei stride, const void* pointer) override;
+    virtual void gl_tex_coord_pointer(GLint size, GLenum type, GLsizei stride, const void* pointer) override;
+    virtual void gl_draw_arrays(GLenum mode, GLint first, GLsizei count) override;
+    virtual void gl_draw_elements(GLenum mode, GLsizei count, GLenum type, const void* indices) override;
+    virtual void gl_color_mask(GLboolean red, GLboolean green, GLboolean blue, GLboolean alpha) override;
     virtual void present() override;
 
 private:
@@ -131,6 +140,11 @@ private:
     GLclampf m_alpha_test_ref_value = 0;
 
     GLenum m_current_read_buffer = GL_BACK;
+
+    // Client side arrays
+    bool m_client_side_vertex_array_enabled = false;
+    bool m_client_side_color_array_enabled = false;
+    bool m_client_side_texture_coord_array_enabled = false;
 
     NonnullRefPtr<Gfx::Bitmap> m_frontbuffer;
 
@@ -194,7 +208,11 @@ private:
             decltype(&SoftwareGLContext::gl_shade_model),
             decltype(&SoftwareGLContext::gl_alpha_func),
             decltype(&SoftwareGLContext::gl_hint),
-            decltype(&SoftwareGLContext::gl_read_buffer)>;
+            decltype(&SoftwareGLContext::gl_read_buffer),
+            decltype(&SoftwareGLContext::gl_tex_parameter),
+            decltype(&SoftwareGLContext::gl_depth_mask),
+            decltype(&SoftwareGLContext::gl_draw_arrays),
+            decltype(&SoftwareGLContext::gl_draw_elements)>;
 
         using ExtraSavedArguments = Variant<
             FloatMatrix4x4>;
@@ -212,6 +230,19 @@ private:
         GLenum mode { GL_COMPILE };
     };
     Optional<CurrentListing> m_current_listing_index;
+
+    struct VertexAttribPointer {
+        GLint size { 4 };
+        GLenum type { GL_FLOAT };
+        GLsizei stride { 0 };
+        const void* pointer { 0 };
+    };
+
+    static void read_from_vertex_attribute_pointer(VertexAttribPointer const&, int index, float* elements, bool normalize);
+
+    VertexAttribPointer m_client_vertex_pointer;
+    VertexAttribPointer m_client_color_pointer;
+    VertexAttribPointer m_client_tex_coord_pointer;
 };
 
 }

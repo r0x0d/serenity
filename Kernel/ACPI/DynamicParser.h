@@ -9,9 +9,9 @@
 #include <AK/RefPtr.h>
 #include <Kernel/ACPI/Parser.h>
 #include <Kernel/Interrupts/IRQHandler.h>
-#include <Kernel/Lock.h>
+#include <Kernel/Locking/Mutex.h>
+#include <Kernel/Memory/PhysicalPage.h>
 #include <Kernel/PhysicalAddress.h>
-#include <Kernel/VM/PhysicalPage.h>
 
 namespace Kernel::ACPI {
 
@@ -37,7 +37,7 @@ private:
     // ^IRQHandler
     virtual bool handle_irq(const RegisterState&) override;
 
-    OwnPtr<Region> m_acpi_namespace;
+    OwnPtr<Memory::Region> m_acpi_namespace;
 };
 
 }

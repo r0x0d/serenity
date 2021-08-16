@@ -5,7 +5,6 @@
  */
 
 #include "DevicesModel.h"
-#include <AK/JsonArray.h>
 #include <AK/JsonObject.h>
 #include <AK/JsonValue.h>
 #include <LibCore/DirIterator.h>
@@ -55,7 +54,7 @@ String DevicesModel::column_name(int column) const
 
 GUI::Variant DevicesModel::data(const GUI::ModelIndex& index, GUI::ModelRole role) const
 {
-    VERIFY(is_valid(index));
+    VERIFY(is_within_range(index));
 
     if (role == GUI::ModelRole::TextAlignment) {
         switch (index.column()) {
@@ -119,8 +118,9 @@ GUI::Variant DevicesModel::data(const GUI::ModelIndex& index, GUI::ModelRole rol
     return {};
 }
 
-void DevicesModel::update()
+void DevicesModel::invalidate()
 {
+    // FIXME: granularly update this.
     auto proc_devices = Core::File::construct("/proc/devices");
     if (!proc_devices->open(Core::OpenMode::ReadOnly))
         VERIFY_NOT_REACHED();
@@ -173,5 +173,5 @@ void DevicesModel::update()
     fill_in_paths_from_dir("/dev");
     fill_in_paths_from_dir("/dev/pts");
 
-    did_update();
+    Model::invalidate();
 }

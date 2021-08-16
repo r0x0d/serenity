@@ -12,6 +12,8 @@
 #include <LibCore/ElapsedTimer.h>
 #include <LibCore/Timer.h>
 #include <LibGUI/AbstractScrollableWidget.h>
+#include <LibGUI/Action.h>
+#include <LibGUI/Clipboard.h>
 #include <LibGUI/Forward.h>
 #include <LibGUI/TextDocument.h>
 #include <LibGUI/TextRange.h>
@@ -24,7 +26,8 @@ namespace GUI {
 class TextEditor
     : public AbstractScrollableWidget
     , public TextDocument::Client
-    , public Syntax::HighlighterClient {
+    , public Syntax::HighlighterClient
+    , public Clipboard::ClipboardClient {
     C_OBJECT(TextEditor);
 
 public:
@@ -135,6 +138,9 @@ public:
     void paste();
     void do_delete();
     void delete_current_line();
+    void delete_previous_word();
+    void delete_previous_char();
+    void delete_from_line_start_to_cursor();
     void select_all();
     virtual void undo();
     virtual void redo();
@@ -197,6 +203,9 @@ public:
 
     void delete_text_range(TextRange);
 
+    bool text_is_secret() const { return m_text_is_secret; }
+    void set_text_is_secret(bool text_is_secret);
+
 protected:
     explicit TextEditor(Type = Type::MultiLine);
 
@@ -248,6 +257,9 @@ private:
     virtual String highlighter_did_request_text() const final { return text(); }
     virtual GUI::TextDocument& highlighter_did_request_document() final { return document(); }
     virtual GUI::TextPosition highlighter_did_request_cursor() const final { return m_cursor; }
+
+    // ^Clipboard::ClipboardClient
+    virtual void clipboard_content_did_change(String const& mime_type) override;
 
     void create_actions();
     void paint_ruler(Painter&);
@@ -378,6 +390,8 @@ private:
     Gfx::IntPoint m_last_mousemove_position;
 
     RefPtr<Gfx::Bitmap> m_icon;
+
+    bool m_text_is_secret { false };
 };
 
 }

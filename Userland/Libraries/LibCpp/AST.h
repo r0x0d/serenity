@@ -281,6 +281,53 @@ private:
     RefPtr<Type> m_pointee;
 };
 
+class Reference : public Type {
+public:
+    virtual ~Reference() override = default;
+    virtual const char* class_name() const override { return "Reference"; }
+    virtual void dump(FILE* = stdout, size_t indent = 0) const override;
+    virtual String to_string() const override;
+
+    enum class Kind {
+        Lvalue,
+        Rvalue,
+    };
+
+    Reference(ASTNode* parent, Optional<Position> start, Optional<Position> end, const String& filename, Kind kind)
+        : Type(parent, start, end, filename)
+        , m_kind(kind)
+    {
+    }
+
+    const Type* referenced_type() const { return m_referenced_type.ptr(); }
+    void set_referenced_type(RefPtr<Type>&& pointee) { m_referenced_type = move(pointee); }
+    Kind kind() const { return m_kind; }
+
+private:
+    RefPtr<Type const> m_referenced_type;
+    Kind m_kind;
+};
+
+class FunctionType : public Type {
+public:
+    virtual ~FunctionType() override = default;
+    virtual const char* class_name() const override { return "FunctionType"; }
+    virtual void dump(FILE* = stdout, size_t indent = 0) const override;
+    virtual String to_string() const override;
+
+    FunctionType(ASTNode* parent, Optional<Position> start, Optional<Position> end, const String& filename)
+        : Type(parent, start, end, filename)
+    {
+    }
+
+    void set_return_type(Type& type) { m_return_type = type; }
+    void set_parameters(NonnullRefPtrVector<Parameter> parameters) { m_parameters = move(parameters); }
+
+private:
+    RefPtr<Type> m_return_type;
+    NonnullRefPtrVector<Parameter> m_parameters;
+};
+
 class FunctionDefinition : public ASTNode {
 public:
     virtual ~FunctionDefinition() override = default;
@@ -616,11 +663,15 @@ public:
     };
 
     void set_type(Type type) { m_type = type; }
-    void add_entry(StringView entry) { m_entries.append(move(entry)); }
+    void add_entry(StringView entry, RefPtr<Expression> value = nullptr) { m_entries.append({ entry, move(value) }); }
 
 private:
     Type m_type { Type::RegularEnum };
-    Vector<StringView> m_entries;
+    struct EnumerationEntry {
+        StringView name;
+        RefPtr<Expression> value;
+    };
+    Vector<EnumerationEntry> m_entries;
 };
 
 class StructOrClassDeclaration : public Declaration {

@@ -23,7 +23,6 @@ public:
     virtual int row_count(const GUI::ModelIndex& = GUI::ModelIndex()) const override;
     virtual int column_count(const GUI::ModelIndex& = GUI::ModelIndex()) const override { return 1; }
     virtual GUI::Variant data(const GUI::ModelIndex& index, GUI::ModelRole role) const override;
-    virtual void update() override;
     virtual GUI::ModelIndex parent_index(const GUI::ModelIndex&) const override;
     virtual GUI::ModelIndex index(int row, int column = 0, const GUI::ModelIndex& = GUI::ModelIndex()) const override;
 
@@ -32,7 +31,7 @@ private:
         : m_variables(move(variables))
         , m_regs(regs)
     {
-        m_variable_icon.set_bitmap_for_size(16, Gfx::Bitmap::load_from_file("/res/icons/16x16/inspector-object.png"));
+        m_variable_icon.set_bitmap_for_size(16, Gfx::Bitmap::try_load_from_file("/res/icons/16x16/inspector-object.png"));
     }
     NonnullOwnPtrVector<Debug::DebugInfo::VariableInfo> m_variables;
     PtraceRegisters m_regs;

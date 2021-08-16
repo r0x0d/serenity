@@ -1,17 +1,78 @@
 /*
  * Copyright (c) 2021, Idan Horowitz <idan.horowitz@serenityos.org>
+ * Copyright (c) 2021, Linus Groh <linusg@serenityos.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
 #include <AK/CharacterTypes.h>
 #include <AK/DateTimeLexer.h>
+#include <LibJS/Runtime/IteratorOperations.h>
 #include <LibJS/Runtime/Temporal/AbstractOperations.h>
+#include <LibJS/Runtime/Temporal/Duration.h>
 #include <LibJS/Runtime/Temporal/PlainDate.h>
 #include <LibJS/Runtime/Temporal/PlainTime.h>
 #include <LibJS/Runtime/Temporal/TimeZone.h>
 
 namespace JS::Temporal {
+
+static Optional<OptionType> to_option_type(Value value)
+{
+    if (value.is_boolean())
+        return OptionType::Boolean;
+    if (value.is_string())
+        return OptionType::String;
+    if (value.is_number())
+        return OptionType::Number;
+    return {};
+}
+
+// 13.1 IterableToListOfType ( items, elementTypes ), https://tc39.es/proposal-temporal/#sec-iterabletolistoftype
+MarkedValueList iterable_to_list_of_type(GlobalObject& global_object, Value items, Vector<OptionType> const& element_types)
+{
+    auto& vm = global_object.vm();
+    auto& heap = global_object.heap();
+
+    // 1. Let iteratorRecord be ? GetIterator(items, sync).
+    auto iterator_record = get_iterator(global_object, items, IteratorHint::Sync);
+    if (vm.exception())
+        return MarkedValueList { heap };
+
+    // 2. Let values be a new empty List.
+    MarkedValueList values(heap);
+
+    // 3. Let next be true.
+    auto next = true;
+    // 4. Repeat, while next is not false,
+    while (next) {
+        // a. Set next to ? IteratorStep(iteratorRecord).
+        auto* iterator_result = iterator_step(global_object, *iterator_record);
+        if (vm.exception())
+            return MarkedValueList { heap };
+        next = iterator_result;
+
+        // b. If next is not false, then
+        if (next) {
+            // i. Let nextValue be ? IteratorValue(next).
+            auto next_value = iterator_value(global_object, *iterator_result);
+            if (vm.exception())
+                return MarkedValueList { heap };
+            // ii. If Type(nextValue) is not an element of elementTypes, then
+            if (auto type = to_option_type(next_value); !type.has_value() || !element_types.contains_slow(*type)) {
+                // 1. Let completion be ThrowCompletion(a newly created TypeError object).
+                vm.throw_exception<TypeError>(global_object, ErrorType::FixmeAddAnErrorString);
+                // 2. Return ? IteratorClose(iteratorRecord, completion).
+                iterator_close(*iterator_record);
+                return MarkedValueList { heap };
+            }
+            // iii. Append nextValue to the end of the List values.
+            values.append(next_value);
+        }
+    }
+
+    // 5. Return values.
+    return values;
+}
 
 // 13.2 GetOptionsObject ( options ), https://tc39.es/proposal-temporal/#sec-getoptionsobject
 Object* get_options_object(GlobalObject& global_object, Value options)
@@ -32,17 +93,6 @@ Object* get_options_object(GlobalObject& global_object, Value options)
 
     // 3. Throw a TypeError exception.
     vm.throw_exception<TypeError>(global_object, ErrorType::NotAnObject, "Options");
-    return {};
-}
-
-static Optional<OptionType> to_option_type(Value value)
-{
-    if (value.is_boolean())
-        return OptionType::Boolean;
-    if (value.is_string())
-        return OptionType::String;
-    if (value.is_number())
-        return OptionType::Number;
     return {};
 }
 
@@ -114,8 +164,22 @@ Value get_option(GlobalObject& global_object, Object& options, String const& pro
     return value;
 }
 
+// 13.6 ToTemporalOverflow ( normalizedOptions ), https://tc39.es/proposal-temporal/#sec-temporal-totemporaloverflow
+Optional<String> to_temporal_overflow(GlobalObject& global_object, Object& normalized_options)
+{
+    auto& vm = global_object.vm();
+
+    // 1. Return ? GetOption(normalizedOptions, "overflow", « String », « "constrain", "reject" », "constrain").
+    auto option = get_option(global_object, normalized_options, "overflow", { OptionType::String }, { "constrain"sv, "reject"sv }, js_string(vm, "constrain"));
+    if (vm.exception())
+        return {};
+
+    VERIFY(option.is_string());
+    return option.as_string().string();
+}
+
 // 13.8 ToTemporalRoundingMode ( normalizedOptions, fallback ), https://tc39.es/proposal-temporal/#sec-temporal-totemporalroundingmode
-String to_temporal_rounding_mode(GlobalObject& global_object, Object& normalized_options, String const& fallback)
+Optional<String> to_temporal_rounding_mode(GlobalObject& global_object, Object& normalized_options, String const& fallback)
 {
     auto& vm = global_object.vm();
 
@@ -230,7 +294,13 @@ Optional<String> to_smallest_temporal_unit(GlobalObject& global_object, Object& 
     return smallest_unit;
 }
 
-// 13.32 RoundNumberToIncrement ( x, increment, roundingMode )
+// 13.29 ConstrainToRange ( x, minimum, maximum ), https://tc39.es/proposal-temporal/#sec-temporal-constraintorange
+double constrain_to_range(double x, double minimum, double maximum)
+{
+    return min(max(x, minimum), maximum);
+}
+
+// 13.32 RoundNumberToIncrement ( x, increment, roundingMode ), https://tc39.es/proposal-temporal/#sec-temporal-roundnumbertoincrement
 BigInt* round_number_to_increment(GlobalObject& global_object, BigInt const& x, u64 increment, String const& rounding_mode)
 {
     auto& heap = global_object.heap();
@@ -301,6 +371,7 @@ Optional<ISODateTime> parse_iso_date_time(GlobalObject& global_object, [[maybe_u
     Optional<StringView> fraction_part;
     Optional<StringView> calendar_part;
     TODO();
+
     // 3. Let year be the part of isoString produced by the DateYear production.
     // 4. If the first code unit of year is 0x2212 (MINUS SIGN), replace it with the code unit 0x002D (HYPHEN-MINUS).
     String normalized_year;
@@ -312,7 +383,7 @@ Optional<ISODateTime> parse_iso_date_time(GlobalObject& global_object, [[maybe_u
     // 5. Set year to ! ToIntegerOrInfinity(year).
     i32 year = Value(js_string(vm, normalized_year)).to_integer_or_infinity(global_object);
 
-    i32 month;
+    u8 month;
     // 6. If month is undefined, then
     if (!month_part.has_value()) {
         // a. Set month to 1.
@@ -321,10 +392,10 @@ Optional<ISODateTime> parse_iso_date_time(GlobalObject& global_object, [[maybe_u
     // 7. Else,
     else {
         // a. Set month to ! ToIntegerOrInfinity(month).
-        month = Value(js_string(vm, *month_part)).to_integer_or_infinity(global_object);
+        month = *month_part->to_uint<u8>();
     }
 
-    i32 day;
+    u8 day;
     // 8. If day is undefined, then
     if (!day_part.has_value()) {
         // a. Set day to 1.
@@ -333,17 +404,17 @@ Optional<ISODateTime> parse_iso_date_time(GlobalObject& global_object, [[maybe_u
     // 9. Else,
     else {
         // a. Set day to ! ToIntegerOrInfinity(day).
-        day = Value(js_string(vm, *day_part)).to_integer_or_infinity(global_object);
+        day = *day_part->to_uint<u8>();
     }
 
     // 10. Set hour to ! ToIntegerOrInfinity(hour).
-    i32 hour = Value(js_string(vm, hour_part.value_or(""sv))).to_integer_or_infinity(global_object);
+    u8 hour = hour_part->to_uint<u8>().value_or(0);
 
     // 11. Set minute to ! ToIntegerOrInfinity(minute).
-    i32 minute = Value(js_string(vm, minute_part.value_or(""sv))).to_integer_or_infinity(global_object);
+    u8 minute = minute_part->to_uint<u8>().value_or(0);
 
     // 12. Set second to ! ToIntegerOrInfinity(second).
-    i32 second = Value(js_string(vm, second_part.value_or(""sv))).to_integer_or_infinity(global_object);
+    u8 second = second_part->to_uint<u8>().value_or(0);
 
     // 13. If second is 60, then
     if (second == 60) {
@@ -351,22 +422,22 @@ Optional<ISODateTime> parse_iso_date_time(GlobalObject& global_object, [[maybe_u
         second = 59;
     }
 
-    i32 millisecond;
-    i32 microsecond;
-    i32 nanosecond;
+    u16 millisecond;
+    u16 microsecond;
+    u16 nanosecond;
     // 14. If fraction is not undefined, then
     if (fraction_part.has_value()) {
         // a. Set fraction to the string-concatenation of the previous value of fraction and the string "000000000".
         auto fraction = String::formatted("{}000000000", *fraction_part);
         // b. Let millisecond be the String value equal to the substring of fraction from 0 to 3.
         // c. Set millisecond to ! ToIntegerOrInfinity(millisecond).
-        millisecond = Value(js_string(vm, fraction.substring(0, 3))).to_integer_or_infinity(global_object);
+        millisecond = *fraction.substring(0, 3).to_uint<u16>();
         // d. Let microsecond be the String value equal to the substring of fraction from 3 to 6.
         // e. Set microsecond to ! ToIntegerOrInfinity(microsecond).
-        microsecond = Value(js_string(vm, fraction.substring(3, 3))).to_integer_or_infinity(global_object);
+        microsecond = *fraction.substring(3, 3).to_uint<u16>();
         // f. Let nanosecond be the String value equal to the substring of fraction from 6 to 9.
         // g. Set nanosecond to ! ToIntegerOrInfinity(nanosecond).
-        nanosecond = Value(js_string(vm, fraction.substring(6, 3))).to_integer_or_infinity(global_object);
+        nanosecond = *fraction.substring(6, 3).to_uint<u16>();
     }
     // 15. Else,
     else {
@@ -420,10 +491,60 @@ Optional<TemporalInstant> parse_temporal_instant_string(GlobalObject& global_obj
     return TemporalInstant { .year = result->year, .month = result->month, .day = result->day, .hour = result->hour, .minute = result->minute, .second = result->second, .millisecond = result->millisecond, .microsecond = result->microsecond, .nanosecond = result->nanosecond, .time_zone_offset = move(time_zone_result->offset) };
 }
 
+// 13.37 ParseTemporalCalendarString ( isoString ), https://tc39.es/proposal-temporal/#sec-temporal-parsetemporalcalendarstring
+Optional<String> parse_temporal_calendar_string([[maybe_unused]] GlobalObject& global_object, [[maybe_unused]] String const& iso_string)
+{
+    // 1. Assert: Type(isoString) is String.
+
+    // 2. If isoString does not satisfy the syntax of a TemporalCalendarString (see 13.33), then
+    // a. Throw a RangeError exception.
+    // 3. Let id be the part of isoString produced by the CalendarName production, or undefined if not present.
+    Optional<StringView> id_part;
+    TODO();
+
+    // 4. If id is undefined, then
+    if (!id_part.has_value()) {
+        // a. Return "iso8601".
+        return "iso8601";
+    }
+
+    // 5. Return id.
+    return id_part.value();
+}
+
+// 13.38 ParseTemporalDateString ( isoString ), https://tc39.es/proposal-temporal/#sec-temporal-parsetemporaldatestring
+Optional<TemporalDate> parse_temporal_date_string(GlobalObject& global_object, String const& iso_string)
+{
+    auto& vm = global_object.vm();
+
+    // 1. Assert: Type(isoString) is String.
+
+    // 2. If isoString does not satisfy the syntax of a TemporalDateString (see 13.33), then
+    // a. Throw a RangeError exception.
+    // TODO
+
+    // 3. Let result be ? ParseISODateTime(isoString).
+    auto result = parse_iso_date_time(global_object, iso_string);
+    if (vm.exception())
+        return {};
+
+    // 4. Return the new Record { [[Year]]: result.[[Year]], [[Month]]: result.[[Month]], [[Day]]: result.[[Day]], [[Calendar]]: result.[[Calendar]] }.
+    return TemporalDate { .year = result->year, .month = result->month, .day = result->day, .calendar = move(result->calendar) };
+}
+
+// 13.40 ParseTemporalDurationString ( isoString ), https://tc39.es/proposal-temporal/#sec-temporal-parsetemporaldurationstring
+Optional<TemporalDuration> parse_temporal_duration_string(GlobalObject& global_object, String const& iso_string)
+{
+    (void)global_object;
+    (void)iso_string;
+    TODO();
+}
+
 // 13.43 ParseTemporalTimeZoneString ( isoString ), https://tc39.es/proposal-temporal/#sec-temporal-parsetemporaltimezonestring
 Optional<TemporalTimeZone> parse_temporal_time_zone_string(GlobalObject& global_object, [[maybe_unused]] String const& iso_string)
 {
     auto& vm = global_object.vm();
+
     // 1. Assert: Type(isoString) is String.
 
     // 2. If isoString does not satisfy the syntax of a TemporalTimeZoneString (see 13.33), then
@@ -456,9 +577,9 @@ Optional<TemporalTimeZone> parse_temporal_time_zone_string(GlobalObject& global_
         VERIFY(sign_part.has_value());
 
         // b. Set hours to ! ToIntegerOrInfinity(hours).
-        i32 hours = Value(js_string(vm, *hours_part)).to_integer_or_infinity(global_object);
+        u8 hours = Value(js_string(vm, *hours_part)).to_integer_or_infinity(global_object);
 
-        i32 sign;
+        u8 sign;
         // c. If sign is the code unit 0x002D (HYPHEN-MINUS) or the code unit 0x2212 (MINUS SIGN), then
         if (sign_part->is_one_of("-", "\u2212")) {
             // i. Set sign to −1.
@@ -471,10 +592,10 @@ Optional<TemporalTimeZone> parse_temporal_time_zone_string(GlobalObject& global_
         }
 
         // e. Set minutes to ! ToIntegerOrInfinity(minutes).
-        i32 minutes = Value(js_string(vm, minutes_part.value_or(""sv))).to_integer_or_infinity(global_object);
+        u8 minutes = Value(js_string(vm, minutes_part.value_or(""sv))).to_integer_or_infinity(global_object);
 
         // f. Set seconds to ! ToIntegerOrInfinity(seconds).
-        i32 seconds = Value(js_string(vm, seconds_part.value_or(""sv))).to_integer_or_infinity(global_object);
+        u8 seconds = Value(js_string(vm, seconds_part.value_or(""sv))).to_integer_or_infinity(global_object);
 
         i32 nanoseconds;
         // g. If fraction is not undefined, then
@@ -510,6 +631,95 @@ Optional<TemporalTimeZone> parse_temporal_time_zone_string(GlobalObject& global_
 
     // 8. Return the new Record: { [[Z]]: undefined, [[OffsetString]]: offsetString, [[Name]]: name }.
     return TemporalTimeZone { .z = false, .offset = offset, .name = name };
+}
+
+// 13.45 ToPositiveIntegerOrInfinity ( argument ), https://tc39.es/proposal-temporal/#sec-temporal-topositiveintegerorinfinity
+double to_positive_integer_or_infinity(GlobalObject& global_object, Value argument)
+{
+    auto& vm = global_object.vm();
+
+    // 1. Let integer be ? ToIntegerOrInfinity(argument).
+    auto integer = argument.to_integer_or_infinity(global_object);
+    if (vm.exception())
+        return {};
+
+    // 2. If integer is -∞𝔽, then
+    if (Value(integer).is_negative_infinity()) {
+        // a. Throw a RangeError exception.
+        vm.throw_exception<RangeError>(global_object, ErrorType::TemporalPropertyMustBePositiveInteger);
+        return {};
+    }
+
+    // 3. If integer ≤ 0, then
+    if (integer <= 0) {
+        // a. Throw a RangeError exception.
+        vm.throw_exception<RangeError>(global_object, ErrorType::TemporalPropertyMustBePositiveInteger);
+        return {};
+    }
+
+    // 4. Return integer.
+    return integer;
+}
+
+// 13.46 PrepareTemporalFields ( fields, fieldNames, requiredFields ), https://tc39.es/proposal-temporal/#sec-temporal-preparetemporalfields
+Object* prepare_temporal_fields(GlobalObject& global_object, Object& fields, Vector<String> const& field_names, Vector<StringView> const& required_fields)
+{
+    auto& vm = global_object.vm();
+
+    // 1. Assert: Type(fields) is Object.
+
+    // 2. Let result be ! OrdinaryObjectCreate(%Object.prototype%).
+    auto* result = Object::create(global_object, global_object.object_prototype());
+    VERIFY(result);
+
+    // 3. For each value property of fieldNames, do
+    for (auto& property : field_names) {
+        // a. Let value be ? Get(fields, property).
+        auto value = fields.get(property);
+        if (vm.exception())
+            return {};
+
+        // b. If value is undefined, then
+        if (value.is_undefined()) {
+            // i. If requiredFields contains property, then
+            if (required_fields.contains_slow(property)) {
+                // 1. Throw a TypeError exception.
+                vm.throw_exception<TypeError>(global_object, ErrorType::TemporalMissingRequiredProperty, property);
+                return {};
+            }
+            // ii. If property is in the Property column of Table 13, then
+            // NOTE: The other properties in the table are automatically handled as their default value is undefined
+            if (property.is_one_of("hour", "minute", "second", "millisecond", "microsecond", "nanosecond")) {
+                // 1. Set value to the corresponding Default value of the same row.
+                value = Value(0);
+            }
+        }
+        // c. Else,
+        else {
+            // i. If property is in the Property column of Table 13 and there is a Conversion value in the same row, then
+            // 1. Let Conversion represent the abstract operation named by the Conversion value of the same row.
+            // 2. Set value to ? Conversion(value).
+            if (property.is_one_of("year", "hour", "minute", "second", "millisecond", "microsecond", "nanosecond", "eraYear")) {
+                value = Value(value.to_integer_or_infinity(global_object));
+                if (vm.exception())
+                    return {};
+            } else if (property.is_one_of("month", "day")) {
+                value = Value(to_positive_integer_or_infinity(global_object, value));
+                if (vm.exception())
+                    return {};
+            } else if (property.is_one_of("monthCode", "offset", "era")) {
+                value = value.to_primitive_string(global_object);
+                if (vm.exception())
+                    return {};
+            }
+        }
+
+        // d. Perform ! CreateDataPropertyOrThrow(result, property, value).
+        result->create_data_property_or_throw(property, value);
+    }
+
+    // 4. Return result.
+    return result;
 }
 
 }

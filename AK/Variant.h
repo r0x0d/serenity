@@ -210,6 +210,8 @@ public:
     template<typename... NewTs>
     friend struct Variant;
 
+    Variant() = delete;
+
 #ifdef AK_HAS_CONDITIONALLY_TRIVIAL
     Variant(const Variant&) requires(!(IsCopyConstructible<Ts> && ...)) = delete;
     Variant(const Variant&) = default;
@@ -247,7 +249,6 @@ public:
         requires(!(IsTriviallyMoveConstructible<Ts> && ...))
 #endif
         : Detail::MergeAndDeduplicatePacks<Detail::VariantConstructors<Ts, Variant<Ts...>>...>()
-        , m_data {}
         , m_index(old.m_index)
     {
         Helper::move_(old.m_index, old.m_data, m_data);

@@ -118,7 +118,8 @@ void ColumnsView::paint_event(PaintEvent& event)
                     } else if (m_hovered_index.is_valid() && m_hovered_index.parent() == index.parent() && m_hovered_index.row() == index.row()) {
                         painter.blit_brightened(icon_rect.location(), *bitmap, bitmap->rect());
                     } else {
-                        painter.blit(icon_rect.location(), *bitmap, bitmap->rect());
+                        auto opacity = index.data(ModelRole::IconOpacity).as_float_or(1.0f);
+                        painter.blit(icon_rect.location(), *bitmap, bitmap->rect(), opacity);
                     }
                 }
             }
@@ -294,8 +295,8 @@ void ColumnsView::move_cursor(CursorMovement movement, SelectionUpdate selection
         break;
     case CursorMovement::Right:
         new_index = model.index(0, m_model_column, cursor_index());
-        if (model.is_valid(new_index)) {
-            if (model.is_valid(cursor_index()))
+        if (model.is_within_range(new_index)) {
+            if (model.is_within_range(cursor_index()))
                 push_column(cursor_index());
             update();
         }

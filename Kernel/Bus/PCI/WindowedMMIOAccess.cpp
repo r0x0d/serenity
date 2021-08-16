@@ -10,20 +10,20 @@
 #include <Kernel/Arch/x86/InterruptDisabler.h>
 #include <Kernel/Bus/PCI/WindowedMMIOAccess.h>
 #include <Kernel/Debug.h>
+#include <Kernel/Memory/MemoryManager.h>
 #include <Kernel/Sections.h>
-#include <Kernel/VM/MemoryManager.h>
 
 namespace Kernel {
 namespace PCI {
 
 UNMAP_AFTER_INIT DeviceConfigurationSpaceMapping::DeviceConfigurationSpaceMapping(Address device_address, const MMIOAccess::MMIOSegment& mmio_segment)
     : m_device_address(device_address)
-    , m_mapped_region(MM.allocate_kernel_region(page_round_up(PCI_MMIO_CONFIG_SPACE_SIZE), "PCI MMIO Device Access", Region::Access::Read | Region::Access::Write).release_nonnull())
+    , m_mapped_region(MM.allocate_kernel_region(Memory::page_round_up(PCI_MMIO_CONFIG_SPACE_SIZE), "PCI MMIO Device Access", Memory::Region::Access::ReadWrite).release_nonnull())
 {
     PhysicalAddress segment_lower_addr = mmio_segment.get_paddr();
     PhysicalAddress device_physical_mmio_space = segment_lower_addr.offset(
         PCI_MMIO_CONFIG_SPACE_SIZE * m_device_address.function() + (PCI_MMIO_CONFIG_SPACE_SIZE * PCI_MAX_FUNCTIONS_PER_DEVICE) * m_device_address.device() + (PCI_MMIO_CONFIG_SPACE_SIZE * PCI_MAX_FUNCTIONS_PER_DEVICE * PCI_MAX_DEVICES_PER_BUS) * (m_device_address.bus() - mmio_segment.get_start_bus()));
-    m_mapped_region->physical_page_slot(0) = PhysicalPage::create(device_physical_mmio_space, false);
+    m_mapped_region->physical_page_slot(0) = Memory::PhysicalPage::create(device_physical_mmio_space, Memory::MayReturnToFreeList::No);
     m_mapped_region->remap();
 }
 

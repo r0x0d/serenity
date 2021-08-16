@@ -172,6 +172,11 @@ namespace Kernel {
 
 #define MISC2_PFM_D3COLD_ENABLE 0x40
 
+#define PHYSTATUS_FULLDUP 0x01
+#define PHYSTATUS_1000MF 0x10
+#define PHYSTATUS_100M 0x08
+#define PHYSTATUS_10M 0x04
+
 #define TX_BUFFER_SIZE 0x1FF8
 #define RX_BUFFER_SIZE 0x1FF8 // FIXME: this should be increased (0x3FFF)
 
@@ -189,8 +194,8 @@ UNMAP_AFTER_INIT RefPtr<RTL8168NetworkAdapter> RTL8168NetworkAdapter::try_to_ini
 UNMAP_AFTER_INIT RTL8168NetworkAdapter::RTL8168NetworkAdapter(PCI::Address address, u8 irq)
     : PCI::Device(address, irq)
     , m_io_base(PCI::get_BAR0(pci_address()) & ~1)
-    , m_rx_descriptors_region(MM.allocate_contiguous_kernel_region(page_round_up(sizeof(TXDescriptor) * (number_of_rx_descriptors + 1)), "RTL8168 RX", Region::Access::Read | Region::Access::Write))
-    , m_tx_descriptors_region(MM.allocate_contiguous_kernel_region(page_round_up(sizeof(RXDescriptor) * (number_of_tx_descriptors + 1)), "RTL8168 TX", Region::Access::Read | Region::Access::Write))
+    , m_rx_descriptors_region(MM.allocate_contiguous_kernel_region(Memory::page_round_up(sizeof(TXDescriptor) * (number_of_rx_descriptors + 1)), "RTL8168 RX", Memory::Region::Access::ReadWrite))
+    , m_tx_descriptors_region(MM.allocate_contiguous_kernel_region(Memory::page_round_up(sizeof(RXDescriptor) * (number_of_tx_descriptors + 1)), "RTL8168 TX", Memory::Region::Access::ReadWrite))
 {
     set_interface_name(address);
 
@@ -1037,7 +1042,7 @@ UNMAP_AFTER_INIT void RTL8168NetworkAdapter::initialize_rx_descriptors()
     auto* rx_descriptors = (RXDescriptor*)m_rx_descriptors_region->vaddr().as_ptr();
     for (size_t i = 0; i < number_of_rx_descriptors; ++i) {
         auto& descriptor = rx_descriptors[i];
-        auto region = MM.allocate_contiguous_kernel_region(page_round_up(RX_BUFFER_SIZE), "RTL8168 RX buffer", Region::Access::Read | Region::Access::Write);
+        auto region = MM.allocate_contiguous_kernel_region(Memory::page_round_up(RX_BUFFER_SIZE), "RTL8168 RX buffer", Memory::Region::Access::ReadWrite);
         VERIFY(region);
         memset(region->vaddr().as_ptr(), 0, region->size()); // MM already zeros out newly allocated pages, but we do it again in case that ever changes
         m_rx_buffers_regions.append(region.release_nonnull());
@@ -1056,7 +1061,7 @@ UNMAP_AFTER_INIT void RTL8168NetworkAdapter::initialize_tx_descriptors()
     auto* tx_descriptors = (TXDescriptor*)m_tx_descriptors_region->vaddr().as_ptr();
     for (size_t i = 0; i < number_of_tx_descriptors; ++i) {
         auto& descriptor = tx_descriptors[i];
-        auto region = MM.allocate_contiguous_kernel_region(page_round_up(TX_BUFFER_SIZE), "RTL8168 TX buffer", Region::Access::Read | Region::Access::Write);
+        auto region = MM.allocate_contiguous_kernel_region(Memory::page_round_up(TX_BUFFER_SIZE), "RTL8168 TX buffer", Memory::Region::Access::ReadWrite);
         VERIFY(region);
         memset(region->vaddr().as_ptr(), 0, region->size()); // MM already zeros out newly allocated pages, but we do it again in case that ever changes
         m_tx_buffers_regions.append(region.release_nonnull());
@@ -1572,7 +1577,7 @@ void RTL8168NetworkAdapter::identify_chip_version()
         }
         break;
     default:
-        dbgln_if(RTL8168_DEBUG, "Unable to determine device version: {#04x}", registers);
+        dbgln_if(RTL8168_DEBUG, "Unable to determine device version: {:#04x}", registers);
         m_version = ChipVersion::Unknown;
         m_version_uncertain = true;
         break;
@@ -1631,4 +1636,27 @@ String RTL8168NetworkAdapter::possible_device_name()
     }
     VERIFY_NOT_REACHED();
 }
+
+bool RTL8168NetworkAdapter::link_full_duplex()
+{
+    u8 phystatus = in8(REG_PHYSTATUS);
+    return !!(phystatus & (PHYSTATUS_FULLDUP | PHYSTATUS_1000MF));
+}
+
+i32 RTL8168NetworkAdapter::link_speed()
+{
+    if (!link_up())
+        return NetworkAdapter::LINKSPEED_INVALID;
+
+    u8 phystatus = in8(REG_PHYSTATUS);
+    if (phystatus & PHYSTATUS_1000MF)
+        return 1000;
+    if (phystatus & PHYSTATUS_100M)
+        return 100;
+    if (phystatus & PHYSTATUS_10M)
+        return 10;
+
+    return NetworkAdapter::LINKSPEED_INVALID;
+}
+
 }

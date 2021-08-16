@@ -12,6 +12,7 @@
 #include <AK/String.h>
 #include <AK/StringBuilder.h>
 #include <AK/StringView.h>
+#include <AK/Utf16View.h>
 #include <AK/Utf32View.h>
 
 namespace AK {
@@ -35,7 +36,7 @@ StringBuilder::StringBuilder(size_t initial_capacity)
     m_buffer.ensure_capacity(initial_capacity);
 }
 
-void StringBuilder::append(const StringView& str)
+void StringBuilder::append(StringView const& str)
 {
     if (str.is_empty())
         return;
@@ -43,7 +44,7 @@ void StringBuilder::append(const StringView& str)
     m_buffer.append(str.characters_without_null_termination(), str.length());
 }
 
-void StringBuilder::append(const char* characters, size_t length)
+void StringBuilder::append(char const* characters, size_t length)
 {
     append(StringView { characters, length });
 }
@@ -54,7 +55,7 @@ void StringBuilder::append(char ch)
     m_buffer.append(&ch, 1);
 }
 
-void StringBuilder::appendvf(const char* fmt, va_list ap)
+void StringBuilder::appendvf(char const* fmt, va_list ap)
 {
     printf_internal([this](char*&, char ch) {
         append(ch);
@@ -71,7 +72,7 @@ String StringBuilder::to_string() const
 {
     if (is_empty())
         return String::empty();
-    return String((const char*)data(), length());
+    return String((char const*)data(), length());
 }
 
 String StringBuilder::build() const
@@ -112,7 +113,17 @@ void StringBuilder::append_code_point(u32 code_point)
     }
 }
 
-void StringBuilder::append(const Utf32View& utf32_view)
+void StringBuilder::append(Utf16View const& utf16_view)
+{
+    for (size_t i = 0; i < utf16_view.length_in_code_units();) {
+        auto code_point = utf16_view.code_point_at(i);
+        append_code_point(code_point);
+
+        i += (code_point > 0xffff ? 2 : 1);
+    }
+}
+
+void StringBuilder::append(Utf32View const& utf32_view)
 {
     for (size_t i = 0; i < utf32_view.length(); ++i) {
         auto code_point = utf32_view.code_points()[i];
@@ -128,7 +139,7 @@ void StringBuilder::append_as_lowercase(char ch)
         append(ch);
 }
 
-void StringBuilder::append_escaped_for_json(const StringView& string)
+void StringBuilder::append_escaped_for_json(StringView const& string)
 {
     for (auto ch : string) {
         switch (ch) {

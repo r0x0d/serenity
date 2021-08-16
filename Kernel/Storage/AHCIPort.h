@@ -11,17 +11,17 @@
 #include <Kernel/Devices/Device.h>
 #include <Kernel/IO.h>
 #include <Kernel/Interrupts/IRQHandler.h>
-#include <Kernel/Lock.h>
+#include <Kernel/Locking/Mutex.h>
+#include <Kernel/Locking/SpinLock.h>
+#include <Kernel/Memory/AnonymousVMObject.h>
+#include <Kernel/Memory/PhysicalPage.h>
+#include <Kernel/Memory/ScatterGatherList.h>
 #include <Kernel/PhysicalAddress.h>
 #include <Kernel/Random.h>
 #include <Kernel/Sections.h>
-#include <Kernel/SpinLock.h>
 #include <Kernel/Storage/AHCI.h>
 #include <Kernel/Storage/AHCIPortHandler.h>
 #include <Kernel/Storage/StorageDevice.h>
-#include <Kernel/VM/AnonymousVMObject.h>
-#include <Kernel/VM/PhysicalPage.h>
-#include <Kernel/VM/ScatterGatherList.h>
 #include <Kernel/WaitQueue.h>
 
 namespace Kernel {
@@ -102,16 +102,16 @@ private:
     EntropySource m_entropy_source;
     RefPtr<AsyncBlockDeviceRequest> m_current_request;
     SpinLock<u8> m_hard_lock;
-    Lock m_lock { "AHCIPort" };
+    Mutex m_lock { "AHCIPort" };
 
     mutable bool m_wait_for_completion { false };
     bool m_wait_connect_for_completion { false };
 
-    NonnullRefPtrVector<PhysicalPage> m_dma_buffers;
-    NonnullRefPtrVector<PhysicalPage> m_command_table_pages;
-    RefPtr<PhysicalPage> m_command_list_page;
-    OwnPtr<Region> m_command_list_region;
-    RefPtr<PhysicalPage> m_fis_receive_page;
+    NonnullRefPtrVector<Memory::PhysicalPage> m_dma_buffers;
+    NonnullRefPtrVector<Memory::PhysicalPage> m_command_table_pages;
+    RefPtr<Memory::PhysicalPage> m_command_list_page;
+    OwnPtr<Memory::Region> m_command_list_region;
+    RefPtr<Memory::PhysicalPage> m_fis_receive_page;
     RefPtr<StorageDevice> m_connected_device;
 
     u32 m_port_index;
@@ -120,7 +120,7 @@ private:
     AHCI::PortInterruptStatusBitField m_interrupt_status;
     AHCI::PortInterruptEnableBitField m_interrupt_enable;
 
-    RefPtr<ScatterGatherList> m_current_scatter_list;
+    RefPtr<Memory::ScatterGatherList> m_current_scatter_list;
     bool m_disabled_by_firmware { false };
 };
 }

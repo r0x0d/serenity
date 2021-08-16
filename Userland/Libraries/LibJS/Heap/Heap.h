@@ -7,6 +7,7 @@
 #pragma once
 
 #include <AK/HashTable.h>
+#include <AK/IntrusiveList.h>
 #include <AK/Noncopyable.h>
 #include <AK/NonnullOwnPtr.h>
 #include <AK/Types.h>
@@ -18,6 +19,7 @@
 #include <LibJS/Heap/CellAllocator.h>
 #include <LibJS/Heap/Handle.h>
 #include <LibJS/Runtime/Object.h>
+#include <LibJS/Runtime/WeakContainer.h>
 
 namespace JS {
 
@@ -105,11 +107,12 @@ private:
     VM& m_vm;
 
     Vector<NonnullOwnPtr<CellAllocator>> m_allocators;
-    HashTable<HandleImpl*> m_handles;
 
-    HashTable<MarkedValueList*> m_marked_value_lists;
+    HandleImpl::List m_handles;
 
-    HashTable<WeakContainer*> m_weak_containers;
+    MarkedValueList::List m_marked_value_lists;
+
+    WeakContainer::List m_weak_containers;
 
     BlockAllocator m_block_allocator;
 

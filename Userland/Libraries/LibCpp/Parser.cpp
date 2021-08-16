@@ -15,33 +15,15 @@
 
 namespace Cpp {
 
-Parser::Parser(const StringView& program, const String& filename, Preprocessor::Definitions&& definitions)
-    : m_preprocessor_definitions(move(definitions))
-    , m_filename(filename)
+Parser::Parser(Vector<Token> tokens, String const& filename)
+    : m_filename(filename)
+    , m_tokens(move(tokens))
 {
-    initialize_program_tokens(program);
     if constexpr (CPP_DEBUG) {
         dbgln("Tokens:");
         for (size_t i = 0; i < m_tokens.size(); ++i) {
             dbgln("{}- {}", i, m_tokens[i].to_string());
         }
-    }
-}
-
-void Parser::initialize_program_tokens(const StringView& program)
-{
-    Lexer lexer(program);
-    for (auto& token : lexer.lex()) {
-        if (token.type() == Token::Type::Whitespace)
-            continue;
-        if (token.type() == Token::Type::Identifier) {
-            if (auto defined_value = m_preprocessor_definitions.find(text_of_token(token)); defined_value != m_preprocessor_definitions.end()) {
-                add_tokens_for_preprocessor(token, defined_value->value);
-                m_replaced_preprocessor_tokens.append({ token, defined_value->value });
-                continue;
-            }
-        }
-        m_tokens.append(move(token));
     }
 }
 
@@ -131,6 +113,11 @@ NonnullRefPtr<FunctionDeclaration> Parser::parse_function_declaration(ASTNode& p
         func->set_parameters(parameters.value());
 
     consume(Token::Type::RightParen);
+
+    while (match_keyword("const") || match_keyword("override")) {
+        consume();
+        // FIXME: Note that this function is supposed to be a class member, and `this` has to be const, somehow.
+    }
 
     RefPtr<FunctionDefinition> body;
     Position func_end {};
@@ -301,10 +288,10 @@ bool Parser::match_variable_declaration()
     parse_type(get_dummy_node());
 
     // Identifier
-    if (!peek(Token::Type::Identifier).has_value()) {
+    if (!match_name())
         return false;
-    }
-    consume();
+
+    parse_name(get_dummy_node());
 
     if (match(Token::Type::Equals)) {
         consume(Token::Type::Equals);
@@ -695,6 +682,24 @@ bool Parser::match_class_declaration()
 
     consume(Token::Type::Identifier);
 
+    auto has_final = match_keyword("final");
+
+    if (peek(has_final ? 1 : 0).type() == Token::Type::Colon) {
+        if (has_final)
+            consume();
+
+        do {
+            consume();
+
+            while (match_keyword("private") || match_keyword("public") || match_keyword("protected") || match_keyword("virtual"))
+                consume();
+
+            if (!match_name())
+                return false;
+            parse_name(get_dummy_node());
+        } while (peek().type() == Token::Type::Comma);
+    }
+
     return match(Token::Type::LeftCurly);
 }
 
@@ -725,6 +730,9 @@ bool Parser::match_function_declaration()
     consume();
 
     while (consume().type() != Token::Type::RightParen && !eof()) { };
+
+    while (match_keyword("const") || match_keyword("override"))
+        consume();
 
     if (peek(Token::Type::Semicolon).has_value() || peek(Token::Type::LeftCurly).has_value())
         return true;
@@ -1076,7 +1084,13 @@ NonnullRefPtr<EnumDeclaration> Parser::parse_enum_declaration(ASTNode& parent)
     enum_decl->set_name(text_of_token(name_token));
     consume(Token::Type::LeftCurly);
     while (!eof() && peek().type() != Token::Type::RightCurly) {
-        enum_decl->add_entry(text_of_token(consume(Token::Type::Identifier)));
+        auto name = text_of_token(consume(Token::Type::Identifier));
+        RefPtr<Expression> value;
+        if (peek().type() == Token::Type::Equals) {
+            consume();
+            value = parse_expression(enum_decl);
+        }
+        enum_decl->add_entry(name, move(value));
         if (peek().type() != Token::Type::Comma) {
             break;
         }
@@ -1131,6 +1145,23 @@ NonnullRefPtr<StructOrClassDeclaration> Parser::parse_class_declaration(ASTNode&
     auto name_token = consume(Token::Type::Identifier);
     decl->set_name(text_of_token(name_token));
 
+    auto has_final = match_keyword("final");
+
+    // FIXME: Don't ignore this.
+    if (peek(has_final ? 1 : 0).type() == Token::Type::Colon) {
+        if (has_final)
+            consume();
+
+        do {
+            consume();
+
+            while (match_keyword("private") || match_keyword("public") || match_keyword("protected") || match_keyword("virtual"))
+                consume();
+
+            parse_name(get_dummy_node());
+        } while (peek().type() == Token::Type::Comma);
+    }
+
     consume(Token::Type::LeftCurly);
 
     while (!eof() && peek().type() != Token::Type::RightCurly) {
@@ -1180,6 +1211,9 @@ NonnullRefPtr<Type> Parser::parse_type(ASTNode& parent)
     if (match_keyword("auto")) {
         consume(Token::Type::Keyword);
         named_type->set_auto(true);
+        auto original_qualifiers = named_type->qualifiers();
+        original_qualifiers.extend(parse_type_qualifiers());
+        named_type->set_qualifiers(move(original_qualifiers));
         named_type->set_end(position());
         return named_type;
     }
@@ -1195,6 +1229,10 @@ NonnullRefPtr<Type> Parser::parse_type(ASTNode& parent)
     }
     named_type->set_name(parse_name(*named_type));
 
+    auto original_qualifiers = named_type->qualifiers();
+    original_qualifiers.extend(parse_type_qualifiers());
+    named_type->set_qualifiers(move(original_qualifiers));
+
     NonnullRefPtr<Type> type = named_type;
     while (!eof() && peek().type() == Token::Type::Asterisk) {
         type->set_end(position());
@@ -1202,11 +1240,34 @@ NonnullRefPtr<Type> Parser::parse_type(ASTNode& parent)
         auto ptr = create_ast_node<Pointer>(parent, type->start(), asterisk.end());
         type->set_parent(*ptr);
         ptr->set_pointee(type);
+        ptr->set_qualifiers(parse_type_qualifiers());
         ptr->set_end(position());
         type = ptr;
     }
 
+    if (!eof() && (peek().type() == Token::Type::And || peek().type() == Token::Type::AndAnd)) {
+        type->set_end(position());
+        auto ref_token = consume();
+        auto ref = create_ast_node<Reference>(parent, type->start(), ref_token.end(), ref_token.type() == Token::Type::And ? Reference::Kind::Lvalue : Reference::Kind::Rvalue);
+        type->set_parent(*ref);
+        ref->set_referenced_type(type);
+        ref->set_end(position());
+        type = ref;
+    }
+
+    if (peek().type() == Token::Type::LeftParen) {
+        consume();
+        auto fn_type = create_ast_node<FunctionType>(parent, type->start(), position());
+        fn_type->set_return_type(*type);
+        type->set_parent(*fn_type);
+        if (auto parameters = parse_parameter_list(*type); parameters.has_value())
+            fn_type->set_parameters(parameters.release_value());
+        consume(Token::Type::RightParen);
+        type = fn_type;
+    }
+
     type->set_end(position());
+
     return type;
 }
 
@@ -1261,7 +1322,7 @@ Vector<StringView> Parser::parse_type_qualifiers()
         if (token.type() != Token::Type::Keyword)
             break;
         auto text = text_of_token(token);
-        if (text == "static" || text == "const") {
+        if (text == "static" || text == "const" || text == "extern") {
             qualifiers.append(text);
             consume();
         } else {
@@ -1280,7 +1341,7 @@ Vector<StringView> Parser::parse_function_qualifiers()
         if (token.type() != Token::Type::Keyword)
             break;
         auto text = text_of_token(token);
-        if (text == "static" || text == "inline") {
+        if (text == "static" || text == "inline" || text == "extern" || text == "virtual") {
             qualifiers.append(text);
             consume();
         } else {
@@ -1317,19 +1378,6 @@ bool Parser::match_ellipsis()
     if (m_state.token_index > m_tokens.size() - 3)
         return false;
     return peek().type() == Token::Type::Dot && peek(1).type() == Token::Type::Dot && peek(2).type() == Token::Type::Dot;
-}
-void Parser::add_tokens_for_preprocessor(Token& replaced_token, Preprocessor::DefinedValue& definition)
-{
-    if (!definition.value.has_value())
-        return;
-    Lexer lexer(definition.value.value());
-    for (auto token : lexer.lex()) {
-        if (token.type() == Token::Type::Whitespace)
-            continue;
-        token.set_start(replaced_token.start());
-        token.set_end(replaced_token.end());
-        m_tokens.append(move(token));
-    }
 }
 
 NonnullRefPtr<NamespaceDeclaration> Parser::parse_namespace_declaration(ASTNode& parent, bool is_nested_namespace)
@@ -1564,6 +1612,9 @@ bool Parser::match_destructor(const StringView& class_name)
     save_state();
     ScopeGuard state_guard = [this] { load_state(); };
 
+    if (match_keyword("virtual"))
+        consume();
+
     if (!match(Token::Type::Tilde))
         return false;
     consume();
@@ -1580,13 +1631,19 @@ bool Parser::match_destructor(const StringView& class_name)
 
     while (consume().type() != Token::Type::RightParen && !eof()) { };
 
+    if (match_keyword("override"))
+        consume();
+
     return (peek(Token::Type::Semicolon).has_value() || peek(Token::Type::LeftCurly).has_value());
 }
 
 void Parser::parse_constructor_or_destructor_impl(FunctionDeclaration& func, CtorOrDtor type)
 {
-    if (type == CtorOrDtor::Dtor)
+    if (type == CtorOrDtor::Dtor) {
+        if (match_keyword("virtual"))
+            func.set_qualifiers({ consume().text() });
         consume(Token::Type::Tilde);
+    }
 
     auto name_token = consume();
     if (name_token.type() != Token::Type::Identifier && name_token.type() != Token::Type::KnownType) {
@@ -1604,6 +1661,9 @@ void Parser::parse_constructor_or_destructor_impl(FunctionDeclaration& func, Cto
     }
 
     consume(Token::Type::RightParen);
+
+    if (type == CtorOrDtor::Dtor && match_keyword("override"))
+        consume();
 
     // TODO: Parse =default, =delete.
 

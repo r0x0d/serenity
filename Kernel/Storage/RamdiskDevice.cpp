@@ -12,12 +12,12 @@
 
 namespace Kernel {
 
-NonnullRefPtr<RamdiskDevice> RamdiskDevice::create(const RamdiskController& controller, NonnullOwnPtr<Region>&& region, int major, int minor)
+NonnullRefPtr<RamdiskDevice> RamdiskDevice::create(const RamdiskController& controller, NonnullOwnPtr<Memory::Region>&& region, int major, int minor)
 {
     return adopt_ref(*new RamdiskDevice(controller, move(region), major, minor));
 }
 
-RamdiskDevice::RamdiskDevice(const RamdiskController& controller, NonnullOwnPtr<Region>&& region, int major, int minor)
+RamdiskDevice::RamdiskDevice(const RamdiskController& controller, NonnullOwnPtr<Memory::Region>&& region, int major, int minor)
     : StorageDevice(controller, major, minor, 512, region->size() / 512)
     , m_region(move(region))
 {
@@ -35,7 +35,7 @@ StringView RamdiskDevice::class_name() const
 
 void RamdiskDevice::start_request(AsyncBlockDeviceRequest& request)
 {
-    Locker locker(m_lock);
+    MutexLocker locker(m_lock);
 
     u8* base = m_region->vaddr().as_ptr();
     size_t size = m_region->size();

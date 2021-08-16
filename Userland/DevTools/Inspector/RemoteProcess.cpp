@@ -8,7 +8,6 @@
 #include "RemoteObject.h"
 #include "RemoteObjectGraphModel.h"
 #include "RemoteObjectPropertyModel.h"
-#include <stdio.h>
 #include <stdlib.h>
 
 namespace Inspector {
@@ -72,7 +71,7 @@ void RemoteProcess::handle_get_all_objects_response(const JsonObject& response)
         }
     }
 
-    m_object_graph_model->update();
+    m_object_graph_model->invalidate();
 
     if (on_update)
         on_update();

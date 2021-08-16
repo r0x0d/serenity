@@ -10,12 +10,12 @@
 #include <AK/HashMap.h>
 #include <AK/LexicalPath.h>
 #include <AK/MappedFile.h>
+#include <AK/Math.h>
 #include <AK/MemoryStream.h>
 #include <AK/String.h>
 #include <AK/Vector.h>
 #include <LibGfx/Bitmap.h>
 #include <LibGfx/JPGLoader.h>
-#include <math.h>
 
 #define JPG_INVALID 0X0000
 
@@ -864,20 +864,20 @@ static void dequantize(JPGLoadingContext& context, Vector<Macroblock>& macrobloc
 
 static void inverse_dct(const JPGLoadingContext& context, Vector<Macroblock>& macroblocks)
 {
-    static const float m0 = 2.0 * cos(1.0 / 16.0 * 2.0 * M_PI);
-    static const float m1 = 2.0 * cos(2.0 / 16.0 * 2.0 * M_PI);
-    static const float m3 = 2.0 * cos(2.0 / 16.0 * 2.0 * M_PI);
-    static const float m5 = 2.0 * cos(3.0 / 16.0 * 2.0 * M_PI);
+    static const float m0 = 2.0 * AK::cos(1.0 / 16.0 * 2.0 * AK::Pi<double>);
+    static const float m1 = 2.0 * AK::cos(2.0 / 16.0 * 2.0 * AK::Pi<double>);
+    static const float m3 = 2.0 * AK::cos(2.0 / 16.0 * 2.0 * AK::Pi<double>);
+    static const float m5 = 2.0 * AK::cos(3.0 / 16.0 * 2.0 * AK::Pi<double>);
     static const float m2 = m0 - m5;
     static const float m4 = m0 + m5;
-    static const float s0 = cos(0.0 / 16.0 * M_PI) / sqrt(8);
-    static const float s1 = cos(1.0 / 16.0 * M_PI) / 2.0;
-    static const float s2 = cos(2.0 / 16.0 * M_PI) / 2.0;
-    static const float s3 = cos(3.0 / 16.0 * M_PI) / 2.0;
-    static const float s4 = cos(4.0 / 16.0 * M_PI) / 2.0;
-    static const float s5 = cos(5.0 / 16.0 * M_PI) / 2.0;
-    static const float s6 = cos(6.0 / 16.0 * M_PI) / 2.0;
-    static const float s7 = cos(7.0 / 16.0 * M_PI) / 2.0;
+    static const float s0 = AK::cos(0.0 / 16.0 * AK::Pi<double>) / sqrt(8);
+    static const float s1 = AK::cos(1.0 / 16.0 * AK::Pi<double>) / 2.0;
+    static const float s2 = AK::cos(2.0 / 16.0 * AK::Pi<double>) / 2.0;
+    static const float s3 = AK::cos(3.0 / 16.0 * AK::Pi<double>) / 2.0;
+    static const float s4 = AK::cos(4.0 / 16.0 * AK::Pi<double>) / 2.0;
+    static const float s5 = AK::cos(5.0 / 16.0 * AK::Pi<double>) / 2.0;
+    static const float s6 = AK::cos(6.0 / 16.0 * AK::Pi<double>) / 2.0;
+    static const float s7 = AK::cos(7.0 / 16.0 * AK::Pi<double>) / 2.0;
 
     for (u32 vcursor = 0; vcursor < context.mblock_meta.vcount; vcursor += context.vsample_factor) {
         for (u32 hcursor = 0; hcursor < context.mblock_meta.hcount; hcursor += context.hsample_factor) {
@@ -1064,7 +1064,7 @@ static void ycbcr_to_rgb(const JPGLoadingContext& context, Vector<Macroblock>& m
 
 static bool compose_bitmap(JPGLoadingContext& context, const Vector<Macroblock>& macroblocks)
 {
-    context.bitmap = Bitmap::create_purgeable(BitmapFormat::BGRx8888, { context.frame.width, context.frame.height });
+    context.bitmap = Bitmap::try_create(BitmapFormat::BGRx8888, { context.frame.width, context.frame.height });
     if (!context.bitmap)
         return false;
 
@@ -1295,11 +1295,11 @@ void JPGImageDecoderPlugin::set_volatile()
         m_context->bitmap->set_volatile();
 }
 
-bool JPGImageDecoderPlugin::set_nonvolatile()
+bool JPGImageDecoderPlugin::set_nonvolatile(bool& was_purged)
 {
     if (!m_context->bitmap)
         return false;
-    return m_context->bitmap->set_nonvolatile();
+    return m_context->bitmap->set_nonvolatile(was_purged);
 }
 
 bool JPGImageDecoderPlugin::sniff()
@@ -1327,9 +1327,9 @@ size_t JPGImageDecoderPlugin::frame_count()
 
 ImageFrameDescriptor JPGImageDecoderPlugin::frame(size_t i)
 {
-    if (i > 0) {
-        return { bitmap(), 0 };
-    }
-    return {};
+    if (i > 0)
+        return {};
+    return { bitmap(), 0 };
 }
+
 }

@@ -141,7 +141,7 @@ public:
     {
         clear_status();
 
-        while (n - (m_lines.size() - m_line) > 0) {
+        while (n - (m_lines.size() - m_line) + m_height - 1 > 0) {
             if (!read_line())
                 break;
         }
@@ -149,6 +149,37 @@ public:
         status_line();
 
         fflush(m_tty);
+    }
+
+    void top()
+    {
+        up_n(m_line);
+    }
+
+    void bottom()
+    {
+        while (read_line())
+            ;
+        down_n(m_lines.size() - m_line);
+    }
+
+    void up_half_page()
+    {
+        up_n(m_height / 2);
+    }
+
+    void down_half_page()
+    {
+        down_n(m_height / 2);
+    }
+
+    void go_to_line(size_t line_num)
+    {
+        if (line_num < m_line) {
+            up_n(m_line - line_num);
+        } else {
+            down_n(line_num - m_line);
+        }
     }
 
     void init()
@@ -361,18 +392,52 @@ int main(int argc, char** argv)
 
     pager.init();
 
+    StringBuilder modifier_buffer = StringBuilder(10);
     for (String sequence;; sequence = get_key_sequence()) {
-        if (sequence == "" || sequence == "q") {
-            break;
-        } else if (sequence == "j" || sequence == "\e[B" || sequence == "\n") {
-            pager.down();
-        } else if (sequence == "k" || sequence == "\e[A") {
-            if (!emulate_more)
-                pager.up();
-        } else if (sequence == " " || sequence == "\e[6~") {
-            pager.down_page();
-        } else if (sequence == "\e[5~") {
-            pager.up_page();
+        if (sequence.to_uint().has_value()) {
+            modifier_buffer.append(sequence);
+        } else {
+            if (sequence == "" || sequence == "q") {
+                break;
+            } else if (sequence == "j" || sequence == "\e[B" || sequence == "\n") {
+                if (!emulate_more) {
+                    if (!modifier_buffer.is_empty())
+                        pager.down_n(modifier_buffer.build().to_uint().value_or(1));
+                    else
+                        pager.down();
+                }
+            } else if (sequence == "k" || sequence == "\e[A") {
+                if (!emulate_more) {
+                    if (!modifier_buffer.is_empty())
+                        pager.up_n(modifier_buffer.build().to_uint().value_or(1));
+                    else
+                        pager.up();
+                }
+            } else if (sequence == "g") {
+                if (!emulate_more) {
+                    if (!modifier_buffer.is_empty())
+                        pager.go_to_line(modifier_buffer.build().to_uint().value());
+                    else
+                        pager.top();
+                }
+            } else if (sequence == "G") {
+                if (!emulate_more) {
+                    if (!modifier_buffer.is_empty())
+                        pager.go_to_line(modifier_buffer.build().to_uint().value());
+                    else
+                        pager.bottom();
+                }
+            } else if (sequence == " " || sequence == "\e[6~") {
+                pager.down_page();
+            } else if (sequence == "\e[5~" && !emulate_more) {
+                pager.up_page();
+            } else if (sequence == "d") {
+                pager.down_half_page();
+            } else if (sequence == "u" && !emulate_more) {
+                pager.up_half_page();
+            }
+
+            modifier_buffer.clear();
         }
 
         if (quit_at_eof && pager.at_end())

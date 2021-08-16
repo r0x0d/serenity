@@ -1,33 +1,27 @@
 /*
- * Copyright (c) 2020, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2020-2021, Andreas Kling <kling@serenityos.org>
  * Copyright (c) 2020, Jesse Buhagiar <jooster669@gmail.com>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
-#include <AK/JsonArraySerializer.h>
-#include <AK/JsonObjectSerializer.h>
 #include <AK/Platform.h>
 #include <Kernel/Bus/USB/UHCIController.h>
 #include <Kernel/Bus/USB/USBRequest.h>
 #include <Kernel/CommandLine.h>
 #include <Kernel/Debug.h>
-#include <Kernel/KBufferBuilder.h>
+#include <Kernel/Memory/AnonymousVMObject.h>
+#include <Kernel/Memory/MemoryManager.h>
 #include <Kernel/Process.h>
-#include <Kernel/ProcessExposed.h>
 #include <Kernel/Sections.h>
 #include <Kernel/StdLib.h>
 #include <Kernel/Time/TimeManagement.h>
-#include <Kernel/VM/AnonymousVMObject.h>
-#include <Kernel/VM/MemoryManager.h>
 
 static constexpr u8 MAXIMUM_NUMBER_OF_TDS = 128; // Upper pool limit. This consumes the second page we have allocated
 static constexpr u8 MAXIMUM_NUMBER_OF_QHS = 64;
 static constexpr u8 RETRY_COUNTER_RELOAD = 3;
 
 namespace Kernel::USB {
-
-static UHCIController* s_the;
 
 static constexpr u16 UHCI_USBCMD_RUN = 0x0001;
 static constexpr u16 UHCI_USBCMD_HOST_CONTROLLER_RESET = 0x0002;
@@ -64,218 +58,56 @@ static constexpr u16 UHCI_PORTSC_RESUME_DETECT = 0x40;
 static constexpr u16 UHCI_PORTSC_LOW_SPEED_DEVICE = 0x0100;
 static constexpr u16 UHCI_PORTSC_PORT_RESET = 0x0200;
 static constexpr u16 UHCI_PORTSC_SUSPEND = 0x1000;
+static constexpr u16 UCHI_PORTSC_NON_WRITE_CLEAR_BIT_MASK = 0x1FF5; // This is used to mask out the Write Clear bits making sure we don't accidentally clear them.
 
 // *BSD and a few other drivers seem to use this number
 static constexpr u8 UHCI_NUMBER_OF_ISOCHRONOUS_TDS = 128;
 static constexpr u16 UHCI_NUMBER_OF_FRAMES = 1024;
 
-class ProcFSUSBBusDirectory;
-static ProcFSUSBBusDirectory* s_procfs_usb_bus_folder;
-
-class ProcFSUSBDeviceInformation : public ProcFSGlobalInformation {
-    friend class ProcFSUSBBusDirectory;
-
-public:
-    virtual ~ProcFSUSBDeviceInformation() override {};
-
-    static NonnullRefPtr<ProcFSUSBDeviceInformation> create(USB::Device&);
-
-    RefPtr<USB::Device> device() const { return m_device; }
-
-protected:
-    explicit ProcFSUSBDeviceInformation(USB::Device& device)
-        : ProcFSGlobalInformation(String::formatted("{}", device.address()))
-        , m_device(device)
-    {
-    }
-    virtual bool output(KBufferBuilder& builder) override
-    {
-        VERIFY(m_device); // Something has gone very wrong if this isn't true
-
-        JsonArraySerializer array { builder };
-
-        auto obj = array.add_object();
-        obj.add("usb_spec_compliance_bcd", m_device->device_descriptor().usb_spec_compliance_bcd);
-        obj.add("device_class", m_device->device_descriptor().device_class);
-        obj.add("device_sub_class", m_device->device_descriptor().device_sub_class);
-        obj.add("device_protocol", m_device->device_descriptor().device_protocol);
-        obj.add("max_packet_size", m_device->device_descriptor().max_packet_size);
-        obj.add("vendor_id", m_device->device_descriptor().vendor_id);
-        obj.add("product_id", m_device->device_descriptor().product_id);
-        obj.add("device_release_bcd", m_device->device_descriptor().device_release_bcd);
-        obj.add("manufacturer_id_descriptor_index", m_device->device_descriptor().manufacturer_id_descriptor_index);
-        obj.add("product_string_descriptor_index", m_device->device_descriptor().product_string_descriptor_index);
-        obj.add("serial_number_descriptor_index", m_device->device_descriptor().serial_number_descriptor_index);
-        obj.add("num_configurations", m_device->device_descriptor().num_configurations);
-        obj.finish();
-        array.finish();
-        return true;
-    }
-    IntrusiveListNode<ProcFSUSBDeviceInformation, RefPtr<ProcFSUSBDeviceInformation>> m_list_node;
-    RefPtr<USB::Device> m_device;
-};
-
-class ProcFSUSBBusDirectory final : public ProcFSExposedDirectory {
-    friend class ProcFSComponentsRegistrar;
-
-public:
-    static void initialize();
-    void plug(USB::Device&);
-    void unplug(USB::Device&);
-
-    virtual KResultOr<size_t> entries_count() const override;
-    virtual KResult traverse_as_directory(unsigned, Function<bool(FileSystem::DirectoryEntryView const&)>) const override;
-    virtual RefPtr<ProcFSExposedComponent> lookup(StringView name) override;
-
-private:
-    ProcFSUSBBusDirectory(const ProcFSBusDirectory&);
-
-    RefPtr<ProcFSUSBDeviceInformation> device_node_for(USB::Device& device);
-
-    IntrusiveList<ProcFSUSBDeviceInformation, RefPtr<ProcFSUSBDeviceInformation>, &ProcFSUSBDeviceInformation::m_list_node> m_device_nodes;
-    mutable SpinLock<u8> m_lock;
-};
-
-KResultOr<size_t> ProcFSUSBBusDirectory::entries_count() const
+KResultOr<NonnullRefPtr<UHCIController>> UHCIController::try_to_initialize(PCI::Address address)
 {
-    ScopedSpinLock lock(m_lock);
-    return m_device_nodes.size_slow();
-}
-KResult ProcFSUSBBusDirectory::traverse_as_directory(unsigned fsid, Function<bool(FileSystem::DirectoryEntryView const&)> callback) const
-{
-    ScopedSpinLock lock(m_lock);
-    auto parent_folder = m_parent_folder.strong_ref();
-    // Note: if the parent folder is null, it means something bad happened as this should not happen for the USB folder.
-    VERIFY(parent_folder);
-    callback({ ".", { fsid, component_index() }, 0 });
-    callback({ "..", { fsid, parent_folder->component_index() }, 0 });
+    // NOTE: This assumes that address is pointing to a valid UHCI controller.
+    auto controller = adopt_ref_if_nonnull(new (nothrow) UHCIController(address));
+    if (!controller)
+        return ENOMEM;
 
-    for (auto& device_node : m_device_nodes) {
-        InodeIdentifier identifier = { fsid, device_node.component_index() };
-        callback({ device_node.name(), identifier, 0 });
-    }
-    return KSuccess;
-}
-RefPtr<ProcFSExposedComponent> ProcFSUSBBusDirectory::lookup(StringView name)
-{
-    ScopedSpinLock lock(m_lock);
-    for (auto& device_node : m_device_nodes) {
-        if (device_node.name() == name) {
-            return device_node;
-        }
-    }
-    return {};
+    auto init_result = controller->initialize();
+    if (init_result.is_error())
+        return init_result;
+
+    return controller.release_nonnull();
 }
 
-RefPtr<ProcFSUSBDeviceInformation> ProcFSUSBBusDirectory::device_node_for(USB::Device& device)
+KResult UHCIController::initialize()
 {
-    RefPtr<USB::Device> checked_device = device;
-    for (auto& device_node : m_device_nodes) {
-        if (device_node.device().ptr() == checked_device.ptr())
-            return device_node;
-    }
-    return {};
-}
-
-void ProcFSUSBBusDirectory::plug(USB::Device& new_device)
-{
-    ScopedSpinLock lock(m_lock);
-    auto device_node = device_node_for(new_device);
-    VERIFY(!device_node);
-    m_device_nodes.append(ProcFSUSBDeviceInformation::create(new_device));
-}
-void ProcFSUSBBusDirectory::unplug(USB::Device& deleted_device)
-{
-    ScopedSpinLock lock(m_lock);
-    auto device_node = device_node_for(deleted_device);
-    VERIFY(device_node);
-    device_node->m_list_node.remove();
-}
-
-UNMAP_AFTER_INIT ProcFSUSBBusDirectory::ProcFSUSBBusDirectory(const ProcFSBusDirectory& buses_folder)
-    : ProcFSExposedDirectory("usb"sv, buses_folder)
-{
-}
-
-UNMAP_AFTER_INIT void ProcFSUSBBusDirectory::initialize()
-{
-    auto folder = adopt_ref(*new ProcFSUSBBusDirectory(ProcFSComponentRegistry::the().buses_folder()));
-    ProcFSComponentRegistry::the().register_new_bus_folder(folder);
-    s_procfs_usb_bus_folder = folder;
-}
-
-NonnullRefPtr<ProcFSUSBDeviceInformation> ProcFSUSBDeviceInformation::create(USB::Device& device)
-{
-    return adopt_ref(*new ProcFSUSBDeviceInformation(device));
-}
-
-UHCIController& UHCIController::the()
-{
-    return *s_the;
-}
-
-UNMAP_AFTER_INIT void UHCIController::detect()
-{
-    if (kernel_command_line().disable_uhci_controller())
-        return;
-
-    // FIXME: We create the /proc/bus/usb representation here, but it should really be handled
-    // in a more broad singleton than this once we refactor things in USB subsystem.
-    ProcFSUSBBusDirectory::initialize();
-
-    PCI::enumerate([&](const PCI::Address& address, PCI::ID id) {
-        if (address.is_null())
-            return;
-
-        if (PCI::get_class(address) == 0xc && PCI::get_subclass(address) == 0x03 && PCI::get_programming_interface(address) == 0) {
-            if (!s_the) {
-                s_the = new UHCIController(address, id);
-                s_the->spawn_port_proc();
-            }
-        }
-    });
-}
-
-UNMAP_AFTER_INIT UHCIController::UHCIController(PCI::Address address, PCI::ID id)
-    : PCI::Device(address)
-    , m_io_base(PCI::get_BAR4(pci_address()) & ~1)
-{
-    dmesgln("UHCI: Controller found {} @ {}", id, address);
+    dmesgln("UHCI: Controller found {} @ {}", PCI::get_id(pci_address()), pci_address());
     dmesgln("UHCI: I/O base {}", m_io_base);
     dmesgln("UHCI: Interrupt line: {}", PCI::get_interrupt_line(pci_address()));
 
-    reset();
-    start();
+    spawn_port_proc();
+
+    auto reset_result = reset();
+    if (reset_result.is_error())
+        return reset_result;
+
+    auto start_result = start();
+    return start_result;
+}
+
+UNMAP_AFTER_INIT UHCIController::UHCIController(PCI::Address address)
+    : PCI::Device(address)
+    , m_io_base(PCI::get_BAR4(pci_address()) & ~1)
+{
 }
 
 UNMAP_AFTER_INIT UHCIController::~UHCIController()
 {
 }
 
-RefPtr<USB::Device> const UHCIController::get_device_at_port(USB::Device::PortNumber port)
+KResult UHCIController::reset()
 {
-    if (!m_devices.at(to_underlying(port)))
-        return nullptr;
-
-    return m_devices.at(to_underlying(port));
-}
-
-RefPtr<USB::Device> const UHCIController::get_device_from_address(u8 device_address)
-{
-    for (auto const& device : m_devices) {
-        if (!device)
-            continue;
-
-        if (device->address() == device_address)
-            return device;
-    }
-
-    return nullptr;
-}
-
-void UHCIController::reset()
-{
-    stop();
+    if (auto stop_result = stop(); stop_result.is_error())
+        return stop_result;
 
     write_usbcmd(UHCI_USBCMD_HOST_CONTROLLER_RESET);
 
@@ -287,13 +119,17 @@ void UHCIController::reset()
     }
 
     // Let's allocate the physical page for the Frame List (which is 4KiB aligned)
-    auto framelist_vmobj = ContiguousVMObject::try_create_with_size(PAGE_SIZE);
-    m_framelist = MemoryManager::the().allocate_kernel_region_with_vmobject(*framelist_vmobj, PAGE_SIZE, "UHCI Framelist", Region::Access::Write);
+    auto maybe_framelist_vmobj = Memory::AnonymousVMObject::try_create_physically_contiguous_with_size(PAGE_SIZE);
+    if (maybe_framelist_vmobj.is_error())
+        return maybe_framelist_vmobj.error();
+
+    m_framelist = MM.allocate_kernel_region_with_vmobject(maybe_framelist_vmobj.release_value(), PAGE_SIZE, "UHCI Framelist", Memory::Region::Access::Write);
     dbgln("UHCI: Allocated framelist at physical address {}", m_framelist->physical_page(0)->paddr());
     dbgln("UHCI: Framelist is at virtual address {}", m_framelist->vaddr());
     write_sofmod(64); // 1mS frame time
 
-    create_structures();
+    if (auto result = create_structures(); result.is_error())
+        return result;
     setup_schedule();
 
     write_flbaseadd(m_framelist->physical_page(0)->paddr().get()); // Frame list (physical) address
@@ -303,14 +139,19 @@ void UHCIController::reset()
     // Disable UHCI Controller from raising an IRQ
     write_usbintr(0);
     dbgln("UHCI: Reset completed");
+
+    return KSuccess;
 }
 
-UNMAP_AFTER_INIT void UHCIController::create_structures()
+UNMAP_AFTER_INIT KResult UHCIController::create_structures()
 {
     // Let's allocate memory for both the QH and TD pools
     // First the QH pool and all of the Interrupt QH's
-    auto qh_pool_vmobject = ContiguousVMObject::try_create_with_size(2 * PAGE_SIZE);
-    m_qh_pool = MemoryManager::the().allocate_kernel_region_with_vmobject(*qh_pool_vmobject, 2 * PAGE_SIZE, "UHCI Queue Head Pool", Region::Access::Write);
+    auto maybe_qh_pool_vmobject = Memory::AnonymousVMObject::try_create_physically_contiguous_with_size(2 * PAGE_SIZE);
+    if (maybe_qh_pool_vmobject.is_error())
+        return maybe_qh_pool_vmobject.error();
+
+    m_qh_pool = MM.allocate_kernel_region_with_vmobject(maybe_qh_pool_vmobject.release_value(), 2 * PAGE_SIZE, "UHCI Queue Head Pool", Memory::Region::Access::Write);
     memset(m_qh_pool->vaddr().as_ptr(), 0, 2 * PAGE_SIZE); // Zero out both pages
 
     // Let's populate our free qh list (so we have some we can allocate later on)
@@ -329,8 +170,10 @@ UNMAP_AFTER_INIT void UHCIController::create_structures()
     m_dummy_qh = allocate_queue_head();
 
     // Now the Transfer Descriptor pool
-    auto td_pool_vmobject = ContiguousVMObject::try_create_with_size(2 * PAGE_SIZE);
-    m_td_pool = MemoryManager::the().allocate_kernel_region_with_vmobject(*td_pool_vmobject, 2 * PAGE_SIZE, "UHCI Transfer Descriptor Pool", Region::Access::Write);
+    auto maybe_td_pool_vmobject = Memory::AnonymousVMObject::try_create_physically_contiguous_with_size(2 * PAGE_SIZE);
+    if (maybe_td_pool_vmobject.is_error())
+        return maybe_td_pool_vmobject.error();
+    m_td_pool = MM.allocate_kernel_region_with_vmobject(maybe_td_pool_vmobject.release_value(), 2 * PAGE_SIZE, "UHCI Transfer Descriptor Pool", Memory::Region::Access::Write);
     memset(m_td_pool->vaddr().as_ptr(), 0, 2 * PAGE_SIZE);
 
     // Set up the Isochronous Transfer Descriptor list
@@ -375,6 +218,8 @@ UNMAP_AFTER_INIT void UHCIController::create_structures()
         dbgln("    qh_pool: {}, length: {}", PhysicalAddress(m_qh_pool->physical_page(0)->paddr()), m_qh_pool->range().size());
         dbgln("    td_pool: {}, length: {}", PhysicalAddress(m_td_pool->physical_page(0)->paddr()), m_td_pool->range().size());
     }
+
+    return KSuccess;
 }
 
 UNMAP_AFTER_INIT void UHCIController::setup_schedule()
@@ -462,7 +307,7 @@ TransferDescriptor* UHCIController::allocate_transfer_descriptor() const
     return nullptr; // Huh?! We're outta TDs!!
 }
 
-void UHCIController::stop()
+KResult UHCIController::stop()
 {
     write_usbcmd(read_usbcmd() & ~UHCI_USBCMD_RUN);
     // FIXME: Timeout
@@ -470,9 +315,10 @@ void UHCIController::stop()
         if (read_usbsts() & UHCI_USBSTS_HOST_CONTROLLER_HALTED)
             break;
     }
+    return KSuccess;
 }
 
-void UHCIController::start()
+KResult UHCIController::start()
 {
     write_usbcmd(read_usbcmd() | UHCI_USBCMD_RUN);
     // FIXME: Timeout
@@ -481,6 +327,17 @@ void UHCIController::start()
             break;
     }
     dbgln("UHCI: Started");
+
+    auto root_hub_or_error = UHCIRootHub::try_create(*this);
+    if (root_hub_or_error.is_error())
+        return root_hub_or_error.error();
+
+    m_root_hub = root_hub_or_error.release_value();
+    auto result = m_root_hub->setup({});
+    if (result.is_error())
+        return result;
+
+    return KSuccess;
 }
 
 TransferDescriptor* UHCIController::create_transfer_descriptor(Pipe& pipe, PacketID direction, size_t data_len)
@@ -573,7 +430,13 @@ void UHCIController::free_descriptor_chain(TransferDescriptor* first_descriptor)
 KResultOr<size_t> UHCIController::submit_control_transfer(Transfer& transfer)
 {
     Pipe& pipe = transfer.pipe(); // Short circuit the pipe related to this transfer
-    bool direction_in = (transfer.request().request_type & USB_DEVICE_REQUEST_DEVICE_TO_HOST) == USB_DEVICE_REQUEST_DEVICE_TO_HOST;
+    bool direction_in = (transfer.request().request_type & USB_REQUEST_TRANSFER_DIRECTION_DEVICE_TO_HOST) == USB_REQUEST_TRANSFER_DIRECTION_DEVICE_TO_HOST;
+
+    dbgln_if(UHCI_DEBUG, "UHCI: Received control transfer for address {}. Root Hub is at address {}.", pipe.device_address(), m_root_hub->device_address());
+
+    // Short-circuit the root hub.
+    if (pipe.device_address() == m_root_hub->device_address())
+        return m_root_hub->handle_control_transfer(transfer);
 
     TransferDescriptor* setup_td = create_transfer_descriptor(pipe, PacketID::SETUP, sizeof(USBRequestData));
     if (!setup_td)
@@ -585,16 +448,8 @@ KResultOr<size_t> UHCIController::submit_control_transfer(Transfer& transfer)
     TransferDescriptor* last_data_descriptor;
     TransferDescriptor* data_descriptor_chain;
     auto buffer_address = Ptr32<u8>(transfer.buffer_physical().as_ptr() + sizeof(USBRequestData));
-    auto transfer_chain_create_result = create_chain(pipe,
-        direction_in ? PacketID::IN : PacketID::OUT,
-        buffer_address,
-        pipe.max_packet_size(),
-        transfer.transfer_data_size(),
-        &data_descriptor_chain,
-        &last_data_descriptor);
-
-    if (transfer_chain_create_result != KSuccess)
-        return transfer_chain_create_result;
+    if (auto result = create_chain(pipe, direction_in ? PacketID::IN : PacketID::OUT, buffer_address, pipe.max_packet_size(), transfer.transfer_data_size(), &data_descriptor_chain, &last_data_descriptor); result.is_error())
+        return result;
 
     // Status TD always has toggle set to 1
     pipe.set_toggle(true);
@@ -685,88 +540,9 @@ void UHCIController::spawn_port_proc()
 
     Process::create_kernel_process(usb_hotplug_thread, "UHCIHotplug", [&] {
         for (;;) {
-            for (int port = 0; port < UHCI_ROOT_PORT_COUNT; port++) {
-                u16 port_data = 0;
+            if (m_root_hub)
+                m_root_hub->check_for_port_updates();
 
-                if (port == 1) {
-                    // Let's see what's happening on port 1
-                    // Current status
-                    port_data = read_portsc1();
-                    if (port_data & UHCI_PORTSC_CONNECT_STATUS_CHANGED) {
-                        if (port_data & UHCI_PORTSC_CURRRENT_CONNECT_STATUS) {
-                            dmesgln("UHCI: Device attach detected on Root Port 1!");
-
-                            // Reset the port
-                            port_data = read_portsc1();
-                            write_portsc1(port_data | UHCI_PORTSC_PORT_RESET);
-                            IO::delay(500);
-
-                            write_portsc1(port_data & ~UHCI_PORTSC_PORT_RESET);
-                            IO::delay(500);
-
-                            write_portsc1(port_data & (~UHCI_PORTSC_PORT_ENABLE_CHANGED | ~UHCI_PORTSC_CONNECT_STATUS_CHANGED));
-
-                            port_data = read_portsc1();
-                            write_portsc1(port_data | UHCI_PORTSC_PORT_ENABLED);
-                            dbgln("port should be enabled now: {:#04x}\n", read_portsc1());
-
-                            USB::Device::DeviceSpeed speed = (port_data & UHCI_PORTSC_LOW_SPEED_DEVICE) ? USB::Device::DeviceSpeed::LowSpeed : USB::Device::DeviceSpeed::FullSpeed;
-                            auto device = USB::Device::try_create(USB::Device::PortNumber::Port1, speed);
-
-                            if (device.is_error())
-                                dmesgln("UHCI: Device creation failed on port 1 ({})", device.error());
-
-                            m_devices.at(0) = device.value();
-                            VERIFY(s_procfs_usb_bus_folder);
-                            s_procfs_usb_bus_folder->plug(device.value());
-                        } else {
-                            // FIXME: Clean up (and properly) the RefPtr to the device in m_devices
-                            VERIFY(s_procfs_usb_bus_folder);
-                            VERIFY(m_devices.at(0));
-                            dmesgln("UHCI: Device detach detected on Root Port 1");
-                            s_procfs_usb_bus_folder->unplug(*m_devices.at(0));
-                        }
-                    }
-                } else {
-                    port_data = UHCIController::the().read_portsc2();
-                    if (port_data & UHCI_PORTSC_CONNECT_STATUS_CHANGED) {
-                        if (port_data & UHCI_PORTSC_CURRRENT_CONNECT_STATUS) {
-                            dmesgln("UHCI: Device attach detected on Root Port 2");
-
-                            // Reset the port
-                            port_data = read_portsc2();
-                            write_portsc2(port_data | UHCI_PORTSC_PORT_RESET);
-                            for (size_t i = 0; i < 50000; ++i)
-                                IO::in8(0x80);
-
-                            write_portsc2(port_data & ~UHCI_PORTSC_PORT_RESET);
-                            for (size_t i = 0; i < 100000; ++i)
-                                IO::in8(0x80);
-
-                            write_portsc2(port_data & (~UHCI_PORTSC_PORT_ENABLE_CHANGED | ~UHCI_PORTSC_CONNECT_STATUS_CHANGED));
-
-                            port_data = read_portsc2();
-                            write_portsc1(port_data | UHCI_PORTSC_PORT_ENABLED);
-                            dbgln("port should be enabled now: {:#04x}\n", read_portsc1());
-                            USB::Device::DeviceSpeed speed = (port_data & UHCI_PORTSC_LOW_SPEED_DEVICE) ? USB::Device::DeviceSpeed::LowSpeed : USB::Device::DeviceSpeed::FullSpeed;
-                            auto device = USB::Device::try_create(USB::Device::PortNumber::Port2, speed);
-
-                            if (device.is_error())
-                                dmesgln("UHCI: Device creation failed on port 2 ({})", device.error());
-
-                            m_devices.at(1) = device.value();
-                            VERIFY(s_procfs_usb_bus_folder);
-                            s_procfs_usb_bus_folder->plug(device.value());
-                        } else {
-                            // FIXME: Clean up (and properly) the RefPtr to the device in m_devices
-                            VERIFY(s_procfs_usb_bus_folder);
-                            VERIFY(m_devices.at(1));
-                            dmesgln("UHCI: Device detach detected on Root Port 2");
-                            s_procfs_usb_bus_folder->unplug(*m_devices.at(1));
-                        }
-                    }
-                }
-            }
             (void)Thread::current()->sleep(Time::from_seconds(1));
         }
     });
@@ -788,6 +564,175 @@ bool UHCIController::handle_irq(const RegisterState&)
     // Write back USBSTS to clear bits
     write_usbsts(status);
     return true;
+}
+
+void UHCIController::get_port_status(Badge<UHCIRootHub>, u8 port, HubStatus& hub_port_status)
+{
+    // The check is done by UHCIRootHub.
+    VERIFY(port < NUMBER_OF_ROOT_PORTS);
+
+    u16 status = port == 0 ? read_portsc1() : read_portsc2();
+
+    if (status & UHCI_PORTSC_CURRRENT_CONNECT_STATUS)
+        hub_port_status.status |= PORT_STATUS_CURRENT_CONNECT_STATUS;
+
+    if (status & UHCI_PORTSC_CONNECT_STATUS_CHANGED)
+        hub_port_status.change |= PORT_STATUS_CONNECT_STATUS_CHANGED;
+
+    if (status & UHCI_PORTSC_PORT_ENABLED)
+        hub_port_status.status |= PORT_STATUS_PORT_ENABLED;
+
+    if (status & UHCI_PORTSC_PORT_ENABLE_CHANGED)
+        hub_port_status.change |= PORT_STATUS_PORT_ENABLED_CHANGED;
+
+    if (status & UHCI_PORTSC_LOW_SPEED_DEVICE)
+        hub_port_status.status |= PORT_STATUS_LOW_SPEED_DEVICE_ATTACHED;
+
+    if (status & UHCI_PORTSC_PORT_RESET)
+        hub_port_status.status |= PORT_STATUS_RESET;
+
+    if (m_port_reset_change_statuses & (1 << port))
+        hub_port_status.change |= PORT_STATUS_RESET_CHANGED;
+
+    if (status & UHCI_PORTSC_SUSPEND)
+        hub_port_status.status |= PORT_STATUS_SUSPEND;
+
+    if (m_port_suspend_change_statuses & (1 << port))
+        hub_port_status.change |= PORT_STATUS_SUSPEND_CHANGED;
+
+    // UHCI ports are always powered.
+    hub_port_status.status |= PORT_STATUS_PORT_POWER;
+
+    dbgln_if(UHCI_DEBUG, "UHCI: get_port_status status=0x{:04x} change=0x{:04x}", hub_port_status.status, hub_port_status.change);
+}
+
+void UHCIController::reset_port(u8 port)
+{
+    // We still have to reset the port manually because UHCI does not automatically enable the port after reset.
+    // Additionally, the USB 2.0 specification says the SetPortFeature(PORT_ENABLE) request is not specified and that the _ideal_ behaviour is to return a Request Error.
+    // Source: USB 2.0 Specification Section 11.24.2.7.1.2
+    // This means the hub code cannot rely on using it.
+
+    // The check is done by UHCIRootHub and set_port_feature.
+    VERIFY(port < NUMBER_OF_ROOT_PORTS);
+
+    u16 port_data = port == 0 ? read_portsc1() : read_portsc2();
+    port_data &= UCHI_PORTSC_NON_WRITE_CLEAR_BIT_MASK;
+    port_data |= UHCI_PORTSC_PORT_RESET;
+    if (port == 0)
+        write_portsc1(port_data);
+    else
+        write_portsc2(port_data);
+
+    // Wait at least 50 ms for the port to reset.
+    // This is T DRSTR in the USB 2.0 Specification Page 186 Table 7-13.
+    constexpr u16 reset_delay = 50 * 1000;
+    IO::delay(reset_delay);
+
+    port_data &= ~UHCI_PORTSC_PORT_RESET;
+    if (port == 0)
+        write_portsc1(port_data);
+    else
+        write_portsc2(port_data);
+
+    // Wait 10 ms for the port to recover.
+    // This is T RSTRCY in the USB 2.0 Specification Page 188 Table 7-14.
+    constexpr u16 reset_recovery_delay = 10 * 1000;
+    IO::delay(reset_recovery_delay);
+
+    port_data = port == 0 ? read_portsc1() : read_portsc2();
+    port_data |= UHCI_PORTSC_PORT_ENABLED;
+    if (port == 0)
+        write_portsc1(port_data);
+    else
+        write_portsc2(port_data);
+
+    dbgln_if(UHCI_DEBUG, "UHCI: Port should be enabled now: {:#04x}", port == 0 ? read_portsc1() : read_portsc2());
+    m_port_reset_change_statuses |= (1 << port);
+}
+
+KResult UHCIController::set_port_feature(Badge<UHCIRootHub>, u8 port, HubFeatureSelector feature_selector)
+{
+    // The check is done by UHCIRootHub.
+    VERIFY(port < NUMBER_OF_ROOT_PORTS);
+
+    dbgln_if(UHCI_DEBUG, "UHCI: set_port_feature: port={} feature_selector={}", port, (u8)feature_selector);
+
+    switch (feature_selector) {
+    case HubFeatureSelector::PORT_POWER:
+        // Ignore the request. UHCI ports are always powered.
+        break;
+    case HubFeatureSelector::PORT_RESET:
+        reset_port(port);
+        break;
+    case HubFeatureSelector::PORT_SUSPEND: {
+        u16 port_data = port == 0 ? read_portsc1() : read_portsc2();
+        port_data &= UCHI_PORTSC_NON_WRITE_CLEAR_BIT_MASK;
+        port_data |= UHCI_PORTSC_SUSPEND;
+
+        if (port == 0)
+            write_portsc1(port_data);
+        else
+            write_portsc2(port_data);
+
+        m_port_suspend_change_statuses |= (1 << port);
+        break;
+    }
+    default:
+        dbgln("UHCI: Unknown feature selector in set_port_feature: {}", (u8)feature_selector);
+        return EINVAL;
+    }
+
+    return KSuccess;
+}
+
+KResult UHCIController::clear_port_feature(Badge<UHCIRootHub>, u8 port, HubFeatureSelector feature_selector)
+{
+    // The check is done by UHCIRootHub.
+    VERIFY(port < NUMBER_OF_ROOT_PORTS);
+
+    dbgln_if(UHCI_DEBUG, "UHCI: clear_port_feature: port={} feature_selector={}", port, (u8)feature_selector);
+
+    u16 port_data = port == 0 ? read_portsc1() : read_portsc2();
+    port_data &= UCHI_PORTSC_NON_WRITE_CLEAR_BIT_MASK;
+
+    switch (feature_selector) {
+    case HubFeatureSelector::PORT_ENABLE:
+        port_data &= ~UHCI_PORTSC_PORT_ENABLED;
+        break;
+    case HubFeatureSelector::PORT_SUSPEND:
+        port_data &= ~UHCI_PORTSC_SUSPEND;
+        break;
+    case HubFeatureSelector::PORT_POWER:
+        // Ignore the request. UHCI ports are always powered.
+        break;
+    case HubFeatureSelector::C_PORT_CONNECTION:
+        // This field is Write Clear.
+        port_data |= UHCI_PORTSC_CONNECT_STATUS_CHANGED;
+        break;
+    case HubFeatureSelector::C_PORT_RESET:
+        m_port_reset_change_statuses &= ~(1 << port);
+        break;
+    case HubFeatureSelector::C_PORT_ENABLE:
+        // This field is Write Clear.
+        port_data |= UHCI_PORTSC_PORT_ENABLE_CHANGED;
+        break;
+    case HubFeatureSelector::C_PORT_SUSPEND:
+        m_port_suspend_change_statuses &= ~(1 << port);
+        break;
+    default:
+        dbgln("UHCI: Unknown feature selector in clear_port_feature: {}", (u8)feature_selector);
+        return EINVAL;
+    }
+
+    dbgln_if(UHCI_DEBUG, "UHCI: clear_port_feature: writing 0x{:04x} to portsc{}.", port_data, port + 1);
+
+    if (port == 0)
+        write_portsc1(port_data);
+    else
+        write_portsc2(port_data);
+
+    return KSuccess;
 }
 
 }

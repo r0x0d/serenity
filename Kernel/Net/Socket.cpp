@@ -51,7 +51,7 @@ void Socket::set_setup_state(SetupState new_setup_state)
 
 RefPtr<Socket> Socket::accept()
 {
-    Locker locker(m_lock);
+    MutexLocker locker(m_lock);
     if (m_pending.is_empty())
         return nullptr;
     dbgln_if(SOCKET_DEBUG, "Socket({}) de-queueing connection", this);
@@ -69,11 +69,11 @@ RefPtr<Socket> Socket::accept()
 KResult Socket::queue_connection_from(NonnullRefPtr<Socket> peer)
 {
     dbgln_if(SOCKET_DEBUG, "Socket({}) queueing connection", this);
-    Locker locker(m_lock);
+    MutexLocker locker(m_lock);
     if (m_pending.size() >= m_backlog)
-        return ECONNREFUSED;
+        return set_so_error(ECONNREFUSED);
     if (!m_pending.try_append(peer))
-        return ENOMEM;
+        return set_so_error(ENOMEM);
     evaluate_block_conditions();
     return KSuccess;
 }
@@ -108,10 +108,10 @@ KResult Socket::setsockopt(int level, int option, Userspace<const void*> user_va
         if (user_value_size != IFNAMSIZ)
             return EINVAL;
         auto user_string = static_ptr_cast<const char*>(user_value);
-        auto ifname = copy_string_from_user(user_string, user_value_size);
-        if (ifname.is_null())
-            return EFAULT;
-        auto device = NetworkingManagement::the().lookup_by_name(ifname);
+        auto ifname_or_error = try_copy_kstring_from_user(user_string, user_value_size);
+        if (ifname_or_error.is_error())
+            return ifname_or_error.error();
+        auto device = NetworkingManagement::the().lookup_by_name(ifname_or_error.value()->view());
         if (!device)
             return ENODEV;
         m_bound_interface = device;
@@ -181,14 +181,13 @@ KResult Socket::getsockopt(FileDescription&, int level, int option, Userspace<vo
     case SO_ERROR: {
         if (size < sizeof(int))
             return EINVAL;
-        dbgln("getsockopt(SO_ERROR): FIXME!");
-        int errno = 0;
+        int errno = so_error().error();
         if (!copy_to_user(static_ptr_cast<int*>(value), &errno))
             return EFAULT;
         size = sizeof(int);
         if (!copy_to_user(value_size, &size))
             return EFAULT;
-        return KSuccess;
+        return set_so_error(KSuccess);
     }
     case SO_BINDTODEVICE:
         if (size < IFNAMSIZ)
@@ -235,17 +234,17 @@ KResultOr<size_t> Socket::read(FileDescription& description, u64, UserOrKernelBu
 KResultOr<size_t> Socket::write(FileDescription& description, u64, const UserOrKernelBuffer& data, size_t size)
 {
     if (is_shut_down_for_writing())
-        return EPIPE;
+        return set_so_error(EPIPE);
     return sendto(description, data, size, 0, {}, 0);
 }
 
 KResult Socket::shutdown(int how)
 {
-    Locker locker(lock());
+    MutexLocker locker(lock());
     if (type() == SOCK_STREAM && !is_connected())
-        return ENOTCONN;
+        return set_so_error(ENOTCONN);
     if (m_role == Role::Listener)
-        return ENOTCONN;
+        return set_so_error(ENOTCONN);
     if (!m_shut_down_for_writing && (how & SHUT_WR))
         shut_down_for_writing();
     if (!m_shut_down_for_reading && (how & SHUT_RD))
@@ -264,7 +263,7 @@ KResult Socket::stat(::stat& st) const
 
 void Socket::set_connected(bool connected)
 {
-    Locker locker(lock());
+    MutexLocker locker(lock());
     if (m_connected == connected)
         return;
     m_connected = connected;

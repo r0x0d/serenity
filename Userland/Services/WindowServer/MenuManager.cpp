@@ -220,7 +220,6 @@ void MenuManager::close_everyone()
     }
     m_open_menu_stack.clear();
     clear_current_menu();
-    refresh();
 }
 
 void MenuManager::close_everyone_not_in_lineage(Menu& menu)
@@ -247,7 +246,6 @@ void MenuManager::close_menus(const Vector<Menu&>& menus)
             return entry == &menu;
         });
     }
-    refresh();
 }
 
 static void collect_menu_subtree(Menu& menu, Vector<Menu&>& menus)
@@ -313,8 +311,6 @@ void MenuManager::open_menu(Menu& menu, bool as_current_menu)
         // other menu is current
         set_current_menu(&menu);
     }
-
-    refresh();
 }
 
 void MenuManager::clear_current_menu()
@@ -366,7 +362,7 @@ Menu* MenuManager::previous_menu(Menu* current)
         return nullptr;
     Menu* found = nullptr;
     Menu* previous = nullptr;
-    wm.window_with_active_menu()->menubar()->for_each_menu([&](Menu& menu) {
+    wm.window_with_active_menu()->menubar().for_each_menu([&](Menu& menu) {
         if (current == &menu) {
             found = previous;
             return IterationDecision::Break;
@@ -384,7 +380,7 @@ Menu* MenuManager::next_menu(Menu* current)
     auto& wm = WindowManager::the();
     if (!wm.window_with_active_menu())
         return nullptr;
-    wm.window_with_active_menu()->menubar()->for_each_menu([&](Menu& menu) {
+    wm.window_with_active_menu()->menubar().for_each_menu([&](Menu& menu) {
         if (is_next) {
             found = &menu;
             return IterationDecision::Break;

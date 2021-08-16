@@ -14,6 +14,7 @@
 #include <AK/Assertions.h>
 #include <AK/Debug.h>
 #include <AK/Function.h>
+#include <AK/Math.h>
 #include <AK/Memory.h>
 #include <AK/Queue.h>
 #include <AK/QuickSort.h>
@@ -25,7 +26,7 @@
 #include <LibGfx/Palette.h>
 #include <LibGfx/Path.h>
 #include <LibGfx/TextDirection.h>
-#include <math.h>
+#include <LibGfx/TextLayout.h>
 #include <stdio.h>
 
 #if defined(__GNUC__) && !defined(__clang__)
@@ -155,7 +156,7 @@ void Painter::fill_rect_with_dither_pattern(const IntRect& a_rect, Color color_a
 
     for (int i = 0; i < rect.height(); ++i) {
         for (int j = 0; j < rect.width(); ++j) {
-            bool checkboard_use_a = (i & 1) ^ (j & 1);
+            bool checkboard_use_a = ((rect.left() + i) & 1) ^ ((rect.top() + j) & 1);
             if (checkboard_use_a && !color_a.alpha())
                 continue;
             if (!checkboard_use_a && !color_b.alpha())
@@ -492,11 +493,11 @@ void Painter::draw_ellipse_intersecting(const IntRect& rect, Color color, int th
     double increment = M_PI / number_samples;
 
     auto ellipse_x = [&](double theta) -> int {
-        return (cos(theta) * rect.width() / sqrt(2)) + rect.center().x();
+        return (AK::cos(theta) * rect.width() / AK::sqrt(2.)) + rect.center().x();
     };
 
     auto ellipse_y = [&](double theta) -> int {
-        return (sin(theta) * rect.height() / sqrt(2)) + rect.center().y();
+        return (AK::sin(theta) * rect.height() / AK::sqrt(2.)) + rect.center().y();
     };
 
     for (auto theta = 0.0; theta < 2 * M_PI; theta += increment) {
@@ -1160,7 +1161,7 @@ FLATTEN void Painter::draw_glyph(const IntPoint& point, u32 code_point, Color co
 FLATTEN void Painter::draw_glyph(const IntPoint& point, u32 code_point, const Font& font, Color color)
 {
     auto glyph = font.glyph(code_point);
-    auto top_left = point + IntPoint(glyph.left_bearing(), font.glyph_height() - glyph.ascent());
+    auto top_left = point + IntPoint(glyph.left_bearing(), 0);
 
     if (glyph.is_glyph_bitmap()) {
         draw_bitmap(top_left, glyph.glyph_bitmap(), color);
@@ -1204,67 +1205,10 @@ void Painter::draw_glyph_or_emoji(const IntPoint& point, u32 code_point, const F
     draw_emoji(point, *emoji, font);
 }
 
-static void apply_elision(Utf8View& final_text, String& elided_text, size_t offset)
-{
-    StringBuilder builder;
-    builder.append(final_text.substring_view(0, offset).as_string());
-    builder.append("...");
-    elided_text = builder.to_string();
-    final_text = Utf8View { elided_text };
-}
-
-static void apply_elision(Utf32View& final_text, Vector<u32>& elided_text, size_t offset)
-{
-    elided_text.append(final_text.code_points(), offset);
-    elided_text.append('.');
-    elided_text.append('.');
-    elided_text.append('.');
-    final_text = Utf32View { elided_text.data(), elided_text.size() };
-}
-
-template<typename TextType>
-struct ElidedText {
-};
-
-template<>
-struct ElidedText<Utf8View> {
-    typedef String Type;
-};
-
-template<>
-struct ElidedText<Utf32View> {
-    typedef Vector<u32> Type;
-};
-
-template<typename TextType, typename DrawGlyphFunction>
-void draw_text_line(const IntRect& a_rect, const TextType& text, const Font& font, TextAlignment alignment, TextElision elision, TextDirection direction, DrawGlyphFunction draw_glyph)
+template<typename DrawGlyphFunction>
+void draw_text_line(IntRect const& a_rect, Utf8View const& text, Font const& font, TextAlignment alignment, TextDirection direction, DrawGlyphFunction draw_glyph)
 {
     auto rect = a_rect;
-    TextType final_text(text);
-    typename ElidedText<TextType>::Type elided_text;
-    if (elision == TextElision::Right) { // FIXME: This needs to be specialized for bidirectional text
-        int text_width = font.width(final_text);
-        if (font.width(final_text) > rect.width()) {
-            int glyph_spacing = font.glyph_spacing();
-            int new_width = font.width("...");
-            if (new_width < text_width) {
-                size_t offset = 0;
-                for (auto it = text.begin(); it != text.end(); ++it) {
-                    auto code_point = *it;
-                    int glyph_width = font.glyph_or_emoji_width(code_point);
-                    // NOTE: Glyph spacing should not be added after the last glyph on the line,
-                    //       but since we are here because the last glyph does not actually fit on the line,
-                    //       we don't have to worry about spacing.
-                    int width_with_this_glyph_included = new_width + glyph_width + glyph_spacing;
-                    if (width_with_this_glyph_included > rect.width())
-                        break;
-                    new_width += glyph_width + glyph_spacing;
-                    offset = text.iterator_offset(it);
-                }
-                apply_elision(final_text, elided_text, offset);
-            }
-        }
-    }
 
     switch (alignment) {
     case TextAlignment::TopLeft:
@@ -1274,11 +1218,11 @@ void draw_text_line(const IntRect& a_rect, const TextType& text, const Font& fon
     case TextAlignment::TopRight:
     case TextAlignment::CenterRight:
     case TextAlignment::BottomRight:
-        rect.set_x(rect.right() - font.width(final_text));
+        rect.set_x(rect.right() - font.width(text));
         break;
     case TextAlignment::Center: {
         auto shrunken_rect = rect;
-        shrunken_rect.set_width(font.width(final_text));
+        shrunken_rect.set_width(font.width(text));
         shrunken_rect.center_within(rect);
         rect = shrunken_rect;
         break;
@@ -1300,7 +1244,7 @@ void draw_text_line(const IntRect& a_rect, const TextType& text, const Font& fon
         space_width = -space_width;          // Draw spaces backwards
     }
 
-    for (u32 code_point : final_text) {
+    for (u32 code_point : text) {
         if (code_point == ' ') {
             point.translate_by(space_width, 0);
             continue;
@@ -1314,28 +1258,12 @@ void draw_text_line(const IntRect& a_rect, const TextType& text, const Font& fon
     }
 }
 
-static inline size_t draw_text_iterator_offset(const Utf8View& text, const Utf8View::Iterator& it)
-{
-    return text.byte_offset_of(it);
-}
-
-static inline size_t draw_text_iterator_offset(const Utf32View& text, const Utf32View::Iterator& it)
-{
-    return it - text.begin();
-}
-
 static inline size_t draw_text_get_length(const Utf8View& text)
 {
     return text.byte_length();
 }
 
-static inline size_t draw_text_get_length(const Utf32View& text)
-{
-    return text.length();
-}
-
-template<typename TextType>
-Vector<DirectionalRun> split_text_into_directional_runs(const TextType& text, TextDirection initial_direction)
+Vector<DirectionalRun> Painter::split_text_into_directional_runs(Utf8View const& text, TextDirection initial_direction)
 {
     // FIXME: This is a *very* simplified version of the UNICODE BIDIRECTIONAL ALGORITHM (https://www.unicode.org/reports/tr9/), that can render most bidirectional text
     //  but also produces awkward results in a large amount of edge cases. This should probably be replaced with a fully spec compliant implementation at some point.
@@ -1479,8 +1407,7 @@ Vector<DirectionalRun> split_text_into_directional_runs(const TextType& text, Te
     return runs;
 }
 
-template<typename TextType>
-bool text_contains_bidirectional_text(const TextType& text, TextDirection initial_direction)
+bool Painter::text_contains_bidirectional_text(Utf8View const& text, TextDirection initial_direction)
 {
     for (u32 code_point : text) {
         auto char_class = get_char_bidi_class(code_point);
@@ -1492,39 +1419,19 @@ bool text_contains_bidirectional_text(const TextType& text, TextDirection initia
     return false;
 }
 
-template<typename TextType, typename DrawGlyphFunction>
-void do_draw_text(const IntRect& rect, const TextType& text, const Font& font, TextAlignment alignment, TextElision elision, DrawGlyphFunction draw_glyph)
+template<typename DrawGlyphFunction>
+void Painter::do_draw_text(IntRect const& rect, Utf8View const& text, Font const& font, TextAlignment alignment, TextElision elision, TextWrapping wrapping, DrawGlyphFunction draw_glyph)
 {
     if (draw_text_get_length(text) == 0)
         return;
 
-    Vector<TextType, 32> lines;
-
-    size_t start_of_current_line = 0;
-    for (auto it = text.begin(); it != text.end(); ++it) {
-        u32 code_point = *it;
-        if (code_point == '\n') {
-            auto offset = draw_text_iterator_offset(text, it);
-            TextType line = text.substring_view(start_of_current_line, offset - start_of_current_line);
-            lines.append(line);
-            start_of_current_line = offset + 1;
-        }
-    }
-
-    if (start_of_current_line != draw_text_get_length(text)) {
-        TextType line = text.substring_view(start_of_current_line, draw_text_get_length(text) - start_of_current_line);
-        lines.append(line);
-    }
+    TextLayout layout(&font, text, rect);
 
     static const int line_spacing = 4;
     int line_height = font.glyph_height() + line_spacing;
-    IntRect bounding_rect { 0, 0, 0, (static_cast<int>(lines.size()) * line_height) - line_spacing };
 
-    for (auto& line : lines) {
-        auto line_width = font.width(line);
-        if (line_width > bounding_rect.width())
-            bounding_rect.set_width(line_width);
-    }
+    auto lines = layout.lines(elision, wrapping, line_spacing);
+    auto bounding_rect = layout.bounding_rect(wrapping, line_spacing);
 
     switch (alignment) {
     case TextAlignment::TopLeft:
@@ -1559,8 +1466,8 @@ void do_draw_text(const IntRect& rect, const TextType& text, const Font& font, T
         line_rect.intersect(rect);
 
         TextDirection line_direction = get_text_direction(line);
-        if (text_contains_bidirectional_text(line, line_direction)) { // Slow Path: The line contains mixed BiDi classes
-            auto directional_runs = split_text_into_directional_runs(line, line_direction);
+        if (text_contains_bidirectional_text(Utf8View { line }, line_direction)) { // Slow Path: The line contains mixed BiDi classes
+            auto directional_runs = split_text_into_directional_runs(Utf8View { line }, line_direction);
             auto current_dx = line_direction == TextDirection::LTR ? 0 : line_rect.width();
             for (auto& directional_run : directional_runs) {
                 auto run_width = font.width(directional_run.text());
@@ -1568,65 +1475,82 @@ void do_draw_text(const IntRect& rect, const TextType& text, const Font& font, T
                     current_dx -= run_width;
                 auto run_rect = line_rect.translated(current_dx, 0);
                 run_rect.set_width(run_width);
-                draw_text_line(run_rect, directional_run.text(), font, alignment, elision, directional_run.direction(), draw_glyph);
+
+                // NOTE: DirectionalRun returns Utf32View which isn't
+                // compatible with draw_text_line.
+                StringBuilder builder;
+                builder.append(directional_run.text());
+                auto text = Utf8View { builder.to_string() };
+
+                draw_text_line(run_rect, text, font, alignment, directional_run.direction(), draw_glyph);
                 if (line_direction == TextDirection::LTR)
                     current_dx += run_width;
             }
         } else {
-            draw_text_line(line_rect, line, font, alignment, elision, line_direction, draw_glyph);
+            draw_text_line(line_rect, Utf8View { line }, font, alignment, line_direction, draw_glyph);
         }
     }
 }
 
-void Painter::draw_text(const IntRect& rect, const StringView& text, TextAlignment alignment, Color color, TextElision elision)
+void Painter::draw_text(const IntRect& rect, const StringView& text, TextAlignment alignment, Color color, TextElision elision, TextWrapping wrapping)
 {
-    draw_text(rect, text, font(), alignment, color, elision);
+    draw_text(rect, text, font(), alignment, color, elision, wrapping);
 }
 
-void Painter::draw_text(const IntRect& rect, const Utf32View& text, TextAlignment alignment, Color color, TextElision elision)
+void Painter::draw_text(const IntRect& rect, const Utf32View& text, TextAlignment alignment, Color color, TextElision elision, TextWrapping wrapping)
 {
-    draw_text(rect, text, font(), alignment, color, elision);
+    draw_text(rect, text, font(), alignment, color, elision, wrapping);
 }
 
-void Painter::draw_text(const IntRect& rect, const StringView& raw_text, const Font& font, TextAlignment alignment, Color color, TextElision elision)
+void Painter::draw_text(const IntRect& rect, const StringView& raw_text, const Font& font, TextAlignment alignment, Color color, TextElision elision, TextWrapping wrapping)
 {
     Utf8View text { raw_text };
-    do_draw_text(rect, Utf8View(text), font, alignment, elision, [&](const IntRect& r, u32 code_point) {
+    do_draw_text(rect, text, font, alignment, elision, wrapping, [&](const IntRect& r, u32 code_point) {
         draw_glyph_or_emoji(r.location(), code_point, font, color);
     });
 }
 
-void Painter::draw_text(const IntRect& rect, const Utf32View& text, const Font& font, TextAlignment alignment, Color color, TextElision elision)
+void Painter::draw_text(const IntRect& rect, const Utf32View& raw_text, const Font& font, TextAlignment alignment, Color color, TextElision elision, TextWrapping wrapping)
 {
-    do_draw_text(rect, text, font, alignment, elision, [&](const IntRect& r, u32 code_point) {
+    // FIXME: UTF-32 should eventually be completely removed, but for the time
+    // being some places might depend on it, so we do some internal conversion.
+    StringBuilder builder;
+    builder.append(raw_text);
+    auto text = Utf8View { builder.string_view() };
+    do_draw_text(rect, text, font, alignment, elision, wrapping, [&](const IntRect& r, u32 code_point) {
         draw_glyph_or_emoji(r.location(), code_point, font, color);
     });
 }
 
-void Painter::draw_text(Function<void(const IntRect&, u32)> draw_one_glyph, const IntRect& rect, const StringView& raw_text, const Font& font, TextAlignment alignment, TextElision elision)
+void Painter::draw_text(Function<void(const IntRect&, u32)> draw_one_glyph, const IntRect& rect, const Utf8View& text, const Font& font, TextAlignment alignment, TextElision elision, TextWrapping wrapping)
+{
+    VERIFY(scale() == 1); // FIXME: Add scaling support.
+
+    do_draw_text(rect, text, font, alignment, elision, wrapping, [&](const IntRect& r, u32 code_point) {
+        draw_one_glyph(r, code_point);
+    });
+}
+
+void Painter::draw_text(Function<void(const IntRect&, u32)> draw_one_glyph, const IntRect& rect, const StringView& raw_text, const Font& font, TextAlignment alignment, TextElision elision, TextWrapping wrapping)
 {
     VERIFY(scale() == 1); // FIXME: Add scaling support.
 
     Utf8View text { raw_text };
-    do_draw_text(rect, text, font, alignment, elision, [&](const IntRect& r, u32 code_point) {
+    do_draw_text(rect, text, font, alignment, elision, wrapping, [&](const IntRect& r, u32 code_point) {
         draw_one_glyph(r, code_point);
     });
 }
 
-void Painter::draw_text(Function<void(const IntRect&, u32)> draw_one_glyph, const IntRect& rect, const Utf8View& text, const Font& font, TextAlignment alignment, TextElision elision)
+void Painter::draw_text(Function<void(const IntRect&, u32)> draw_one_glyph, const IntRect& rect, const Utf32View& raw_text, const Font& font, TextAlignment alignment, TextElision elision, TextWrapping wrapping)
 {
     VERIFY(scale() == 1); // FIXME: Add scaling support.
 
-    do_draw_text(rect, text, font, alignment, elision, [&](const IntRect& r, u32 code_point) {
-        draw_one_glyph(r, code_point);
-    });
-}
-
-void Painter::draw_text(Function<void(const IntRect&, u32)> draw_one_glyph, const IntRect& rect, const Utf32View& text, const Font& font, TextAlignment alignment, TextElision elision)
-{
-    VERIFY(scale() == 1); // FIXME: Add scaling support.
-
-    do_draw_text(rect, text, font, alignment, elision, [&](const IntRect& r, u32 code_point) {
+    // FIXME: UTF-32 should eventually be completely removed, but for the time
+    // being some places might depend on it, so we do some internal conversion.
+    StringBuilder builder;
+    builder.append(raw_text);
+    auto text = Utf8View { builder.string_view() };
+    do_draw_text(rect, text, font, alignment, elision, wrapping, [&](const IntRect& r, u32 code_point) {
         draw_one_glyph(r, code_point);
     });
 }
@@ -1707,7 +1631,7 @@ void Painter::draw_physical_pixel(const IntPoint& physical_position, Color color
     fill_physical_rect(rect, color);
 }
 
-void Painter::draw_line(IntPoint const& a_p1, IntPoint const& a_p2, Color color, int thickness, LineStyle style)
+void Painter::draw_line(IntPoint const& a_p1, IntPoint const& a_p2, Color color, int thickness, LineStyle style, Color alternate_color)
 {
     if (color.alpha() == 0)
         return;
@@ -1720,6 +1644,8 @@ void Painter::draw_line(IntPoint const& a_p1, IntPoint const& a_p2, Color color,
     auto point1 = to_physical(p1);
     auto point2 = to_physical(p2);
     thickness *= scale();
+
+    auto alternate_color_is_transparent = alternate_color == Color::Transparent;
 
     // Special case: vertical line.
     if (point1.x() == point2.x()) {
@@ -1742,6 +1668,11 @@ void Painter::draw_line(IntPoint const& a_p1, IntPoint const& a_p2, Color color,
                 draw_physical_pixel({ x, y }, color, thickness);
                 draw_physical_pixel({ x, min(y + thickness, max_y) }, color, thickness);
                 draw_physical_pixel({ x, min(y + thickness * 2, max_y) }, color, thickness);
+                if (!alternate_color_is_transparent) {
+                    draw_physical_pixel({ x, min(y + thickness * 3, max_y) }, alternate_color, thickness);
+                    draw_physical_pixel({ x, min(y + thickness * 4, max_y) }, alternate_color, thickness);
+                    draw_physical_pixel({ x, min(y + thickness * 5, max_y) }, alternate_color, thickness);
+                }
             }
         } else {
             for (int y = min_y; y <= max_y; y += thickness)
@@ -1771,6 +1702,11 @@ void Painter::draw_line(IntPoint const& a_p1, IntPoint const& a_p2, Color color,
                 draw_physical_pixel({ x, y }, color, thickness);
                 draw_physical_pixel({ min(x + thickness, max_x), y }, color, thickness);
                 draw_physical_pixel({ min(x + thickness * 2, max_x), y }, color, thickness);
+                if (!alternate_color_is_transparent) {
+                    draw_physical_pixel({ min(x + thickness * 3, max_x), y }, alternate_color, thickness);
+                    draw_physical_pixel({ min(x + thickness * 4, max_x), y }, alternate_color, thickness);
+                    draw_physical_pixel({ min(x + thickness * 5, max_x), y }, alternate_color, thickness);
+                }
             }
         } else {
             for (int x = min_x; x <= max_x; x += thickness)
@@ -1920,8 +1856,8 @@ void Painter::for_each_line_segment_on_elliptical_arc(const FloatPoint& p1, cons
     FloatPoint current_point = relative_start;
     FloatPoint next_point = { 0, 0 };
 
-    auto sin_x_axis = sinf(x_axis_rotation);
-    auto cos_x_axis = cosf(x_axis_rotation);
+    auto sin_x_axis = AK::sin(x_axis_rotation);
+    auto cos_x_axis = AK::cos(x_axis_rotation);
     auto rotate_point = [sin_x_axis, cos_x_axis](FloatPoint& p) {
         auto original_x = p.x();
         auto original_y = p.y();
@@ -1931,8 +1867,8 @@ void Painter::for_each_line_segment_on_elliptical_arc(const FloatPoint& p1, cons
     };
 
     for (double theta = theta_1; theta <= ((double)theta_1 + (double)theta_delta); theta += theta_step) {
-        next_point.set_x(a * cosf(theta));
-        next_point.set_y(b * sinf(theta));
+        next_point.set_x(a * AK::cos<float>(theta));
+        next_point.set_y(b * AK::sin<float>(theta));
         rotate_point(next_point);
 
         callback(current_point + center, next_point + center);

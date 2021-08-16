@@ -9,10 +9,8 @@
 #include <AK/Vector.h>
 #include <LibCore/ConfigFile.h>
 #include <LibCore/DirIterator.h>
+#include <LibCore/Process.h>
 #include <LibDesktop/AppFile.h>
-#include <errno.h>
-#include <serenity.h>
-#include <spawn.h>
 
 namespace Desktop {
 
@@ -77,9 +75,34 @@ String AppFile::executable() const
     return executable;
 }
 
+String AppFile::description() const
+{
+    return m_config->read_entry("App", "Description").trim_whitespace();
+}
+
 String AppFile::category() const
 {
     return m_config->read_entry("App", "Category").trim_whitespace();
+}
+
+String AppFile::icon_path() const
+{
+    return m_config->read_entry("App", "IconPath").trim_whitespace();
+}
+
+GUI::Icon AppFile::icon() const
+{
+    auto override_icon = icon_path();
+    // FIXME: support pointing to actual .ico files
+    if (!override_icon.is_empty())
+        return GUI::FileIconProvider::icon_for_path(override_icon);
+
+    return GUI::FileIconProvider::icon_for_path(executable());
+}
+
+bool AppFile::run_in_terminal() const
+{
+    return m_config->read_bool_entry("App", "RunInTerminal", false);
 }
 
 Vector<String> AppFile::launcher_file_types() const
@@ -109,17 +132,9 @@ bool AppFile::spawn() const
     if (!is_valid())
         return false;
 
-    pid_t child_pid;
-    const char* argv[] = { executable().characters(), nullptr };
-    if ((errno = posix_spawn(&child_pid, executable().characters(), nullptr, nullptr, const_cast<char**>(argv), environ))) {
-        perror("posix_spawn");
+    auto pid = Core::Process::spawn(executable());
+    if (pid < 0)
         return false;
-    } else {
-        if (disown(child_pid) < 0) {
-            perror("disown");
-            return false;
-        }
-    }
 
     return true;
 }

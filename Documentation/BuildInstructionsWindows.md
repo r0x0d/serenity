@@ -34,12 +34,6 @@ will need to install the tools as well as the system emulators for i386 and x86_
 
 ![QEMU Components](QEMU_Components.png)
 
-Locate the `qemu-system-x86_64.exe` executable in WSL.
-By default this will be at `/mnt/c/Program Files/qemu/qemu-system-x86_64.exe`.
-
-Set the `SERENITY_QEMU_BIN` environment variable to that location. For example: \
-`export SERENITY_QEMU_BIN='/mnt/c/Program Files/qemu/qemu-system-x86_64.exe'`
-
 Run `Meta/serenity.sh run` to build and run SerenityOS as usual.
 
 ### Hardware acceleration
@@ -54,10 +48,6 @@ following command in an elevated PowerShell session: \
 
 ![WHPX Windows Feature](WHPX_Feature.png)
 
-Set the `SERENITY_VIRT_TECH_ARG` environment variable in your WSL2 shell: \
-`export SERENITY_VIRT_TECH_ARG="-accel whpx,kernel-irqchip=off"`
+You may have to reboot after enabling the WHPX feature.
 
-You might want to add those environment variables to your shell's configuration file, so that you don't have to set them
-manually each time you start a new shell.
-
-Start the VM with `Meta/serenity.sh run` as usual.
+Afterwards you can start the VM with `Meta/serenity.sh run` as usual.

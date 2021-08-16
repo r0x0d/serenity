@@ -31,7 +31,6 @@
 #include <LibGfx/StylePainter.h>
 #include <ctype.h>
 #include <errno.h>
-#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -124,12 +123,12 @@ TerminalWidget::TerminalWidget(int ptm_fd, bool automatic_size_policy, RefPtr<Co
 
     m_terminal.set_size(m_config->read_num_entry("Window", "Width", 80), m_config->read_num_entry("Window", "Height", 25));
 
-    m_copy_action = GUI::Action::create("&Copy", { Mod_Ctrl | Mod_Shift, Key_C }, Gfx::Bitmap::load_from_file("/res/icons/16x16/edit-copy.png"), [this](auto&) {
+    m_copy_action = GUI::Action::create("&Copy", { Mod_Ctrl | Mod_Shift, Key_C }, Gfx::Bitmap::try_load_from_file("/res/icons/16x16/edit-copy.png"), [this](auto&) {
         copy();
     });
     m_copy_action->set_swallow_key_event_when_disabled(true);
 
-    m_paste_action = GUI::Action::create("&Paste", { Mod_Ctrl | Mod_Shift, Key_V }, Gfx::Bitmap::load_from_file("/res/icons/16x16/paste.png"), [this](auto&) {
+    m_paste_action = GUI::Action::create("&Paste", { Mod_Ctrl | Mod_Shift, Key_V }, Gfx::Bitmap::try_load_from_file("/res/icons/16x16/paste.png"), [this](auto&) {
         paste();
     });
     m_paste_action->set_swallow_key_event_when_disabled(true);
@@ -143,10 +142,6 @@ TerminalWidget::TerminalWidget(int ptm_fd, bool automatic_size_policy, RefPtr<Co
     m_context_menu->add_action(paste_action());
     m_context_menu->add_separator();
     m_context_menu->add_action(clear_including_history_action());
-
-    GUI::Clipboard::the().on_change = [this](const String&) {
-        update_paste_action();
-    };
 
     update_copy_action();
     update_paste_action();

@@ -28,7 +28,6 @@
 #include <LibGfx/Palette.h>
 #include <LibSyntax/Highlighter.h>
 #include <fcntl.h>
-#include <math.h>
 #include <stdio.h>
 #include <unistd.h>
 
@@ -84,10 +83,11 @@ void TextEditor::create_actions()
     m_cut_action->set_enabled(false);
     m_copy_action->set_enabled(false);
     m_paste_action = CommonActions::make_paste_action([&](auto&) { paste(); }, this);
+    m_paste_action->set_enabled(is_editable() && Clipboard::the().mime_type().starts_with("text/") && !Clipboard::the().data().is_empty());
     m_delete_action = CommonActions::make_delete_action([&](auto&) { do_delete(); }, this);
     if (is_multi_line()) {
         m_go_to_line_action = Action::create(
-            "Go to line...", { Mod_Ctrl, Key_L }, Gfx::Bitmap::load_from_file("/res/icons/16x16/go-forward.png"), [this](auto&) {
+            "Go to line...", { Mod_Ctrl, Key_L }, Gfx::Bitmap::try_load_from_file("/res/icons/16x16/go-forward.png"), [this](auto&) {
                 String value;
                 if (InputBox::show(window(), value, "Line:", "Go to line") == InputBox::ExecOK) {
                     auto line_target = value.to_uint();
@@ -884,6 +884,12 @@ void TextEditor::keydown_event(KeyEvent& event)
     event.ignore();
 }
 
+void TextEditor::delete_previous_word()
+{
+    TextRange to_erase(document().first_word_before(m_cursor, true), m_cursor);
+    execute<RemoveTextCommand>(document().text_in_range(to_erase), to_erase);
+}
+
 void TextEditor::delete_current_line()
 {
     if (has_selection())
@@ -904,6 +910,30 @@ void TextEditor::delete_current_line()
 
     TextRange erased_range(start, end);
     execute<RemoveTextCommand>(document().text_in_range(erased_range), erased_range);
+}
+
+void TextEditor::delete_previous_char()
+{
+    if (!is_editable())
+        return;
+
+    if (has_selection())
+        return delete_selection();
+
+    TextRange to_erase({ m_cursor.line(), m_cursor.column() - 1 }, m_cursor);
+    if (m_cursor.column() == 0 && m_cursor.line() != 0) {
+        size_t prev_line_len = line(m_cursor.line() - 1).length();
+        to_erase.set_start({ m_cursor.line() - 1, prev_line_len });
+    }
+
+    execute<RemoveTextCommand>(document().text_in_range(to_erase), to_erase);
+}
+
+void TextEditor::delete_from_line_start_to_cursor()
+{
+    TextPosition start(m_cursor.line(), current_line().first_non_whitespace_column());
+    TextRange to_erase(start, m_cursor);
+    execute<RemoveTextCommand>(document().text_in_range(to_erase), to_erase);
 }
 
 void TextEditor::do_delete()
@@ -1368,6 +1398,9 @@ void TextEditor::paste()
     if (!is_editable())
         return;
 
+    if (!Clipboard::the().mime_type().starts_with("text/"))
+        return;
+
     auto paste_text = Clipboard::the().data();
 
     if (paste_text.is_empty())
@@ -1445,14 +1478,14 @@ void TextEditor::set_mode(const Mode mode)
     m_mode = mode;
     switch (mode) {
     case Editable:
-        m_cut_action->set_enabled(true && has_selection());
+        m_cut_action->set_enabled(has_selection() && !text_is_secret());
         m_delete_action->set_enabled(true);
         m_paste_action->set_enabled(true);
         set_accepts_emoji_input(true);
         break;
     case DisplayOnly:
     case ReadOnly:
-        m_cut_action->set_enabled(false && has_selection());
+        m_cut_action->set_enabled(false);
         m_delete_action->set_enabled(false);
         m_paste_action->set_enabled(false);
         set_accepts_emoji_input(false);
@@ -1469,8 +1502,8 @@ void TextEditor::set_mode(const Mode mode)
 
 void TextEditor::did_update_selection()
 {
-    m_cut_action->set_enabled(is_editable() && has_selection());
-    m_copy_action->set_enabled(has_selection());
+    m_cut_action->set_enabled(is_editable() && has_selection() && !text_is_secret());
+    m_copy_action->set_enabled(has_selection() && !text_is_secret());
     if (on_selection_change)
         on_selection_change();
     if (is_wrapping_enabled()) {
@@ -1741,8 +1774,8 @@ void TextEditor::document_did_update_undo_stack()
         return builder.to_string();
     };
 
-    m_undo_action->set_enabled(can_undo());
-    m_redo_action->set_enabled(can_redo());
+    m_undo_action->set_enabled(can_undo() && !text_is_secret());
+    m_redo_action->set_enabled(can_redo() && !text_is_secret());
 
     m_undo_action->set_text(make_action_text("&Undo", document().undo_stack().undo_action_text()));
     m_redo_action->set_text(make_action_text("&Redo", document().undo_stack().redo_action_text()));
@@ -1764,6 +1797,11 @@ void TextEditor::document_did_set_text()
 void TextEditor::document_did_set_cursor(TextPosition const& position)
 {
     set_cursor(position);
+}
+
+void TextEditor::clipboard_content_did_change(String const& mime_type)
+{
+    m_paste_action->set_enabled(is_editable() && mime_type.starts_with("text/") && !Clipboard::the().data().is_empty());
 }
 
 void TextEditor::set_document(TextDocument& document)
@@ -1940,6 +1978,13 @@ void TextEditor::redo()
 {
     clear_selection();
     document().redo();
+}
+
+void TextEditor::set_text_is_secret(bool text_is_secret)
+{
+    m_text_is_secret = text_is_secret;
+    document_did_update_undo_stack();
+    did_update_selection();
 }
 
 }

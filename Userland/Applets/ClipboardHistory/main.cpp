@@ -49,11 +49,6 @@ int main(int argc, char* argv[])
     auto model = ClipboardHistoryModel::create();
     table_view.set_model(model);
 
-    GUI::Clipboard::the().on_change = [&](const String&) {
-        auto item = GUI::Clipboard::the().data_and_type();
-        model->add_item(item);
-    };
-
     table_view.on_activation = [&](const GUI::ModelIndex& index) {
         auto& data_and_type = model->item_at(index.row());
         GUI::Clipboard::the().set_data(data_and_type.data, data_and_type.mime_type, data_and_type.metadata);
@@ -75,6 +70,7 @@ int main(int argc, char* argv[])
     applet_window->set_window_type(GUI::WindowType::Applet);
     applet_window->set_has_alpha_channel(true);
     auto& icon = applet_window->set_main_widget<GUI::ImageWidget>();
+    icon.set_tooltip("Clipboard History");
     icon.load_from_file("/res/icons/16x16/edit-copy.png");
     icon.on_click = [&main_window = *main_window] {
         main_window.show();

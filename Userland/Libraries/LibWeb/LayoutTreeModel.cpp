@@ -8,7 +8,6 @@
 #include <AK/StringBuilder.h>
 #include <LibWeb/DOM/Document.h>
 #include <LibWeb/DOM/Element.h>
-#include <LibWeb/DOM/Text.h>
 #include <LibWeb/Layout/InitialContainingBlockBox.h>
 #include <LibWeb/Layout/TextNode.h>
 #include <ctype.h>
@@ -19,9 +18,9 @@ namespace Web {
 LayoutTreeModel::LayoutTreeModel(DOM::Document& document)
     : m_document(document)
 {
-    m_document_icon.set_bitmap_for_size(16, Gfx::Bitmap::load_from_file("/res/icons/16x16/filetype-html.png"));
-    m_element_icon.set_bitmap_for_size(16, Gfx::Bitmap::load_from_file("/res/icons/16x16/inspector-object.png"));
-    m_text_icon.set_bitmap_for_size(16, Gfx::Bitmap::load_from_file("/res/icons/16x16/filetype-unknown.png"));
+    m_document_icon.set_bitmap_for_size(16, Gfx::Bitmap::try_load_from_file("/res/icons/16x16/filetype-html.png"));
+    m_element_icon.set_bitmap_for_size(16, Gfx::Bitmap::try_load_from_file("/res/icons/16x16/inspector-object.png"));
+    m_text_icon.set_bitmap_for_size(16, Gfx::Bitmap::try_load_from_file("/res/icons/16x16/filetype-unknown.png"));
 }
 
 LayoutTreeModel::~LayoutTreeModel()
@@ -133,11 +132,6 @@ GUI::Variant LayoutTreeModel::data(const GUI::ModelIndex& index, GUI::ModelRole 
         return builder.to_string();
     }
     return {};
-}
-
-void LayoutTreeModel::update()
-{
-    did_update();
 }
 
 }

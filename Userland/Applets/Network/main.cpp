@@ -122,8 +122,10 @@ private:
         int connected_adapters = 0;
         json.value().as_array().for_each([&adapter_info, include_loopback, &connected_adapters](auto& value) {
             auto& if_object = value.as_object();
-            auto ip_address = if_object.get("ipv4_address").to_string();
+            auto ip_address = if_object.get("ipv4_address").as_string_or("no IP");
             auto ifname = if_object.get("name").to_string();
+            auto link_up = if_object.get("link_up").as_bool();
+            auto link_speed = if_object.get("link_speed").to_i32();
 
             if (!include_loopback)
                 if (ifname == "loop")
@@ -131,7 +133,14 @@ private:
             if (ip_address != "null")
                 connected_adapters++;
 
-            adapter_info.appendff("{}: {}\n", ifname, ip_address);
+            if (!adapter_info.is_empty())
+                adapter_info.append('\n');
+
+            adapter_info.appendff("{}: {} ", ifname, ip_address);
+            if (!link_up)
+                adapter_info.appendff("(down)");
+            else
+                adapter_info.appendff("({} Mb/s)", link_speed);
         });
 
         // show connected icon so long as at least one adapter is connected
@@ -143,8 +152,8 @@ private:
     String m_adapter_info;
     bool m_connected = false;
     bool m_notifications = true;
-    RefPtr<Gfx::Bitmap> m_connected_icon = Gfx::Bitmap::load_from_file("/res/icons/16x16/network.png");
-    RefPtr<Gfx::Bitmap> m_disconnected_icon = Gfx::Bitmap::load_from_file("/res/icons/16x16/network-disconnected.png");
+    RefPtr<Gfx::Bitmap> m_connected_icon = Gfx::Bitmap::try_load_from_file("/res/icons/16x16/network.png");
+    RefPtr<Gfx::Bitmap> m_disconnected_icon = Gfx::Bitmap::try_load_from_file("/res/icons/16x16/network-disconnected.png");
 };
 
 int main(int argc, char* argv[])

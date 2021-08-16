@@ -10,13 +10,13 @@
 
 namespace Wasm {
 
-Optional<Label> Configuration::nth_label(size_t i)
+Optional<size_t> Configuration::nth_label_index(size_t i)
 {
     for (size_t index = m_stack.size(); index > 0; --index) {
         auto& entry = m_stack.entries()[index - 1];
-        if (auto ptr = entry.get_pointer<Label>()) {
+        if (entry.has<Label>()) {
             if (i == 0)
-                return *ptr;
+                return index - 1;
             --i;
         }
     }
@@ -42,10 +42,8 @@ Result Configuration::call(Interpreter& interpreter, FunctionAddress address, Ve
     if (!function)
         return Trap {};
     if (auto* wasm_function = function->get_pointer<WasmFunction>()) {
-        Vector<Value> locals;
-        locals.ensure_capacity(arguments.size() + wasm_function->code().locals().size());
-        for (auto& value : arguments)
-            locals.append(Value { value });
+        Vector<Value> locals = move(arguments);
+        locals.ensure_capacity(locals.size() + wasm_function->code().locals().size());
         for (auto& type : wasm_function->code().locals())
             locals.empend(type, 0ull);
 

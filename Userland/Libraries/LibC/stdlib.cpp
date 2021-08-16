@@ -350,7 +350,7 @@ int putenv(char* new_var)
 
     // At this point, we need to append the new var.
     // 2 here: one for the new var, one for the sentinel value.
-    char** new_environ = (char**)malloc((environ_size + 2) * sizeof(char*));
+    auto** new_environ = static_cast<char**>(kmalloc_array(environ_size + 2, sizeof(char*)));
     if (new_environ == nullptr) {
         errno = ENOMEM;
         return -1;
@@ -646,9 +646,15 @@ double strtod(const char* str, char** endptr)
 
     // TODO: If `exponent` is large, this could be made faster.
     double value = digits.number();
+    double scale = 1;
+
     if (exponent < 0) {
         exponent = -exponent;
-        for (int i = 0; i < exponent; ++i) {
+        for (int i = 0; i < min(exponent, 300); ++i) {
+            scale *= base;
+        }
+        value /= scale;
+        for (int i = 300; i < exponent; i++) {
             value /= base;
         }
         if (value == -0.0 || value == +0.0) {
@@ -656,8 +662,9 @@ double strtod(const char* str, char** endptr)
         }
     } else if (exponent > 0) {
         for (int i = 0; i < exponent; ++i) {
-            value *= base;
+            scale *= base;
         }
+        value *= scale;
         if (value == -__builtin_huge_val() || value == +__builtin_huge_val()) {
             errno = ERANGE;
         }

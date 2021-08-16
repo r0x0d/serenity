@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2021, Andreas Kling <kling@serenityos.org>
- * Copyright (c) 2021, Tobias Christiansen <tobi@tobyase.de>
+ * Copyright (c) 2021, Tobias Christiansen <tobyase@serenityos.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -58,14 +58,7 @@ void FlexFormattingContext::run(Box& box, LayoutMode)
     auto is_row = (flex_direction == CSS::FlexDirection::Row || flex_direction == CSS::FlexDirection::RowReverse);
     auto main_size_is_infinite = false;
     auto get_pixel_size = [](Box& box, const CSS::Length& length) {
-        if (length.is_undefined())
-            return 0.0f;
-
-        if (!length.is_percentage())
-            return length.to_px(box);
-
-        auto percent = length.raw_value() / 100.0f;
-        return box.containing_block()->width() * percent;
+        return length.resolved(CSS::Length::make_px(0), box, box.containing_block()->width()).to_px(box);
     };
     auto layout_for_maximum_main_size = [&](Box& box) {
         if (is_row)
@@ -318,6 +311,7 @@ void FlexFormattingContext::run(Box& box, LayoutMode)
         } else {
             // E
             // FIXME: This is probably too naive.
+            // FIXME: Care about FlexBasis::Auto
             if (has_definite_main_size(child_box)) {
                 flex_item.flex_base_size = specified_main_size(child_box);
             } else {
@@ -646,12 +640,33 @@ void FlexFormattingContext::run(Box& box, LayoutMode)
         }
 
         // 12.2.
-        // FIXME: Support justify-content
+        float space_between_items = 0;
+        float space_before_first_item = 0;
+        auto number_of_items = flex_line.items.size();
+
+        switch (box.computed_values().justify_content()) {
+        case CSS::JustifyContent::FlexStart:
+            break;
+        case CSS::JustifyContent::FlexEnd:
+            space_before_first_item = main_available_size - used_main_space;
+            break;
+        case CSS::JustifyContent::Center:
+            space_before_first_item = (main_available_size - used_main_space) / 2.0f;
+            break;
+        case CSS::JustifyContent::SpaceBetween:
+            space_between_items = remaining_free_space / (number_of_items - 1);
+            break;
+        case CSS::JustifyContent::SpaceAround:
+            space_between_items = remaining_free_space / number_of_items;
+            space_before_first_item = space_between_items / 2.0f;
+            break;
+        }
+
         // FIXME: Support reverse
-        float main_offset = 0;
+        float main_offset = space_before_first_item;
         for (auto& flex_item : flex_line.items) {
             flex_item->main_offset = main_offset;
-            main_offset += flex_item->main_size;
+            main_offset += flex_item->main_size + space_between_items;
         }
     }
 

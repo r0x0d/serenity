@@ -56,10 +56,13 @@ public:
     Optional<CSS::FlexBasisData> flex_basis() const;
     Optional<float> flex_grow_factor() const;
     Optional<float> flex_shrink_factor() const;
+    Optional<float> opacity() const;
+    Optional<CSS::JustifyContent> justify_content() const;
     Optional<CSS::Overflow> overflow_x() const;
     Optional<CSS::Overflow> overflow_y() const;
     Optional<CSS::Repeat> background_repeat_x() const;
     Optional<CSS::Repeat> background_repeat_y() const;
+    Optional<CSS::BoxShadowData> box_shadow() const;
 
     const Gfx::Font& font() const
     {

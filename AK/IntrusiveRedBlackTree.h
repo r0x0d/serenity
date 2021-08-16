@@ -14,7 +14,8 @@ template<Integral K>
 class IntrusiveRedBlackTreeNode;
 
 template<Integral K, typename V, IntrusiveRedBlackTreeNode<K> V::*member>
-class IntrusiveRedBlackTree : public BaseRedBlackTree<K> {
+class IntrusiveRedBlackTree final : public BaseRedBlackTree<K> {
+
 public:
     IntrusiveRedBlackTree() = default;
     virtual ~IntrusiveRedBlackTree() override
@@ -82,6 +83,7 @@ public:
         }
         [[nodiscard]] bool is_end() const { return !m_node; }
         [[nodiscard]] bool is_begin() const { return !m_prev; }
+        [[nodiscard]] auto key() const { return m_node->key; }
 
     private:
         friend class IntrusiveRedBlackTree;
@@ -141,7 +143,7 @@ private:
 
     static V* node_to_value(TreeNode& node)
     {
-        return (V*)((u8*)&node - ((u8*)&(((V*)nullptr)->*member) - (u8*)nullptr));
+        return bit_cast<V*>(bit_cast<u8*>(&node) - bit_cast<u8*>(member));
     }
 };
 
@@ -158,7 +160,7 @@ public:
         VERIFY(!is_in_tree());
     }
 
-    bool is_in_tree()
+    [[nodiscard]] bool is_in_tree() const
     {
         return m_in_tree;
     }

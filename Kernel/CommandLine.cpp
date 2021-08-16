@@ -38,6 +38,8 @@ UNMAP_AFTER_INIT void CommandLine::initialize()
     VERIFY(!s_the);
     s_the = new CommandLine(s_cmd_line);
     dmesgln("Kernel Commandline: {}", kernel_command_line().string());
+    // Validate the boot mode the user passed in.
+    (void)s_the->boot_mode(Validate::Yes);
 }
 
 UNMAP_AFTER_INIT void CommandLine::build_commandline(const String& cmdline_from_bootloader)
@@ -175,6 +177,11 @@ UNMAP_AFTER_INIT bool CommandLine::disable_uhci_controller() const
     return contains("disable_uhci_controller"sv);
 }
 
+UNMAP_AFTER_INIT bool CommandLine::disable_usb() const
+{
+    return contains("disable_usb"sv);
+}
+
 UNMAP_AFTER_INIT bool CommandLine::disable_virtio() const
 {
     return contains("disable_virtio"sv);
@@ -191,7 +198,7 @@ UNMAP_AFTER_INIT AHCIResetMode CommandLine::ahci_reset_mode() const
     PANIC("Unknown AHCIResetMode: {}", ahci_reset_mode);
 }
 
-UNMAP_AFTER_INIT BootMode CommandLine::boot_mode() const
+BootMode CommandLine::boot_mode(Validate should_validate) const
 {
     const auto boot_mode = lookup("boot_mode"sv).value_or("graphical"sv);
     if (boot_mode == "no-fbdev"sv) {
@@ -201,7 +208,10 @@ UNMAP_AFTER_INIT BootMode CommandLine::boot_mode() const
     } else if (boot_mode == "graphical"sv) {
         return BootMode::Graphical;
     }
-    PANIC("Unknown BootMode: {}", boot_mode);
+
+    if (should_validate == Validate::Yes)
+        PANIC("Unknown BootMode: {}", boot_mode);
+    return BootMode::Unknown;
 }
 
 UNMAP_AFTER_INIT bool CommandLine::is_no_framebuffer_devices_mode() const

@@ -7,6 +7,7 @@
 #include <AK/Singleton.h>
 #include <Kernel/CommandLine.h>
 #include <Kernel/IO.h>
+#include <Kernel/Memory/AnonymousVMObject.h>
 #include <Kernel/Multiboot.h>
 #include <Kernel/Net/E1000ENetworkAdapter.h>
 #include <Kernel/Net/E1000NetworkAdapter.h>
@@ -16,11 +17,10 @@
 #include <Kernel/Net/RTL8139NetworkAdapter.h>
 #include <Kernel/Net/RTL8168NetworkAdapter.h>
 #include <Kernel/Sections.h>
-#include <Kernel/VM/AnonymousVMObject.h>
 
 namespace Kernel {
 
-static AK::Singleton<NetworkingManagement> s_the;
+static Singleton<NetworkingManagement> s_the;
 
 NetworkingManagement& NetworkingManagement::the()
 {
@@ -43,14 +43,14 @@ NonnullRefPtr<NetworkAdapter> NetworkingManagement::loopback_adapter() const
 
 void NetworkingManagement::for_each(Function<void(NetworkAdapter&)> callback)
 {
-    Locker locker(m_lock);
+    MutexLocker locker(m_lock);
     for (auto& it : m_adapters)
         callback(it);
 }
 
 RefPtr<NetworkAdapter> NetworkingManagement::from_ipv4_address(const IPv4Address& address) const
 {
-    Locker locker(m_lock);
+    MutexLocker locker(m_lock);
     for (auto& adapter : m_adapters) {
         if (adapter.ipv4_address() == address || adapter.ipv4_broadcast() == address)
             return adapter;
@@ -63,7 +63,7 @@ RefPtr<NetworkAdapter> NetworkingManagement::from_ipv4_address(const IPv4Address
 }
 RefPtr<NetworkAdapter> NetworkingManagement::lookup_by_name(const StringView& name) const
 {
-    Locker locker(m_lock);
+    MutexLocker locker(m_lock);
     RefPtr<NetworkAdapter> found_adapter;
     for (auto& it : m_adapters) {
         if (it.name() == name)

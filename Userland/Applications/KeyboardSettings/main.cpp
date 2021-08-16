@@ -7,7 +7,6 @@
 #include "CharacterMapFileListModel.h"
 #include <AK/JsonObject.h>
 #include <AK/QuickSort.h>
-#include <LibCore/ArgsParser.h>
 #include <LibCore/ConfigFile.h>
 #include <LibCore/DirIterator.h>
 #include <LibCore/File.h>
@@ -32,7 +31,6 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    // If there is no command line parameter go for GUI.
     auto app = GUI::Application::construct(argc, argv);
 
     if (pledge("stdio rpath cpath wpath recvfd sendfd proc exec", nullptr) < 0) {
@@ -102,7 +100,9 @@ int main(int argc, char** argv)
 
     auto window = GUI::Window::construct();
     window->set_title("Keyboard Settings");
-    window->resize(300, 70);
+    window->resize(300, 78);
+    window->set_resizable(false);
+    window->set_minimizable(false);
     window->set_icon(app_icon.bitmap_for_size(16));
 
     auto& root_widget = window->set_main_widget<GUI::Widget>();
@@ -153,14 +153,8 @@ int main(int argc, char** argv)
     auto& bottom_widget = root_widget.add<GUI::Widget>();
     bottom_widget.set_layout<GUI::HorizontalBoxLayout>();
     bottom_widget.layout()->add_spacer();
-    bottom_widget.set_fixed_height(22);
-
-    auto& apply_button = bottom_widget.add<GUI::Button>();
-    apply_button.set_text("Apply");
-    apply_button.set_fixed_width(60);
-    apply_button.on_click = [&](auto) {
-        apply_settings(false);
-    };
+    bottom_widget.set_fixed_height(30);
+    bottom_widget.set_content_margins({ 0, 4, 0, 4 });
 
     auto& ok_button = bottom_widget.add<GUI::Button>();
     ok_button.set_text("OK");
@@ -176,6 +170,13 @@ int main(int argc, char** argv)
         app->quit();
     };
 
+    auto& apply_button = bottom_widget.add<GUI::Button>();
+    apply_button.set_text("Apply");
+    apply_button.set_fixed_width(60);
+    apply_button.on_click = [&](auto) {
+        apply_settings(false);
+    };
+
     auto quit_action = GUI::CommonActions::make_quit_action(
         [&](auto&) {
             app->quit();
@@ -183,13 +184,11 @@ int main(int argc, char** argv)
 
     auto menubar = GUI::Menubar::construct();
 
-    auto& file_menu = menubar->add_menu("&File");
+    auto& file_menu = window->add_menu("&File");
     file_menu.add_action(quit_action);
 
-    auto& help_menu = menubar->add_menu("&Help");
+    auto& help_menu = window->add_menu("&Help");
     help_menu.add_action(GUI::CommonActions::make_about_action("Keyboard Settings", app_icon, window));
-
-    window->set_menubar(move(menubar));
 
     window->show();
 

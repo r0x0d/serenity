@@ -30,7 +30,6 @@
 #include <LibGUI/Widget.h>
 #include <LibJS/Interpreter.h>
 #include <LibWeb/Dump.h>
-#include <LibWeb/InProcessWebView.h>
 #include <LibWeb/Layout/InitialContainingBlockBox.h>
 #include <LibWeb/Loader/ResourceLoader.h>
 #include <LibWeb/OutOfProcessWebView.h>
@@ -123,13 +122,11 @@ BrowserWindow::~BrowserWindow()
 
 void BrowserWindow::build_menus()
 {
-    auto menubar = GUI::Menubar::construct();
-
-    auto& file_menu = menubar->add_menu("&File");
+    auto& file_menu = add_menu("&File");
     file_menu.add_action(WindowActions::the().create_new_tab_action());
 
     auto close_tab_action = GUI::Action::create(
-        "&Close Tab", { Mod_Ctrl, Key_W }, Gfx::Bitmap::load_from_file("/res/icons/16x16/close-tab.png"), [this](auto&) {
+        "&Close Tab", { Mod_Ctrl, Key_W }, Gfx::Bitmap::try_load_from_file("/res/icons/16x16/close-tab.png"), [this](auto&) {
             active_tab().on_tab_close_request(active_tab());
         },
         this);
@@ -141,7 +138,7 @@ void BrowserWindow::build_menus()
         GUI::Application::the()->quit();
     }));
 
-    auto& view_menu = menubar->add_menu("&View");
+    auto& view_menu = add_menu("&View");
     view_menu.add_action(WindowActions::the().show_bookmarks_bar_action());
     view_menu.add_separator();
     view_menu.add_action(GUI::CommonActions::make_fullscreen_action(
@@ -169,7 +166,7 @@ void BrowserWindow::build_menus()
     m_reload_action = GUI::CommonActions::make_reload_action([this](auto&) { active_tab().reload(); }, this);
     m_reload_action->set_status_tip("Reload current page");
 
-    auto& go_menu = menubar->add_menu("&Go");
+    auto& go_menu = add_menu("&Go");
     go_menu.add_action(*m_go_back_action);
     go_menu.add_action(*m_go_forward_action);
     go_menu.add_action(*m_go_home_action);
@@ -221,7 +218,7 @@ void BrowserWindow::build_menus()
                     tab.m_dom_inspector_window = GUI::Window::construct(this);
                     tab.m_dom_inspector_window->resize(300, 500);
                     tab.m_dom_inspector_window->set_title("DOM inspector");
-                    tab.m_dom_inspector_window->set_icon(Gfx::Bitmap::load_from_file("/res/icons/16x16/inspector-object.png"));
+                    tab.m_dom_inspector_window->set_icon(Gfx::Bitmap::try_load_from_file("/res/icons/16x16/inspector-object.png"));
                     tab.m_dom_inspector_window->set_main_widget<InspectorWidget>();
                 }
                 auto* inspector_widget = static_cast<InspectorWidget*>(tab.m_dom_inspector_window->main_widget());
@@ -235,7 +232,7 @@ void BrowserWindow::build_menus()
         this);
     m_inspect_dom_tree_action->set_status_tip("Open DOM inspector window for this page");
 
-    auto& inspect_menu = menubar->add_menu("&Inspect");
+    auto& inspect_menu = add_menu("&Inspect");
     inspect_menu.add_action(*m_view_source_action);
     inspect_menu.add_action(*m_inspect_dom_tree_action);
 
@@ -247,7 +244,7 @@ void BrowserWindow::build_menus()
                     tab.m_console_window = GUI::Window::construct(this);
                     tab.m_console_window->resize(500, 300);
                     tab.m_console_window->set_title("JS Console");
-                    tab.m_console_window->set_icon(Gfx::Bitmap::load_from_file("/res/icons/16x16/filetype-javascript.png"));
+                    tab.m_console_window->set_icon(Gfx::Bitmap::try_load_from_file("/res/icons/16x16/filetype-javascript.png"));
                     tab.m_console_window->set_main_widget<ConsoleWidget>();
                 }
                 auto* console_widget = static_cast<ConsoleWidget*>(tab.m_console_window->main_widget());
@@ -259,7 +256,7 @@ void BrowserWindow::build_menus()
                     tab.m_console_window = GUI::Window::construct(this);
                     tab.m_console_window->resize(500, 300);
                     tab.m_console_window->set_title("JS Console");
-                    tab.m_console_window->set_icon(Gfx::Bitmap::load_from_file("/res/icons/16x16/filetype-javascript.png"));
+                    tab.m_console_window->set_icon(Gfx::Bitmap::try_load_from_file("/res/icons/16x16/filetype-javascript.png"));
                     tab.m_console_window->set_main_widget<ConsoleWidget>();
                 }
                 auto* console_widget = static_cast<ConsoleWidget*>(tab.m_console_window->main_widget());
@@ -276,7 +273,7 @@ void BrowserWindow::build_menus()
     js_console_action->set_status_tip("Open JavaScript console for this page");
     inspect_menu.add_action(js_console_action);
 
-    auto& settings_menu = menubar->add_menu("&Settings");
+    auto& settings_menu = add_menu("&Settings");
 
     m_change_homepage_action = GUI::Action::create(
         "Set Homepage URL", [this](auto&) {
@@ -335,7 +332,7 @@ void BrowserWindow::build_menus()
     add_search_engine("Google", "https://google.com/search?q={}");
     add_search_engine("Yandex", "https://yandex.com/search/?text={}");
 
-    auto custom_search_engine_action = GUI::Action::create_checkable("Custom", [&](auto& action) {
+    auto custom_search_engine_action = GUI::Action::create_checkable("Custom...", [&](auto& action) {
         String search_engine;
         if (GUI::InputBox::show(this, search_engine, "Enter URL template:", "Custom Search Engine", "https://host/search?q={}") != GUI::InputBox::ExecOK || search_engine.is_empty()) {
             m_disable_search_engine_action->activate();
@@ -362,7 +359,7 @@ void BrowserWindow::build_menus()
         custom_search_engine_action->set_status_tip(g_search_engine);
     }
 
-    auto& debug_menu = menubar->add_menu("&Debug");
+    auto& debug_menu = add_menu("&Debug");
     debug_menu.add_action(GUI::Action::create(
         "Dump &DOM Tree", [this](auto&) {
             auto& tab = active_tab();
@@ -473,7 +470,7 @@ void BrowserWindow::build_menus()
     add_user_agent("Firefox Android Mobile", "Mozilla/5.0 (Android 11; Mobile; rv:68.0) Gecko/68.0 Firefox/86.0");
     add_user_agent("Safari iOS Mobile", "Mozilla/5.0 (iPhone; CPU iPhone OS 14_4_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1");
 
-    auto custom_user_agent = GUI::Action::create_checkable("Custom", [this](auto& action) {
+    auto custom_user_agent = GUI::Action::create_checkable("Custom...", [this](auto& action) {
         auto& tab = active_tab();
         String user_agent;
         if (GUI::InputBox::show(this, user_agent, "Enter User Agent:", "Custom User Agent") != GUI::InputBox::ExecOK || user_agent.is_empty() || user_agent.is_null()) {
@@ -490,10 +487,8 @@ void BrowserWindow::build_menus()
     spoof_user_agent_menu.add_action(custom_user_agent);
     m_user_agent_spoof_actions.add_action(custom_user_agent);
 
-    auto& help_menu = menubar->add_menu("&Help");
+    auto& help_menu = add_menu("&Help");
     help_menu.add_action(WindowActions::the().about_action());
-
-    set_menubar(move(menubar));
 }
 
 GUI::TabWidget& BrowserWindow::tab_widget()
@@ -520,10 +515,6 @@ void BrowserWindow::create_new_tab(URL url, bool activate)
 
     m_tab_widget->set_bar_visible(!is_fullscreen() && m_tab_widget->children().size() > 1);
 
-    auto default_favicon = Gfx::Bitmap::load_from_file("/res/icons/16x16/filetype-html.png");
-    VERIFY(default_favicon);
-    m_tab_widget->set_tab_icon(new_tab, default_favicon);
-
     new_tab.on_title_change = [this, &new_tab](auto& title) {
         m_tab_widget->set_tab_title(new_tab, title);
         if (m_tab_widget->active_widget() == &new_tab)
@@ -547,6 +538,14 @@ void BrowserWindow::create_new_tab(URL url, bool activate)
         });
     };
 
+    new_tab.on_tab_close_other_request = [this](auto& tab) {
+        m_tab_widget->deferred_invoke([this, &tab](auto&) {
+            m_tab_widget->remove_all_tabs_except(tab);
+            VERIFY(m_tab_widget->children().size() == 1);
+            m_tab_widget->set_bar_visible(false);
+        });
+    };
+
     new_tab.on_get_cookie = [this](auto& url, auto source) -> String {
         return m_cookie_jar.get_cookie(url, source);
     };
@@ -561,7 +560,7 @@ void BrowserWindow::create_new_tab(URL url, bool activate)
 
     new_tab.load(url);
 
-    dbgln("Added new tab {:p}, loading {}", &new_tab, url);
+    dbgln_if(SPAM_DEBUG, "Added new tab {:p}, loading {}", &new_tab, url);
 
     if (activate)
         m_tab_widget->set_active_widget(&new_tab);

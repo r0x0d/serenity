@@ -11,6 +11,7 @@ namespace Kernel {
 
 KResultOr<FlatPtr> Process::sys$sysconf(int name)
 {
+    VERIFY_NO_PROCESS_BIG_LOCK(this)
     switch (name) {
     case _SC_MONOTONIC_CLOCK:
         return 1;

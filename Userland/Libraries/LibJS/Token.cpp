@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2020, Stephan Unverwerth <s.unverwerth@serenityos.org>
- * Copyright (c) 2020, Linus Groh <linusg@serenityos.org>
+ * Copyright (c) 2020-2021, Linus Groh <linusg@serenityos.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -10,6 +10,7 @@
 #include <AK/CharacterTypes.h>
 #include <AK/GenericLexer.h>
 #include <AK/StringBuilder.h>
+#include <AK/Utf16View.h>
 
 namespace JS {
 
@@ -102,6 +103,16 @@ String Token::string_value(StringValueStatus& status) const
         return {};
     };
 
+    auto decode_surrogate = [&lexer]() -> Optional<u16> {
+        u16 surrogate = 0;
+        for (int j = 0; j < 4; ++j) {
+            if (!lexer.next_is(is_ascii_hex_digit))
+                return {};
+            surrogate = (surrogate << 4u) | hex2int(lexer.consume());
+        }
+        return surrogate;
+    };
+
     StringBuilder builder;
     while (!lexer.is_eof()) {
         // No escape, consume one char and continue
@@ -119,7 +130,7 @@ String Token::string_value(StringValueStatus& status) const
             continue;
         }
         // Line continuation
-        if (lexer.next_is(LINE_SEPARATOR) || lexer.next_is(PARAGRAPH_SEPARATOR)) {
+        if (lexer.next_is(LINE_SEPARATOR_STRING) || lexer.next_is(PARAGRAPH_SEPARATOR_STRING)) {
             lexer.ignore(3);
             continue;
         }
@@ -157,10 +168,24 @@ String Token::string_value(StringValueStatus& status) const
                 }
                 lexer.ignore();
             } else {
-                for (int j = 0; j < 4; ++j) {
-                    if (!lexer.next_is(is_ascii_hex_digit))
+                auto high_surrogate = decode_surrogate();
+                if (!high_surrogate.has_value())
+                    return encoding_failure(StringValueStatus::MalformedUnicodeEscape);
+
+                if (Utf16View::is_high_surrogate(*high_surrogate) && lexer.consume_specific("\\u"sv)) {
+                    auto low_surrogate = decode_surrogate();
+                    if (!low_surrogate.has_value())
                         return encoding_failure(StringValueStatus::MalformedUnicodeEscape);
-                    code_point = (code_point << 4u) | hex2int(lexer.consume());
+
+                    if (Utf16View::is_low_surrogate(*low_surrogate)) {
+                        code_point = Utf16View::decode_surrogate_pair(*high_surrogate, *low_surrogate);
+                    } else {
+                        builder.append_code_point(*high_surrogate);
+                        code_point = *low_surrogate;
+                    }
+
+                } else {
+                    code_point = *high_surrogate;
                 }
             }
             builder.append_code_point(code_point);
@@ -222,6 +247,7 @@ bool Token::is_identifier_name() const
         || m_type == TokenType::Class
         || m_type == TokenType::Const
         || m_type == TokenType::Continue
+        || m_type == TokenType::Debugger
         || m_type == TokenType::Default
         || m_type == TokenType::Delete
         || m_type == TokenType::Do
@@ -236,7 +262,6 @@ bool Token::is_identifier_name() const
         || m_type == TokenType::Import
         || m_type == TokenType::In
         || m_type == TokenType::Instanceof
-        || m_type == TokenType::Interface
         || m_type == TokenType::Let
         || m_type == TokenType::New
         || m_type == TokenType::NullLiteral
@@ -250,12 +275,13 @@ bool Token::is_identifier_name() const
         || m_type == TokenType::Var
         || m_type == TokenType::Void
         || m_type == TokenType::While
+        || m_type == TokenType::With
         || m_type == TokenType::Yield;
 }
 
 bool Token::trivia_contains_line_terminator() const
 {
-    return m_trivia.contains('\n') || m_trivia.contains('\r') || m_trivia.contains(LINE_SEPARATOR) || m_trivia.contains(PARAGRAPH_SEPARATOR);
+    return m_trivia.contains('\n') || m_trivia.contains('\r') || m_trivia.contains(LINE_SEPARATOR_STRING) || m_trivia.contains(PARAGRAPH_SEPARATOR_STRING);
 }
 
 }

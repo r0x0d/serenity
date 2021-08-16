@@ -65,9 +65,8 @@ TaskbarWindow::TaskbarWindow(NonnullRefPtr<GUI::Menu> start_menu)
     main_widget.layout()->set_margins({ 3, 3, 1, 1 });
 
     m_start_button = GUI::Button::construct("Serenity");
-    m_start_button->set_font(Gfx::FontDatabase::default_font().bold_variant());
+    set_start_button_font(Gfx::FontDatabase::default_font().bold_variant());
     m_start_button->set_icon_spacing(0);
-    m_start_button->set_fixed_size(80, 21);
     auto app_icon = GUI::Icon::default_icon("ladyball");
     m_start_button->set_icon(app_icon.bitmap_for_size(16));
     m_start_button->set_menu(m_start_menu);
@@ -79,7 +78,7 @@ TaskbarWindow::TaskbarWindow(NonnullRefPtr<GUI::Menu> start_menu)
     m_task_button_container->set_layout<GUI::HorizontalBoxLayout>();
     m_task_button_container->layout()->set_spacing(3);
 
-    m_default_icon = Gfx::Bitmap::load_from_file("/res/icons/16x16/window.png");
+    m_default_icon = Gfx::Bitmap::try_load_from_file("/res/icons/16x16/window.png");
 
     m_applet_area_container = main_widget.add<GUI::Frame>();
     m_applet_area_container->set_frame_thickness(1);
@@ -128,13 +127,14 @@ void TaskbarWindow::create_quick_launch_bar()
         if (!af->is_valid())
             continue;
         auto app_executable = af->executable();
+        auto app_run_in_terminal = af->run_in_terminal();
         const int button_size = 24;
         auto& button = quick_launch_bar.add<GUI::Button>();
         button.set_fixed_size(button_size, button_size);
         button.set_button_style(Gfx::ButtonStyle::Coolbar);
         button.set_icon(af->icon().bitmap_for_size(16));
         button.set_tooltip(af->name());
-        button.on_click = [app_executable](auto) {
+        button.on_click = [app_executable, app_run_in_terminal](auto) {
             pid_t pid = fork();
             if (pid < 0) {
                 perror("fork");
@@ -143,7 +143,10 @@ void TaskbarWindow::create_quick_launch_bar()
                     perror("chdir");
                     exit(1);
                 }
-                execl(app_executable.characters(), app_executable.characters(), nullptr);
+                if (app_run_in_terminal)
+                    execl("/bin/Terminal", "Terminal", "-e", app_executable.characters(), nullptr);
+                else
+                    execl(app_executable.characters(), app_executable.characters(), nullptr);
                 perror("execl");
                 VERIFY_NOT_REACHED();
             } else {
@@ -266,7 +269,7 @@ void TaskbarWindow::event(Core::Event& event)
         break;
     }
     case GUI::Event::FontsChange:
-        m_start_button->set_font(Gfx::FontDatabase::default_font().bold_variant());
+        set_start_button_font(Gfx::FontDatabase::default_font().bold_variant());
         break;
     }
     Window::event(event);
@@ -408,4 +411,10 @@ void TaskbarWindow::virtual_desktop_change_event(unsigned current_row, unsigned 
         if (auto* button = window.button())
             button->set_visible(is_window_on_current_virtual_desktop(window));
     });
+}
+
+void TaskbarWindow::set_start_button_font(Gfx::Font const& font)
+{
+    m_start_button->set_font(font);
+    m_start_button->set_fixed_size(font.width(m_start_button->text()) + 30, 21);
 }

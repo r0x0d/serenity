@@ -8,6 +8,7 @@
 #include <Kernel/FileSystem/DevFS.h>
 #include <Kernel/FileSystem/DevPtsFS.h>
 #include <Kernel/FileSystem/Ext2FileSystem.h>
+#include <Kernel/FileSystem/ISO9660FileSystem.h>
 #include <Kernel/FileSystem/Plan9FileSystem.h>
 #include <Kernel/FileSystem/ProcFS.h>
 #include <Kernel/FileSystem/SysFS.h>
@@ -19,6 +20,7 @@ namespace Kernel {
 
 KResultOr<FlatPtr> Process::sys$mount(Userspace<const Syscall::SC_mount_params*> user_params)
 {
+    VERIFY_PROCESS_BIG_LOCK_ACQUIRED(this)
     if (!is_superuser())
         return EPERM;
 
@@ -29,12 +31,15 @@ KResultOr<FlatPtr> Process::sys$mount(Userspace<const Syscall::SC_mount_params*>
         return EFAULT;
 
     auto source_fd = params.source_fd;
-    auto target = copy_string_from_user(params.target);
-    if (target.is_null())
-        return EFAULT;
-    auto fs_type = copy_string_from_user(params.fs_type);
-    if (fs_type.is_null())
-        return EFAULT;
+    auto target_or_error = try_copy_kstring_from_user(params.target);
+    if (target_or_error.is_error())
+        return target_or_error.error();
+    auto fs_type_or_error = try_copy_kstring_from_user(params.fs_type);
+    if (fs_type_or_error.is_error())
+        return fs_type_or_error.error();
+
+    auto target = target_or_error.value()->view();
+    auto fs_type = fs_type_or_error.value()->view();
 
     auto description = fds().file_description(source_fd);
     if (!description.is_null())
@@ -66,7 +71,7 @@ KResultOr<FlatPtr> Process::sys$mount(Userspace<const Syscall::SC_mount_params*>
 
     RefPtr<FileSystem> fs;
 
-    if (fs_type == "ext2" || fs_type == "Ext2FS") {
+    if (fs_type == "ext2"sv || fs_type == "Ext2FS"sv) {
         if (description.is_null())
             return EBADF;
         if (!description->file().is_block_device())
@@ -79,21 +84,39 @@ KResultOr<FlatPtr> Process::sys$mount(Userspace<const Syscall::SC_mount_params*>
         dbgln("mount: attempting to mount {} on {}", description->absolute_path(), target);
 
         fs = Ext2FS::create(*description);
-    } else if (fs_type == "9p" || fs_type == "Plan9FS") {
+    } else if (fs_type == "9p"sv || fs_type == "Plan9FS"sv) {
         if (description.is_null())
             return EBADF;
 
         fs = Plan9FS::create(*description);
-    } else if (fs_type == "proc" || fs_type == "ProcFS") {
-        fs = ProcFS::create();
-    } else if (fs_type == "devpts" || fs_type == "DevPtsFS") {
+    } else if (fs_type == "proc"sv || fs_type == "ProcFS"sv) {
+        auto maybe_fs = ProcFS::try_create();
+        if (maybe_fs.is_error())
+            return maybe_fs.error();
+        fs = maybe_fs.release_value();
+    } else if (fs_type == "devpts"sv || fs_type == "DevPtsFS"sv) {
         fs = DevPtsFS::create();
-    } else if (fs_type == "dev" || fs_type == "DevFS") {
+    } else if (fs_type == "dev"sv || fs_type == "DevFS"sv) {
         fs = DevFS::create();
-    } else if (fs_type == "sys" || fs_type == "SysFS") {
+    } else if (fs_type == "sys"sv || fs_type == "SysFS"sv) {
         fs = SysFS::create();
-    } else if (fs_type == "tmp" || fs_type == "TmpFS") {
+    } else if (fs_type == "tmp"sv || fs_type == "TmpFS"sv) {
         fs = TmpFS::create();
+    } else if (fs_type == "iso9660"sv || fs_type == "ISO9660FS"sv) {
+        if (description.is_null())
+            return EBADF;
+        if (!description->file().is_seekable()) {
+            dbgln("mount: this is not a seekable file");
+            return ENODEV;
+        }
+
+        dbgln("mount: attempting to mount {} on {}", description->absolute_path(), target);
+
+        auto maybe_fs = ISO9660FS::try_create(*description);
+        if (maybe_fs.is_error()) {
+            return maybe_fs.error();
+        }
+        fs = maybe_fs.release_value();
     } else {
         return ENODEV;
     }
@@ -101,9 +124,9 @@ KResultOr<FlatPtr> Process::sys$mount(Userspace<const Syscall::SC_mount_params*>
     if (!fs)
         return ENOMEM;
 
-    if (!fs->initialize()) {
+    if (auto result = fs->initialize(); result.is_error()) {
         dbgln("mount: failed to initialize {} filesystem, fd={}", fs_type, source_fd);
-        return ENODEV;
+        return result;
     }
 
     auto result = VirtualFileSystem::the().mount(fs.release_nonnull(), target_custody, params.flags);
@@ -116,6 +139,7 @@ KResultOr<FlatPtr> Process::sys$mount(Userspace<const Syscall::SC_mount_params*>
 
 KResultOr<FlatPtr> Process::sys$umount(Userspace<const char*> user_mountpoint, size_t mountpoint_length)
 {
+    VERIFY_PROCESS_BIG_LOCK_ACQUIRED(this)
     if (!is_superuser())
         return EPERM;
 

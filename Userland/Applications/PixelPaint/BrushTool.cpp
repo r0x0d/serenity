@@ -11,7 +11,7 @@
 #include <LibGUI/BoxLayout.h>
 #include <LibGUI/Label.h>
 #include <LibGUI/Painter.h>
-#include <LibGUI/Slider.h>
+#include <LibGUI/ValueSlider.h>
 #include <LibGfx/Color.h>
 #include <LibGfx/Rect.h>
 
@@ -35,7 +35,7 @@ void BrushTool::on_mousedown(Layer& layer, GUI::MouseEvent& event, GUI::MouseEve
     for (int i = 0; i < first_draw_opacity; ++i)
         draw_point(layer.bitmap(), m_editor->color_for(event), event.position());
 
-    layer.did_modify_bitmap();
+    layer.did_modify_bitmap(Gfx::IntRect::centered_on(event.position(), Gfx::IntSize { m_size * 2, m_size * 2 }));
     m_last_position = event.position();
 }
 
@@ -126,11 +126,11 @@ GUI::Widget* BrushTool::get_properties_widget()
         size_label.set_text_alignment(Gfx::TextAlignment::CenterLeft);
         size_label.set_fixed_size(80, 20);
 
-        auto& size_slider = size_container.add<GUI::HorizontalSlider>();
-        size_slider.set_fixed_height(20);
+        auto& size_slider = size_container.add<GUI::ValueSlider>(Orientation::Horizontal, "px");
         size_slider.set_range(1, 100);
         size_slider.set_value(m_size);
-        size_slider.on_change = [this](int value) {
+
+        size_slider.on_change = [&](int value) {
             m_size = value;
         };
 
@@ -142,11 +142,11 @@ GUI::Widget* BrushTool::get_properties_widget()
         hardness_label.set_text_alignment(Gfx::TextAlignment::CenterLeft);
         hardness_label.set_fixed_size(80, 20);
 
-        auto& hardness_slider = hardness_container.add<GUI::HorizontalSlider>();
-        hardness_slider.set_fixed_height(20);
+        auto& hardness_slider = hardness_container.add<GUI::ValueSlider>(Orientation::Horizontal, "%");
         hardness_slider.set_range(1, 99);
         hardness_slider.set_value(m_hardness);
-        hardness_slider.on_change = [this](int value) {
+
+        hardness_slider.on_change = [&](int value) {
             m_hardness = value;
         };
     }

@@ -1,0 +1,12 @@
+trigger:
+  - master
+
+jobs:
+  - template: Meta/Azure/Lagom.yml
+    parameters:
+      os: 'Linux'
+
+  - template: Meta/Azure/Lagom.yml
+    parameters:
+      os: 'macOS'
+      allow_test_failures: true

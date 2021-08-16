@@ -10,6 +10,7 @@ namespace Kernel {
 
 KResultOr<FlatPtr> Process::sys$seteuid(uid_t new_euid)
 {
+    VERIFY_PROCESS_BIG_LOCK_ACQUIRED(this)
     REQUIRE_PROMISE(id);
 
     if (new_euid != uid() && new_euid != suid() && !is_superuser())
@@ -20,12 +21,13 @@ KResultOr<FlatPtr> Process::sys$seteuid(uid_t new_euid)
 
     ProtectedDataMutationScope scope { *this };
 
-    m_euid = new_euid;
+    m_protected_values.euid = new_euid;
     return 0;
 }
 
 KResultOr<FlatPtr> Process::sys$setegid(gid_t new_egid)
 {
+    VERIFY_PROCESS_BIG_LOCK_ACQUIRED(this)
     REQUIRE_PROMISE(id);
 
     if (new_egid != gid() && new_egid != sgid() && !is_superuser())
@@ -35,12 +37,13 @@ KResultOr<FlatPtr> Process::sys$setegid(gid_t new_egid)
         set_dumpable(false);
 
     ProtectedDataMutationScope scope { *this };
-    m_egid = new_egid;
+    m_protected_values.egid = new_egid;
     return 0;
 }
 
 KResultOr<FlatPtr> Process::sys$setuid(uid_t new_uid)
 {
+    VERIFY_PROCESS_BIG_LOCK_ACQUIRED(this)
     REQUIRE_PROMISE(id);
 
     if (new_uid != uid() && new_uid != euid() && !is_superuser())
@@ -50,14 +53,15 @@ KResultOr<FlatPtr> Process::sys$setuid(uid_t new_uid)
         set_dumpable(false);
 
     ProtectedDataMutationScope scope { *this };
-    m_uid = new_uid;
-    m_euid = new_uid;
-    m_suid = new_uid;
+    m_protected_values.uid = new_uid;
+    m_protected_values.euid = new_uid;
+    m_protected_values.suid = new_uid;
     return 0;
 }
 
 KResultOr<FlatPtr> Process::sys$setgid(gid_t new_gid)
 {
+    VERIFY_PROCESS_BIG_LOCK_ACQUIRED(this)
     REQUIRE_PROMISE(id);
 
     if (new_gid != gid() && new_gid != egid() && !is_superuser())
@@ -67,14 +71,15 @@ KResultOr<FlatPtr> Process::sys$setgid(gid_t new_gid)
         set_dumpable(false);
 
     ProtectedDataMutationScope scope { *this };
-    m_gid = new_gid;
-    m_egid = new_gid;
-    m_sgid = new_gid;
+    m_protected_values.gid = new_gid;
+    m_protected_values.egid = new_gid;
+    m_protected_values.sgid = new_gid;
     return 0;
 }
 
 KResultOr<FlatPtr> Process::sys$setreuid(uid_t new_ruid, uid_t new_euid)
 {
+    VERIFY_PROCESS_BIG_LOCK_ACQUIRED(this)
     REQUIRE_PROMISE(id);
 
     if (new_ruid == (uid_t)-1)
@@ -93,13 +98,14 @@ KResultOr<FlatPtr> Process::sys$setreuid(uid_t new_ruid, uid_t new_euid)
         set_dumpable(false);
 
     ProtectedDataMutationScope scope { *this };
-    m_uid = new_ruid;
-    m_euid = new_euid;
+    m_protected_values.uid = new_ruid;
+    m_protected_values.euid = new_euid;
     return 0;
 }
 
 KResultOr<FlatPtr> Process::sys$setresuid(uid_t new_ruid, uid_t new_euid, uid_t new_suid)
 {
+    VERIFY_PROCESS_BIG_LOCK_ACQUIRED(this)
     REQUIRE_PROMISE(id);
 
     if (new_ruid == (uid_t)-1)
@@ -117,14 +123,15 @@ KResultOr<FlatPtr> Process::sys$setresuid(uid_t new_ruid, uid_t new_euid, uid_t 
         set_dumpable(false);
 
     ProtectedDataMutationScope scope { *this };
-    m_uid = new_ruid;
-    m_euid = new_euid;
-    m_suid = new_suid;
+    m_protected_values.uid = new_ruid;
+    m_protected_values.euid = new_euid;
+    m_protected_values.suid = new_suid;
     return 0;
 }
 
 KResultOr<FlatPtr> Process::sys$setresgid(gid_t new_rgid, gid_t new_egid, gid_t new_sgid)
 {
+    VERIFY_PROCESS_BIG_LOCK_ACQUIRED(this)
     REQUIRE_PROMISE(id);
 
     if (new_rgid == (gid_t)-1)
@@ -142,21 +149,22 @@ KResultOr<FlatPtr> Process::sys$setresgid(gid_t new_rgid, gid_t new_egid, gid_t 
         set_dumpable(false);
 
     ProtectedDataMutationScope scope { *this };
-    m_gid = new_rgid;
-    m_egid = new_egid;
-    m_sgid = new_sgid;
+    m_protected_values.gid = new_rgid;
+    m_protected_values.egid = new_egid;
+    m_protected_values.sgid = new_sgid;
     return 0;
 }
 
 KResultOr<FlatPtr> Process::sys$setgroups(size_t count, Userspace<const gid_t*> user_gids)
 {
+    VERIFY_PROCESS_BIG_LOCK_ACQUIRED(this)
     REQUIRE_PROMISE(id);
     if (!is_superuser())
         return EPERM;
 
     if (!count) {
         ProtectedDataMutationScope scope { *this };
-        m_extra_gids.clear();
+        m_protected_values.extra_gids.clear();
         return 0;
     }
 
@@ -173,13 +181,13 @@ KResultOr<FlatPtr> Process::sys$setgroups(size_t count, Userspace<const gid_t*> 
     }
 
     ProtectedDataMutationScope scope { *this };
-    if (!m_extra_gids.try_resize(unique_extra_gids.size()))
+    if (!m_protected_values.extra_gids.try_resize(unique_extra_gids.size()))
         return ENOMEM;
     size_t i = 0;
     for (auto& extra_gid : unique_extra_gids) {
         if (extra_gid == gid())
             continue;
-        m_extra_gids[i++] = extra_gid;
+        m_protected_values.extra_gids[i++] = extra_gid;
     }
     return 0;
 }

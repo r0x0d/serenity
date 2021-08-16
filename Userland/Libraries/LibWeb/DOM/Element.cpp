@@ -6,10 +6,9 @@
 
 #include <AK/AnyOf.h>
 #include <AK/StringBuilder.h>
-#include <LibWeb/CSS/Parser/DeprecatedCSSParser.h>
+#include <LibWeb/CSS/Parser/Parser.h>
 #include <LibWeb/CSS/PropertyID.h>
 #include <LibWeb/CSS/StyleInvalidator.h>
-#include <LibWeb/CSS/StyleResolver.h>
 #include <LibWeb/DOM/DOMException.h>
 #include <LibWeb/DOM/Document.h>
 #include <LibWeb/DOM/Element.h>
@@ -92,7 +91,7 @@ void Element::remove_attribute(const FlyString& name)
 
 bool Element::has_class(const FlyString& class_name, CaseSensitivity case_sensitivity) const
 {
-    return any_of(m_classes.begin(), m_classes.end(), [&](auto& it) {
+    return any_of(m_classes, [&](auto& it) {
         return case_sensitivity == CaseSensitivity::CaseSensitive
             ? it == class_name
             : it.to_lowercase() == class_name.to_lowercase();
@@ -159,8 +158,11 @@ void Element::parse_attribute(const FlyString& name, const String& value)
             m_classes.unchecked_append(new_class);
         }
     } else if (name == HTML::AttributeNames::style) {
-        m_inline_style = parse_css_declaration(CSS::DeprecatedParsingContext(document()), value);
-        set_needs_style_update(true);
+        auto parsed_style = parse_css_declaration(CSS::ParsingContext(document()), value);
+        if (!parsed_style.is_null()) {
+            m_inline_style = CSS::ElementInlineCSSStyleDeclaration::create_and_take_properties_from(*this, parsed_style.release_nonnull());
+            set_needs_style_update(true);
+        }
     }
 }
 

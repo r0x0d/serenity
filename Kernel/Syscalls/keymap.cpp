@@ -13,6 +13,7 @@ constexpr size_t map_name_max_size = 50;
 
 KResultOr<FlatPtr> Process::sys$setkeymap(Userspace<const Syscall::SC_setkeymap_params*> user_params)
 {
+    VERIFY_PROCESS_BIG_LOCK_ACQUIRED(this);
     REQUIRE_PROMISE(setkeymap);
 
     if (!is_superuser())
@@ -47,6 +48,7 @@ KResultOr<FlatPtr> Process::sys$setkeymap(Userspace<const Syscall::SC_setkeymap_
 
 KResultOr<FlatPtr> Process::sys$getkeymap(Userspace<const Syscall::SC_getkeymap_params*> user_params)
 {
+    VERIFY_NO_PROCESS_BIG_LOCK(this);
     REQUIRE_PROMISE(getkeymap);
 
     Syscall::SC_getkeymap_params params;

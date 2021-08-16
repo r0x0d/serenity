@@ -14,9 +14,6 @@
 #include <LibCore/File.h>
 #include <LibCore/Socket.h>
 #include <fcntl.h>
-#include <grp.h>
-#include <libgen.h>
-#include <pwd.h>
 #include <sched.h>
 #include <stdio.h>
 #include <sys/ioctl.h>
@@ -134,6 +131,11 @@ void Service::activate()
 
 void Service::spawn(int socket_fd)
 {
+    if (!Core::File::exists(m_executable_path)) {
+        dbgln("{}: binary \"{}\" does not exist, skipping service.", name(), m_executable_path);
+        return;
+    }
+
     dbgln_if(SERVICE_DEBUG, "Spawning {}", name());
 
     m_run_timer.start();

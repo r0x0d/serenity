@@ -7,7 +7,6 @@
 #include <AK/StdLibExtras.h>
 #include <Kernel/Arch/x86/Processor.h>
 #include <Kernel/Arch/x86/TrapFrame.h>
-#include <Kernel/Panic.h>
 #include <Kernel/Process.h>
 #include <Kernel/Random.h>
 #include <Kernel/Sections.h>
@@ -71,8 +70,8 @@ FlatPtr Processor::init_context(Thread& thread, bool leave_crit)
     if (leave_crit) {
         // Leave the critical section we set up in in Process::exec,
         // but because we still have the scheduler lock we should end up with 1
-        m_in_critical--; // leave it without triggering anything or restoring flags
-        VERIFY(in_critical() == 1);
+        VERIFY(in_critical() == 2);
+        m_in_critical = 1; // leave it without triggering anything or restoring flags
     }
 
     u32 kernel_stack_top = thread.kernel_stack_top();
@@ -186,6 +185,8 @@ void Processor::switch_context(Thread*& from_thread, Thread*& to_thread)
     VERIFY(is_kernel_mode());
 
     dbgln_if(CONTEXT_SWITCH_DEBUG, "switch_context --> switching out of: {} {}", VirtualAddress(from_thread), *from_thread);
+
+    // m_in_critical is restored in enter_thread_context
     from_thread->save_critical(m_in_critical);
 
     // clang-format off
@@ -231,8 +232,6 @@ void Processor::switch_context(Thread*& from_thread, Thread*& to_thread)
     // clang-format on
 
     dbgln_if(CONTEXT_SWITCH_DEBUG, "switch_context <-- from {} {} to {} {}", VirtualAddress(from_thread), *from_thread, VirtualAddress(to_thread), *to_thread);
-
-    Processor::current().restore_in_critical(to_thread->saved_critical());
 }
 
 UNMAP_AFTER_INIT void Processor::initialize_context_switching(Thread& initial_thread)

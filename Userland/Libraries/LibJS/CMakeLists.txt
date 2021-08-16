@@ -72,6 +72,7 @@ set(SOURCES
     Runtime/GlobalEnvironment.cpp
     Runtime/GlobalObject.cpp
     Runtime/IndexedProperties.cpp
+    Runtime/Intl/Intl.cpp
     Runtime/IteratorOperations.cpp
     Runtime/IteratorPrototype.cpp
     Runtime/JSONObject.cpp
@@ -106,6 +107,8 @@ set(SOURCES
     Runtime/RegExpConstructor.cpp
     Runtime/RegExpObject.cpp
     Runtime/RegExpPrototype.cpp
+    Runtime/RegExpStringIterator.cpp
+    Runtime/RegExpStringIteratorPrototype.cpp
     Runtime/Set.cpp
     Runtime/SetConstructor.cpp
     Runtime/SetIterator.cpp
@@ -125,22 +128,42 @@ set(SOURCES
     Runtime/Temporal/Calendar.cpp
     Runtime/Temporal/CalendarConstructor.cpp
     Runtime/Temporal/CalendarPrototype.cpp
+    Runtime/Temporal/Duration.cpp
+    Runtime/Temporal/DurationConstructor.cpp
+    Runtime/Temporal/DurationPrototype.cpp
     Runtime/Temporal/Instant.cpp
     Runtime/Temporal/InstantConstructor.cpp
     Runtime/Temporal/InstantPrototype.cpp
     Runtime/Temporal/Now.cpp
     Runtime/Temporal/PlainDate.cpp
+    Runtime/Temporal/PlainDateConstructor.cpp
+    Runtime/Temporal/PlainDatePrototype.cpp
     Runtime/Temporal/PlainDateTime.cpp
+    Runtime/Temporal/PlainDateTimeConstructor.cpp
+    Runtime/Temporal/PlainDateTimePrototype.cpp
+    Runtime/Temporal/PlainMonthDay.cpp
+    Runtime/Temporal/PlainMonthDayConstructor.cpp
+    Runtime/Temporal/PlainMonthDayPrototype.cpp
     Runtime/Temporal/PlainTime.cpp
+    Runtime/Temporal/PlainTimeConstructor.cpp
+    Runtime/Temporal/PlainTimePrototype.cpp
+    Runtime/Temporal/PlainYearMonth.cpp
+    Runtime/Temporal/PlainYearMonthConstructor.cpp
+    Runtime/Temporal/PlainYearMonthPrototype.cpp
     Runtime/Temporal/Temporal.cpp
     Runtime/Temporal/TimeZone.cpp
     Runtime/Temporal/TimeZoneConstructor.cpp
     Runtime/Temporal/TimeZonePrototype.cpp
+    Runtime/Temporal/ZonedDateTime.cpp
+    Runtime/Temporal/ZonedDateTimeConstructor.cpp
+    Runtime/Temporal/ZonedDateTimePrototype.cpp
     Runtime/TypedArray.cpp
     Runtime/TypedArrayConstructor.cpp
     Runtime/TypedArrayPrototype.cpp
+    Runtime/Utf16String.cpp
     Runtime/Value.cpp
     Runtime/VM.cpp
+    Runtime/WeakContainer.cpp
     Runtime/WeakMap.cpp
     Runtime/WeakMapConstructor.cpp
     Runtime/WeakMapPrototype.cpp
@@ -155,4 +178,4 @@ set(SOURCES
 )
 
 serenity_lib(LibJS js)
-target_link_libraries(LibJS LibM LibCore LibCrypto LibRegex LibSyntax)
+target_link_libraries(LibJS LibM LibCore LibCrypto LibRegex LibSyntax LibUnicode)

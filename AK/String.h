@@ -138,6 +138,7 @@ public:
     [[nodiscard]] bool equals_ignoring_case(const StringView&) const;
 
     [[nodiscard]] bool contains(const StringView&, CaseSensitivity = CaseSensitivity::CaseSensitive) const;
+    [[nodiscard]] bool contains(char, CaseSensitivity = CaseSensitivity::CaseSensitive) const;
 
     [[nodiscard]] Vector<String> split_limit(char separator, size_t limit, bool keep_empty = false) const;
     [[nodiscard]] Vector<String> split(char separator, bool keep_empty = false) const;
@@ -283,11 +284,11 @@ public:
     }
 
     int replace(const String& needle, const String& replacement, bool all_occurrences = false);
-    size_t count(const String& needle) const;
+    [[nodiscard]] size_t count(const String& needle) const;
     [[nodiscard]] String reverse() const;
 
     template<typename... Ts>
-    [[nodiscard]] ALWAYS_INLINE constexpr bool is_one_of(Ts... strings) const
+    [[nodiscard]] ALWAYS_INLINE constexpr bool is_one_of(Ts&&... strings) const
     {
         return (... || this->operator==(forward<Ts>(strings)));
     }

@@ -5,14 +5,13 @@
  */
 
 #include <AK/PrintfImplementation.h>
+#include <AK/StringView.h>
 #include <AK/Types.h>
 #include <Kernel/ConsoleDevice.h>
 #include <Kernel/Devices/PCISerialDevice.h>
-#include <Kernel/Graphics/Console/Console.h>
 #include <Kernel/Graphics/GraphicsManagement.h>
 #include <Kernel/IO.h>
-#include <Kernel/Process.h>
-#include <Kernel/SpinLock.h>
+#include <Kernel/Locking/SpinLock.h>
 #include <Kernel/TTY/ConsoleManagement.h>
 #include <Kernel/kstdio.h>
 
@@ -145,11 +144,17 @@ int snprintf(char* buffer, size_t size, const char* fmt, ...)
     return ret;
 }
 
-extern "C" void dbgputch(char ch)
+static inline void internal_dbgputch(char ch)
 {
     if (serial_debug)
         serial_putch(ch);
     IO::out8(IO::BOCHS_DEBUG_PORT, ch);
+}
+
+extern "C" void dbgputch(char ch)
+{
+    ScopedSpinLock lock(s_log_lock);
+    internal_dbgputch(ch);
 }
 
 extern "C" void dbgputstr(const char* characters, size_t length)
@@ -158,7 +163,12 @@ extern "C" void dbgputstr(const char* characters, size_t length)
         return;
     ScopedSpinLock lock(s_log_lock);
     for (size_t i = 0; i < length; ++i)
-        dbgputch(characters[i]);
+        internal_dbgputch(characters[i]);
+}
+
+void dbgputstr(StringView view)
+{
+    ::dbgputstr(view.characters_without_null_termination(), view.length());
 }
 
 extern "C" void kernelputstr(const char* characters, size_t length)

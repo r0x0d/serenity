@@ -12,8 +12,10 @@
 
 namespace Cpp {
 
-Lexer::Lexer(StringView const& input)
+Lexer::Lexer(StringView const& input, size_t start_line)
     : m_input(input)
+    , m_previous_position { start_line, 0 }
+    , m_position { start_line, 0 }
 {
 }
 
@@ -220,6 +222,8 @@ Vector<Token> Lexer::lex()
         token_start_position = m_position;
     };
     auto commit_token = [&](auto type) {
+        if (m_options.ignore_whitespace && type == Token::Type::Whitespace)
+            return;
         tokens.empend(type, token_start_position, m_previous_position, m_input.substring_view(token_start_index, m_index - token_start_index));
     };
 
@@ -556,8 +560,16 @@ Vector<Token> Lexer::lex()
                     begin_token();
                 }
             } else {
-                while (peek() && peek() != '\n')
-                    consume();
+                while (peek()) {
+                    if (peek() == '\\' && peek(1) == '\n') {
+                        consume();
+                        consume();
+                    } else if (peek() == '\n') {
+                        break;
+                    } else {
+                        consume();
+                    }
+                }
 
                 commit_token(Token::Type::PreprocessorStatement);
             }

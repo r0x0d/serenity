@@ -156,12 +156,12 @@ void PBMImageDecoderPlugin::set_volatile()
         m_context->bitmap->set_volatile();
 }
 
-bool PBMImageDecoderPlugin::set_nonvolatile()
+bool PBMImageDecoderPlugin::set_nonvolatile(bool& was_purged)
 {
     if (!m_context->bitmap)
         return false;
 
-    return m_context->bitmap->set_nonvolatile();
+    return m_context->bitmap->set_nonvolatile(was_purged);
 }
 
 bool PBMImageDecoderPlugin::sniff()
@@ -195,11 +195,9 @@ size_t PBMImageDecoderPlugin::frame_count()
 
 ImageFrameDescriptor PBMImageDecoderPlugin::frame(size_t i)
 {
-    if (i > 0) {
-        return { bitmap(), 0 };
-    }
-
-    return {};
+    if (i > 0)
+        return {};
+    return { bitmap(), 0 };
 }
 
 }

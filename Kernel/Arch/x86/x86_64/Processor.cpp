@@ -47,7 +47,7 @@ NAKED void do_assume_context(Thread*, u32)
         "    movq %r12, %rsi \n"                          // from_thread
         "    pushq %r12 \n"                               // to_thread (for thread_context_first_enter)
         "    pushq %r12 \n"                               // from_thread (for thread_context_first_enter)
-        "    movabs $thread_context_first_enter, %r12 \n" // should be same as regs.rip
+        "    leaq thread_context_first_enter(%rip), %r12 \n" // should be same as regs.rip
         "    pushq %r12 \n"
         "    jmp enter_thread_context \n");
     // clang-format on
@@ -66,8 +66,8 @@ FlatPtr Processor::init_context(Thread& thread, bool leave_crit)
     if (leave_crit) {
         // Leave the critical section we set up in in Process::exec,
         // but because we still have the scheduler lock we should end up with 1
-        m_in_critical--; // leave it without triggering anything or restoring flags
-        VERIFY(in_critical() == 1);
+        VERIFY(in_critical() == 2);
+        m_in_critical = 1; // leave it without triggering anything or restoring flags
     }
 
     u64 kernel_stack_top = thread.kernel_stack_top();
@@ -169,6 +169,8 @@ void Processor::switch_context(Thread*& from_thread, Thread*& to_thread)
     VERIFY(is_kernel_mode());
 
     dbgln_if(CONTEXT_SWITCH_DEBUG, "switch_context --> switching out of: {} {}", VirtualAddress(from_thread), *from_thread);
+
+    // m_in_critical is restored in enter_thread_context
     from_thread->save_critical(m_in_critical);
 
     // clang-format off
@@ -191,7 +193,7 @@ void Processor::switch_context(Thread*& from_thread, Thread*& to_thread)
         "pushq %%r14 \n"
         "pushq %%r15 \n"
         "movq %%rsp, %[from_rsp] \n"
-        "movabs $1f, %%rbx \n"
+        "leaq 1f(%%rip), %%rbx \n"
         "movq %%rbx, %[from_rip] \n"
         "movq %[to_rsp0], %%rbx \n"
         "movl %%ebx, %[tss_rsp0l] \n"
@@ -238,8 +240,6 @@ void Processor::switch_context(Thread*& from_thread, Thread*& to_thread)
     // clang-format on
 
     dbgln_if(CONTEXT_SWITCH_DEBUG, "switch_context <-- from {} {} to {} {}", VirtualAddress(from_thread), *from_thread, VirtualAddress(to_thread), *to_thread);
-
-    Processor::current().restore_in_critical(to_thread->saved_critical());
 }
 
 UNMAP_AFTER_INIT void Processor::initialize_context_switching(Thread& initial_thread)

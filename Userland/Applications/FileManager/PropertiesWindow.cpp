@@ -7,7 +7,7 @@
 #include "PropertiesWindow.h"
 #include <AK/LexicalPath.h>
 #include <AK/NumberFormat.h>
-#include <AK/StringBuilder.h>
+#include <Applications/FileManager/DirectoryView.h>
 #include <Applications/FileManager/PropertiesWindowGeneralTabGML.h>
 #include <LibDesktop/Launcher.h>
 #include <LibGUI/BoxLayout.h>
@@ -20,13 +20,12 @@
 #include <LibGUI/SeparatorWidget.h>
 #include <LibGUI/TabWidget.h>
 #include <grp.h>
-#include <limits.h>
 #include <pwd.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
 
-PropertiesWindow::PropertiesWindow(const String& path, bool disable_rename, Window* parent_window)
+PropertiesWindow::PropertiesWindow(String const& path, bool disable_rename, Window* parent_window)
     : Window(parent_window)
 {
     auto lexical_path = LexicalPath(path);
@@ -39,7 +38,7 @@ PropertiesWindow::PropertiesWindow(const String& path, bool disable_rename, Wind
     set_rect({ 0, 0, 360, 420 });
     set_resizable(false);
 
-    set_icon(Gfx::Bitmap::load_from_file("/res/icons/16x16/properties.png"));
+    set_icon(Gfx::Bitmap::try_load_from_file("/res/icons/16x16/properties.png"));
 
     auto& tab_widget = main_widget.add<GUI::TabWidget>();
 
@@ -142,7 +141,7 @@ PropertiesWindow::PropertiesWindow(const String& path, bool disable_rename, Wind
 
     auto& button_widget = main_widget.add<GUI::Widget>();
     button_widget.set_layout<GUI::HorizontalBoxLayout>();
-    button_widget.set_fixed_height(24);
+    button_widget.set_fixed_height(22);
     button_widget.layout()->set_spacing(5);
 
     button_widget.layout()->add_spacer();
@@ -184,7 +183,7 @@ void PropertiesWindow::permission_changed(mode_t mask, bool set)
     m_apply_button->set_enabled(m_name_dirty || m_permissions_dirty);
 }
 
-String PropertiesWindow::make_full_path(const String& name)
+String PropertiesWindow::make_full_path(String const& name)
 {
     return String::formatted("{}/{}", m_parent_path, name);
 }
@@ -219,6 +218,9 @@ bool PropertiesWindow::apply_changes()
         m_old_mode = m_mode;
         m_permissions_dirty = false;
     }
+
+    auto directory_view = parent()->find_descendant_of_type_named<FileManager::DirectoryView>("directory_view");
+    directory_view->refresh();
 
     update();
     m_apply_button->set_enabled(false);

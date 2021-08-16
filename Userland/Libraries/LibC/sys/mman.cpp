@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
+#include <AK/Format.h>
 #include <errno.h>
 #include <stdio.h>
 #include <string.h>
@@ -16,7 +17,7 @@ void* serenity_mmap(void* addr, size_t size, int prot, int flags, int fd, off_t 
 {
     Syscall::SC_mmap_params params { (uintptr_t)addr, size, alignment, prot, flags, fd, offset, { name, name ? strlen(name) : 0 } };
     ptrdiff_t rc = syscall(SC_mmap, &params);
-    if (rc < 0 && -rc < EMAXERRNO) {
+    if (rc < 0 && rc > -EMAXERRNO) {
         errno = -rc;
         return MAP_FAILED;
     }
@@ -37,7 +38,7 @@ void* mremap(void* old_address, size_t old_size, size_t new_size, int flags)
 {
     Syscall::SC_mremap_params params { (uintptr_t)old_address, old_size, new_size, flags };
     ptrdiff_t rc = syscall(SC_mremap, &params);
-    if (rc < 0 && -rc < EMAXERRNO) {
+    if (rc < 0 && rc > -EMAXERRNO) {
         errno = -rc;
         return MAP_FAILED;
     }
@@ -76,10 +77,16 @@ int madvise(void* address, size_t size, int advice)
 void* allocate_tls(const char* initial_data, size_t size)
 {
     ptrdiff_t rc = syscall(SC_allocate_tls, initial_data, size);
-    if (rc < 0 && -rc < EMAXERRNO) {
+    if (rc < 0 && rc > -EMAXERRNO) {
         errno = -rc;
         return MAP_FAILED;
     }
     return (void*)rc;
+}
+
+int mlock(const void*, size_t)
+{
+    dbgln("FIXME: Implement mlock()");
+    return 0;
 }
 }

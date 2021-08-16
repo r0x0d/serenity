@@ -33,13 +33,12 @@ public:
 
     virtual GUI::Variant data(const GUI::ModelIndex&, GUI::ModelRole) const override;
 
-    virtual void update() override { }
     virtual GUI::ModelIndex index(int row, int column, const GUI::ModelIndex&) const override;
 
     struct FrameInfo {
         String function_name;
-        u32 instruction_address;
-        u32 frame_base;
+        FlatPtr instruction_address;
+        FlatPtr frame_base;
     };
 
     const Vector<FrameInfo>& frames() const { return m_frames; }

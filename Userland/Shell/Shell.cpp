@@ -568,8 +568,11 @@ int Shell::run_command(const StringView& cmd, Optional<SourcePosition> source_po
     }
 
     tcgetattr(0, &termios);
+    tcsetattr(0, TCSANOW, &default_termios);
 
     command->run(*this);
+
+    tcsetattr(0, TCSANOW, &termios);
 
     if (!has_error(ShellError::None)) {
         possibly_print_error();
@@ -1759,10 +1762,11 @@ void Shell::notify_child_event()
             }
             if (child_pid == 0) {
                 // If the child existed, but wasn't dead.
-                if (job.is_suspended() && job.shell_did_continue()) {
-                    // The job was suspended, and we sent it a SIGCONT.
+                if (job.is_suspended() || job.shell_did_continue()) {
+                    // The job was suspended, and someone sent it a SIGCONT.
                     job.set_is_suspended(false);
-                    job.set_shell_did_continue(false);
+                    if (job.shell_did_continue())
+                        job.set_shell_did_continue(false);
                     found_child = true;
                 }
                 continue;
@@ -1817,7 +1821,7 @@ Shell::Shell()
         path.append(getenv("PATH"));
         if (path.length())
             path.append(":");
-        path.append("/bin:/usr/bin:/usr/local/bin");
+        path.append("/usr/local/bin:/usr/bin:/bin");
         setenv("PATH", path.to_string().characters(), true);
     }
 

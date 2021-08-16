@@ -7,7 +7,6 @@
  */
 
 #include <AK/HashTable.h>
-#include <LibJS/AST.h>
 #include <LibJS/Bytecode/Interpreter.h>
 #include <LibJS/Bytecode/Op.h>
 #include <LibJS/Runtime/Array.h>
@@ -175,7 +174,7 @@ void NewRegExp::execute_impl(Bytecode::Interpreter& interpreter) const
     auto source = interpreter.current_executable().get_string(m_source_index);
     auto flags = interpreter.current_executable().get_string(m_flags_index);
 
-    interpreter.accumulator() = RegExpObject::create(interpreter.global_object(), source, flags);
+    interpreter.accumulator() = regexp_create(interpreter.global_object(), js_string(interpreter.vm(), source), js_string(interpreter.vm(), flags));
 }
 
 void CopyObjectExcludingProperties::execute_impl(Bytecode::Interpreter& interpreter) const
@@ -234,7 +233,7 @@ void GetById::execute_impl(Bytecode::Interpreter& interpreter) const
 void PutById::execute_impl(Bytecode::Interpreter& interpreter) const
 {
     if (auto* object = interpreter.reg(m_base).to_object(interpreter.global_object()))
-        object->set(interpreter.current_executable().get_string(m_property), interpreter.accumulator(), true);
+        object->set(interpreter.current_executable().get_string(m_property), interpreter.accumulator(), Object::ShouldThrowExceptions::Yes);
 }
 
 void Jump::execute_impl(Bytecode::Interpreter& interpreter) const
@@ -427,7 +426,7 @@ void PutByValue::execute_impl(Bytecode::Interpreter& interpreter) const
         auto property_key = interpreter.reg(m_property).to_property_key(interpreter.global_object());
         if (interpreter.vm().exception())
             return;
-        object->set(property_key, interpreter.accumulator(), true);
+        object->set(property_key, interpreter.accumulator(), Object::ShouldThrowExceptions::Yes);
     }
 }
 

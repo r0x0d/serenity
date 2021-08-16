@@ -10,7 +10,6 @@
 #include "ToDoEntries.h"
 #include <AK/String.h>
 #include <AK/Vector.h>
-#include <DevTools/HackStudio/LanguageServers/LanguageServerEndpoint.h>
 #include <LibGUI/Notification.h>
 
 namespace HackStudio {
@@ -186,7 +185,7 @@ void ServerConnectionWrapper::on_crash()
 void ServerConnectionWrapper::show_frequenct_crashes_notification() const
 {
     auto notification = GUI::Notification::construct();
-    notification->set_icon(Gfx::Bitmap::load_from_file("/res/icons/32x32/app-hack-studio.png"));
+    notification->set_icon(Gfx::Bitmap::try_load_from_file("/res/icons/32x32/app-hack-studio.png"));
     notification->set_title("LanguageServer Crashes too much!");
     notification->set_text("LanguageServer aided features will not be available in this session");
     notification->show();
@@ -194,7 +193,7 @@ void ServerConnectionWrapper::show_frequenct_crashes_notification() const
 void ServerConnectionWrapper::show_crash_notification() const
 {
     auto notification = GUI::Notification::construct();
-    notification->set_icon(Gfx::Bitmap::load_from_file("/res/icons/32x32/app-hack-studio.png"));
+    notification->set_icon(Gfx::Bitmap::try_load_from_file("/res/icons/32x32/app-hack-studio.png"));
     notification->set_title("Oops!");
     notification->set_text(String::formatted("LanguageServer has crashed"));
     notification->show();

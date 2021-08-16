@@ -35,14 +35,14 @@ struct FunctionNodeParseOptions {
 
 class Parser {
 public:
-    explicit Parser(Lexer lexer);
+    explicit Parser(Lexer lexer, Program::Type program_type = Program::Type::Script);
 
     NonnullRefPtr<Program> parse_program(bool starts_in_strict_mode = false);
 
     template<typename FunctionNodeType>
     NonnullRefPtr<FunctionNodeType> parse_function_node(u8 parse_options = FunctionNodeParseOptions::CheckForFunctionAndName);
     Vector<FunctionNode::Parameter> parse_formal_parameters(int& function_length, u8 parse_options = 0);
-    RefPtr<BindingPattern> parse_binding_pattern();
+    RefPtr<BindingPattern> parse_binding_pattern(bool strict_checks = false);
 
     struct PrimaryExpressionParseResult {
         NonnullRefPtr<Expression> result;
@@ -50,9 +50,15 @@ public:
     };
 
     NonnullRefPtr<Declaration> parse_declaration();
-    NonnullRefPtr<Statement> parse_statement();
+
+    enum class AllowLabelledFunction {
+        No,
+        Yes
+    };
+
+    NonnullRefPtr<Statement> parse_statement(AllowLabelledFunction allow_labelled_function = AllowLabelledFunction::No);
     NonnullRefPtr<BlockStatement> parse_block_statement();
-    NonnullRefPtr<BlockStatement> parse_block_statement(bool& is_strict);
+    NonnullRefPtr<BlockStatement> parse_block_statement(bool& is_strict, bool error_on_binding = false);
     NonnullRefPtr<ReturnStatement> parse_return_statement();
     NonnullRefPtr<VariableDeclaration> parse_variable_declaration(bool for_loop_variable_declaration = false);
     NonnullRefPtr<Statement> parse_for_statement();
@@ -87,9 +93,11 @@ public:
     NonnullRefPtr<Expression> parse_property_key();
     NonnullRefPtr<AssignmentExpression> parse_assignment_expression(AssignmentOp, NonnullRefPtr<Expression> lhs, int min_precedence, Associativity);
     NonnullRefPtr<Identifier> parse_identifier();
+    NonnullRefPtr<ImportStatement> parse_import_statement(Program& program);
+    NonnullRefPtr<ExportStatement> parse_export_statement(Program& program);
 
     RefPtr<FunctionExpression> try_parse_arrow_function_expression(bool expect_parens);
-    RefPtr<Statement> try_parse_labelled_statement();
+    RefPtr<Statement> try_parse_labelled_statement(AllowLabelledFunction allow_function);
     RefPtr<MetaProperty> try_parse_new_target_expression();
 
     struct Error {
@@ -112,8 +120,8 @@ public:
             String source_string { source };
             source_string.replace("\r\n", "\n");
             source_string.replace("\r", "\n");
-            source_string.replace(LINE_SEPARATOR, "\n");
-            source_string.replace(PARAGRAPH_SEPARATOR, "\n");
+            source_string.replace(LINE_SEPARATOR_STRING, "\n");
+            source_string.replace(PARAGRAPH_SEPARATOR_STRING, "\n");
             StringBuilder builder;
             builder.append(source_string.split_view('\n', true)[position.value().line - 1]);
             builder.append('\n');
@@ -126,12 +134,14 @@ public:
 
     bool has_errors() const { return m_state.errors.size(); }
     const Vector<Error>& errors() const { return m_state.errors; }
-    void print_errors() const
+    void print_errors(bool print_hint = true) const
     {
         for (auto& error : m_state.errors) {
-            auto hint = error.source_location_hint(m_state.lexer.source());
-            if (!hint.is_empty())
-                warnln("{}", hint);
+            if (print_hint) {
+                auto hint = error.source_location_hint(m_state.lexer.source());
+                if (!hint.is_empty())
+                    warnln("{}", hint);
+            }
             warnln("SyntaxError: {}", error.to_string());
         }
     }
@@ -148,8 +158,10 @@ private:
     bool match_unary_prefixed_expression() const;
     bool match_secondary_expression(const Vector<TokenType>& forbidden = {}) const;
     bool match_statement() const;
-    bool match_declaration() const;
-    bool match_variable_declaration() const;
+    bool match_export_or_import() const;
+    bool match_declaration();
+    bool try_match_let_declaration();
+    bool match_variable_declaration();
     bool match_identifier() const;
     bool match_identifier_name() const;
     bool match_property_key() const;
@@ -168,7 +180,7 @@ private:
     void discard_saved_state();
     Position position() const;
 
-    void check_identifier_name_for_assignment_validity(StringView);
+    void check_identifier_name_for_assignment_validity(StringView, bool force_strict = false);
 
     bool try_parse_arrow_function_expression_failed_at_position(const Position&) const;
     void set_try_parse_arrow_function_expression_failed_at_position(const Position&, bool);
@@ -244,7 +256,7 @@ private:
         bool in_continue_context { false };
         bool string_legacy_octal_escape_sequence_in_scope { false };
 
-        explicit ParserState(Lexer);
+        ParserState(Lexer, Program::Type);
     };
 
     class PositionKeyTraits {
@@ -265,5 +277,6 @@ private:
     FlyString m_filename;
     Vector<ParserState> m_saved_state;
     HashMap<Position, TokenMemoization, PositionKeyTraits> m_token_memoizations;
+    Program::Type m_program_type;
 };
 }

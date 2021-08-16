@@ -7,42 +7,43 @@
 #include <Kernel/Debug.h>
 #include <Kernel/FileSystem/Custody.h>
 #include <Kernel/FileSystem/FileDescription.h>
-#include <Kernel/Panic.h>
+#include <Kernel/Memory/Region.h>
 #include <Kernel/PerformanceManager.h>
 #include <Kernel/Process.h>
-#include <Kernel/VM/Region.h>
 
 namespace Kernel {
 
 KResultOr<FlatPtr> Process::sys$fork(RegisterState& regs)
 {
+    VERIFY_PROCESS_BIG_LOCK_ACQUIRED(this);
     REQUIRE_PROMISE(proc);
     RefPtr<Thread> child_first_thread;
     auto child = Process::create(child_first_thread, m_name, uid(), gid(), pid(), m_is_kernel_process, m_cwd, m_executable, m_tty, this);
     if (!child || !child_first_thread)
         return ENOMEM;
-    child->m_root_directory = m_root_directory;
-    child->m_root_directory_relative_to_global_root = m_root_directory_relative_to_global_root;
     child->m_veil_state = m_veil_state;
     child->m_unveiled_paths = m_unveiled_paths.deep_copy();
-    child->m_fds = m_fds;
+
+    if (auto result = child->m_fds.try_clone(m_fds); result.is_error())
+        return result.error();
+
     child->m_pg = m_pg;
 
     {
         ProtectedDataMutationScope scope { *child };
-        child->m_promises = m_promises;
-        child->m_execpromises = m_execpromises;
-        child->m_has_promises = m_has_promises;
-        child->m_has_execpromises = m_has_execpromises;
-        child->m_sid = m_sid;
-        child->m_extra_gids = m_extra_gids;
-        child->m_umask = m_umask;
-        child->m_signal_trampoline = m_signal_trampoline;
-        child->m_dumpable = m_dumpable;
+        child->m_protected_values.promises = m_protected_values.promises.load();
+        child->m_protected_values.execpromises = m_protected_values.execpromises.load();
+        child->m_protected_values.has_promises = m_protected_values.has_promises.load();
+        child->m_protected_values.has_execpromises = m_protected_values.has_execpromises.load();
+        child->m_protected_values.sid = m_protected_values.sid;
+        child->m_protected_values.extra_gids = m_protected_values.extra_gids;
+        child->m_protected_values.umask = m_protected_values.umask;
+        child->m_protected_values.signal_trampoline = m_protected_values.signal_trampoline;
+        child->m_protected_values.dumpable = m_protected_values.dumpable;
     }
 
     dbgln_if(FORK_DEBUG, "fork: child={}", child);
-    child->space().set_enforces_syscall_regions(space().enforces_syscall_regions());
+    child->address_space().set_enforces_syscall_regions(address_space().enforces_syscall_regions());
 
 #if ARCH(I386)
     auto& child_regs = child_first_thread->m_regs;
@@ -63,7 +64,7 @@ KResultOr<FlatPtr> Process::sys$fork(RegisterState& regs)
     child_regs.gs = regs.gs;
     child_regs.ss = regs.userspace_ss;
 
-    dbgln_if(FORK_DEBUG, "fork: child will begin executing at {:04x}:{:08x} with stack {:04x}:{:08x}, kstack {:04x}:{:08x}",
+    dbgln_if(FORK_DEBUG, "fork: child will begin executing at {:#04x}:{:p} with stack {:#04x}:{:p}, kstack {:#04x}:{:p}",
         child_regs.cs, child_regs.eip, child_regs.ss, child_regs.esp, child_regs.ss0, child_regs.esp0);
 #else
     auto& child_regs = child_first_thread->m_regs;
@@ -87,28 +88,28 @@ KResultOr<FlatPtr> Process::sys$fork(RegisterState& regs)
     child_regs.rip = regs.rip;
     child_regs.cs = regs.cs;
 
-    dbgln_if(FORK_DEBUG, "fork: child will begin executing at {:04x}:{:16x} with stack {:08x}, kstack {:08x}",
+    dbgln_if(FORK_DEBUG, "fork: child will begin executing at {:#04x}:{:p} with stack {:p}, kstack {:p}",
         child_regs.cs, child_regs.rip, child_regs.rsp, child_regs.rsp0);
 #endif
 
     {
-        ScopedSpinLock lock(space().get_lock());
-        for (auto& region : space().regions()) {
+        ScopedSpinLock lock(address_space().get_lock());
+        for (auto& region : address_space().regions()) {
             dbgln_if(FORK_DEBUG, "fork: cloning Region({}) '{}' @ {}", region, region->name(), region->vaddr());
-            auto region_clone = region->clone(*child);
-            if (!region_clone) {
+            auto maybe_region_clone = region->try_clone();
+            if (maybe_region_clone.is_error()) {
                 dbgln("fork: Cannot clone region, insufficient memory");
                 // TODO: tear down new process?
-                return ENOMEM;
+                return maybe_region_clone.error();
             }
 
-            auto* child_region = child->space().add_region(region_clone.release_nonnull());
+            auto* child_region = child->address_space().add_region(maybe_region_clone.release_value());
             if (!child_region) {
                 dbgln("fork: Cannot add region, insufficient memory");
                 // TODO: tear down new process?
                 return ENOMEM;
             }
-            child_region->map(child->space().page_directory(), ShouldFlushTLB::No);
+            child_region->map(child->address_space().page_directory(), Memory::ShouldFlushTLB::No);
 
             if (region == m_master_tls_region.unsafe_ptr())
                 child->m_master_tls_region = child_region;

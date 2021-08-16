@@ -166,11 +166,27 @@
     M(StringNonGlobalRegExp, "RegExp argument is non-global")                                                                           \
     M(StringRawCannotConvert, "Cannot convert property 'raw' to object from {}")                                                        \
     M(StringRepeatCountMustBe, "repeat count must be a {} number")                                                                      \
+    M(TemporalAmbiguousMonthOfPlainMonthDay, "Accessing month of PlainMonthDay is ambiguous, use monthCode instead")                    \
+    M(TemporalInvalidCalendar, "Invalid calendar")                                                                                      \
+    M(TemporalInvalidCalendarFunctionResult, "Invalid calendar, {}() function returned undefined")                                      \
     M(TemporalInvalidCalendarIdentifier, "Invalid calendar identifier '{}'")                                                            \
+    M(TemporalInvalidDuration, "Invalid duration")                                                                                      \
+    M(TemporalInvalidDurationLikeObject, "Invalid duration-like object")                                                                \
+    M(TemporalInvalidDurationPropertyValueNonIntegral, "Invalid value for duration property '{}': must be an integer, got {}")          \
+    M(TemporalInvalidDurationPropertyValueNonZero, "Invalid value for duration property '{}': must be zero, got {}")                    \
     M(TemporalInvalidEpochNanoseconds, "Invalid epoch nanoseconds value, must be in range -86400 * 10^17 to 86400 * 10^17")             \
     M(TemporalInvalidISODate, "Invalid ISO date")                                                                                       \
+    M(TemporalInvalidMonthCode, "Invalid month code")                                                                                   \
+    M(TemporalInvalidOffsetNanosecondsValue, "Invalid offset nanoseconds value, must be in range -86400 * 10^9 to 86400 * 10^9")        \
+    M(TemporalInvalidPlainDate, "Invalid plain date")                                                                                   \
+    M(TemporalInvalidPlainDateTime, "Invalid plain date time")                                                                          \
+    M(TemporalInvalidPlainMonthDay, "Invalid plain month day")                                                                          \
+    M(TemporalInvalidPlainTime, "Invalid plain time")                                                                                   \
+    M(TemporalInvalidPlainYearMonth, "Invalid plain year month")                                                                        \
     M(TemporalInvalidTime, "Invalid time")                                                                                              \
     M(TemporalInvalidTimeZoneName, "Invalid time zone name")                                                                            \
+    M(TemporalMissingRequiredProperty, "Required property {} is missing or undefined")                                                  \
+    M(TemporalPropertyMustBePositiveInteger, "Property must be a positive integer")                                                     \
     M(ThisHasNotBeenInitialized, "|this| has not been initialized")                                                                     \
     M(ThisIsAlreadyInitialized, "|this| is already initialized")                                                                        \
     M(ToObjectNullOrUndefined, "ToObject on null or undefined")                                                                         \

@@ -7,6 +7,7 @@
 #include <AK/String.h>
 #include <AK/StringBuilder.h>
 #include <AK/Time.h>
+#include <Kernel/API/TimePage.h>
 #include <assert.h>
 #include <errno.h>
 #include <stdio.h>
@@ -38,12 +39,26 @@ int adjtime(const struct timeval* delta, struct timeval* old_delta)
 
 int gettimeofday(struct timeval* __restrict__ tv, void* __restrict__)
 {
-    int rc = syscall(SC_gettimeofday, tv);
-    __RETURN_WITH_ERRNO(rc, rc, -1);
+    if (!tv) {
+        errno = EFAULT;
+        return -1;
+    }
+
+    struct timespec ts = {};
+    if (clock_gettime(CLOCK_REALTIME_COARSE, &ts) < 0)
+        return -1;
+
+    TIMESPEC_TO_TIMEVAL(tv, &ts);
+    return 0;
 }
 
 int settimeofday(struct timeval* __restrict__ tv, void* __restrict__)
 {
+    if (!tv) {
+        errno = EFAULT;
+        return -1;
+    }
+
     timespec ts;
     TIMEVAL_TO_TIMESPEC(tv, &ts);
     return clock_settime(CLOCK_REALTIME, &ts);
@@ -353,8 +368,39 @@ clock_t clock()
     return tms.tms_utime + tms.tms_stime;
 }
 
+static Kernel::TimePage* get_kernel_time_page()
+{
+    static Kernel::TimePage* s_kernel_time_page;
+    // FIXME: Thread safety
+    if (!s_kernel_time_page) {
+        auto rc = syscall(SC_map_time_page);
+        if ((int)rc < 0 && (int)rc > -EMAXERRNO) {
+            errno = -(int)rc;
+            return nullptr;
+        }
+        s_kernel_time_page = (Kernel::TimePage*)rc;
+    }
+    return s_kernel_time_page;
+}
+
 int clock_gettime(clockid_t clock_id, struct timespec* ts)
 {
+    if (Kernel::time_page_supports(clock_id)) {
+        if (!ts) {
+            errno = EFAULT;
+            return -1;
+        }
+
+        if (auto* kernel_time_page = get_kernel_time_page()) {
+            u32 update_iteration;
+            do {
+                update_iteration = AK::atomic_load(&kernel_time_page->update1, AK::memory_order_acquire);
+                *ts = kernel_time_page->clocks[clock_id];
+            } while (update_iteration != AK::atomic_load(&kernel_time_page->update2, AK::memory_order_acquire));
+            return 0;
+        }
+    }
+
     int rc = syscall(SC_clock_gettime, clock_id, ts);
     __RETURN_WITH_ERRNO(rc, rc, -1);
 }

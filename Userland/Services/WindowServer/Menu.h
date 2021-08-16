@@ -15,13 +15,14 @@
 #include <LibGfx/Forward.h>
 #include <LibGfx/Rect.h>
 #include <WindowServer/Cursor.h>
+#include <WindowServer/Event.h>
 #include <WindowServer/MenuItem.h>
-#include <WindowServer/Window.h>
 
 namespace WindowServer {
 
 class ClientConnection;
 class Menubar;
+class Window;
 
 class Menu final : public Core::Object {
     C_OBJECT(Menu);
@@ -93,10 +94,12 @@ public:
     static constexpr int right_padding() { return 14; }
 
     void draw();
+    void draw(MenuItem const&, bool = false);
     const Gfx::Font& font() const;
 
     MenuItem* item_with_identifier(unsigned);
     void redraw();
+    void redraw(MenuItem const&);
 
     MenuItem* hovered_item() const;
 
@@ -130,6 +133,7 @@ private:
 
     void handle_mouse_move_event(const MouseEvent&);
     size_t visible_item_count() const;
+    Gfx::IntRect stripe_rect();
 
     int item_index_at(const Gfx::IntPoint&);
     static constexpr int padding_between_text_and_shortcut() { return 50; }

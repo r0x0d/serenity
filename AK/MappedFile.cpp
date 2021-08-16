@@ -15,11 +15,20 @@
 
 namespace AK {
 
-Result<NonnullRefPtr<MappedFile>, OSError> MappedFile::map(const String& path)
+Result<NonnullRefPtr<MappedFile>, OSError> MappedFile::map(String const& path)
 {
     int fd = open(path.characters(), O_RDONLY | O_CLOEXEC, 0);
     if (fd < 0)
         return OSError(errno);
+
+    return map_from_fd_and_close(fd, path);
+}
+
+Result<NonnullRefPtr<MappedFile>, OSError> MappedFile::map_from_fd_and_close(int fd, [[maybe_unused]] String const& path)
+{
+    if (fcntl(fd, F_SETFD, FD_CLOEXEC) == -1) {
+        return OSError(errno);
+    }
 
     ScopeGuard fd_close_guard = [fd] {
         close(fd);
@@ -36,6 +45,12 @@ Result<NonnullRefPtr<MappedFile>, OSError> MappedFile::map(const String& path)
 
     if (ptr == MAP_FAILED)
         return OSError(errno);
+
+#ifdef __serenity__
+    if (set_mmap_name(ptr, size, path.characters()) < 0) {
+        perror("set_mmap_name");
+    }
+#endif
 
     return adopt_ref(*new MappedFile(ptr, size));
 }

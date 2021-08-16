@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
+#include <AK/Checked.h>
 #include <AK/JsonArray.h>
 #include <AK/JsonObject.h>
 #include <AK/JsonValue.h>
@@ -17,9 +18,46 @@ namespace Symbolication {
 struct CachedELF {
     NonnullRefPtr<MappedFile> mapped_file;
     NonnullOwnPtr<Debug::DebugInfo> debug_info;
+    NonnullOwnPtr<ELF::Image> image;
 };
 
 static HashMap<String, OwnPtr<CachedELF>> s_cache;
+
+enum class KernelBaseState {
+    Uninitialized,
+    Valid,
+    Invalid,
+};
+
+static FlatPtr s_kernel_base;
+static KernelBaseState s_kernel_base_state = KernelBaseState::Uninitialized;
+
+Optional<FlatPtr> kernel_base()
+{
+    if (s_kernel_base_state == KernelBaseState::Uninitialized) {
+        auto file = Core::File::open("/proc/kernel_base", Core::OpenMode::ReadOnly);
+        if (file.is_error()) {
+            s_kernel_base_state = KernelBaseState::Invalid;
+            return {};
+        }
+        auto kernel_base_str = String { file.value()->read_all(), NoChomp };
+#if ARCH(I386)
+        using AddressType = u32;
+#else
+        using AddressType = u64;
+#endif
+        auto maybe_kernel_base = kernel_base_str.to_uint<AddressType>();
+        if (!maybe_kernel_base.has_value()) {
+            s_kernel_base_state = KernelBaseState::Invalid;
+            return {};
+        }
+        s_kernel_base = maybe_kernel_base.value();
+        s_kernel_base_state = KernelBaseState::Valid;
+    }
+    if (s_kernel_base_state == KernelBaseState::Invalid)
+        return {};
+    return s_kernel_base;
+}
 
 Optional<Symbol> symbolicate(String const& path, FlatPtr address)
 {
@@ -36,7 +74,7 @@ Optional<Symbol> symbolicate(String const& path, FlatPtr address)
             s_cache.set(path, {});
             {};
         }
-        auto cached_elf = make<CachedELF>(mapped_file.release_value(), make<Debug::DebugInfo>(move(elf)));
+        auto cached_elf = make<CachedELF>(mapped_file.release_value(), make<Debug::DebugInfo>(*elf), move(elf));
         s_cache.set(path, move(cached_elf));
     }
 
@@ -75,17 +113,18 @@ Vector<Symbol> symbolicate_thread(pid_t pid, pid_t tid)
         FlatPtr base { 0 };
         size_t size { 0 };
         String path;
-        bool is_relative { true };
     };
 
     Vector<FlatPtr> stack;
     Vector<RegionWithSymbols> regions;
 
-    regions.append(RegionWithSymbols {
-        .base = 0xc0000000,
-        .size = 0x3fffffff,
-        .path = "/boot/Kernel",
-        .is_relative = false });
+    if (auto maybe_kernel_base = kernel_base(); maybe_kernel_base.has_value()) {
+        regions.append(RegionWithSymbols {
+            .base = maybe_kernel_base.value(),
+            .size = 0x3fffffff,
+            .path = "/boot/Kernel.debug",
+        });
+    }
 
     {
         auto stack_path = String::formatted("/proc/{}/stacks/{}", pid, tid);
@@ -103,7 +142,7 @@ Vector<Symbol> symbolicate_thread(pid_t pid, pid_t tid)
 
         stack.ensure_capacity(json.value().as_array().size());
         for (auto& value : json.value().as_array().values()) {
-            stack.append(value.to_u32());
+            stack.append(value.to_addr());
         }
     }
 
@@ -124,8 +163,8 @@ Vector<Symbol> symbolicate_thread(pid_t pid, pid_t tid)
         for (auto& region_value : json.value().as_array().values()) {
             auto& region = region_value.as_object();
             auto name = region.get("name").to_string();
-            auto address = region.get("address").to_u32();
-            auto size = region.get("size").to_u32();
+            auto address = region.get("address").to_addr();
+            auto size = region.get("size").to_addr();
 
             String path;
             if (name == "/usr/lib/Loader.so") {
@@ -153,7 +192,12 @@ Vector<Symbol> symbolicate_thread(pid_t pid, pid_t tid)
     for (auto address : stack) {
         const RegionWithSymbols* found_region = nullptr;
         for (auto& region : regions) {
-            if (address >= region.base && address < (region.base + region.size)) {
+            FlatPtr region_end;
+            if (Checked<FlatPtr>::addition_would_overflow(region.base, region.size))
+                region_end = NumericLimits<FlatPtr>::max();
+            else
+                region_end = region.base + region.size;
+            if (address >= region.base && address < region_end) {
                 found_region = &region;
                 break;
             }
@@ -164,11 +208,7 @@ Vector<Symbol> symbolicate_thread(pid_t pid, pid_t tid)
             continue;
         }
 
-        FlatPtr adjusted_address;
-        if (found_region->is_relative)
-            adjusted_address = address - found_region->base;
-        else
-            adjusted_address = address;
+        FlatPtr adjusted_address = address - found_region->base;
 
         // We're subtracting 1 from the address because this is the return address,
         // i.e. it is one instruction past the call instruction.

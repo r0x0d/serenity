@@ -71,16 +71,17 @@ echo SYSROOT is "$SYSROOT"
 
 mkdir -p "$DIR/Tarballs"
 
-BINUTILS_VERSION="2.36.1"
-BINUTILS_MD5SUM="3df9c3bbd944f9b57c1496f06741197b"
+# Note: The version number and hash in BuildClang.sh needs to be kept in sync with this.
+BINUTILS_VERSION="2.37"
+BINUTILS_MD5SUM="1e55743d73c100b7a0d67ffb32398cdb"
 BINUTILS_NAME="binutils-$BINUTILS_VERSION"
 BINUTILS_PKG="${BINUTILS_NAME}.tar.gz"
 BINUTILS_BASE_URL="http://ftp.gnu.org/gnu/binutils"
 
 # Note: If you bump the gcc version, you also have to update the matching
 #       GCC_VERSION variable in the project's root CMakeLists.txt
-GCC_VERSION="11.1.0"
-GCC_MD5SUM="333068a65c119e74c9d7bfcc75a8eeba"
+GCC_VERSION="11.2.0"
+GCC_MD5SUM="dc6886bd44bb49e2d3d662aed9729278"
 GCC_NAME="gcc-$GCC_VERSION"
 GCC_PKG="${GCC_NAME}.tar.gz"
 GCC_BASE_URL="http://ftp.gnu.org/gnu/gcc"
@@ -288,9 +289,9 @@ pushd "$DIR/Build/$ARCH"
     pushd "$BUILD"
         mkdir -p Root/usr/include/
         SRC_ROOT=$($REALPATH "$DIR"/..)
-        FILES=$(find "$SRC_ROOT"/Userland/Libraries/LibC "$SRC_ROOT"/Userland/Libraries/LibM "$SRC_ROOT"/Userland/Libraries/LibPthread -name '*.h' -print)
+        FILES=$(find "$SRC_ROOT"/Kernel/API "$SRC_ROOT"/Userland/Libraries/LibC "$SRC_ROOT"/Userland/Libraries/LibM "$SRC_ROOT"/Userland/Libraries/LibPthread -name '*.h' -print)
         for header in $FILES; do
-            target=$(echo "$header" | sed -e "s@$SRC_ROOT/Userland/Libraries/LibC@@" -e "s@$SRC_ROOT/Userland/Libraries/LibM@@" -e "s@$SRC_ROOT/Userland/Libraries/LibPthread@@")
+            target=$(echo "$header" | sed -e "s@$SRC_ROOT/Userland/Libraries/LibC@@" -e "s@$SRC_ROOT/Userland/Libraries/LibM@@" -e "s@$SRC_ROOT/Userland/Libraries/LibPthread@@" -e "s@$SRC_ROOT/Kernel/@Kernel/@")
             buildstep "system_headers" $INSTALL -D "$header" "Root/usr/include/$target"
         done
         unset SRC_ROOT

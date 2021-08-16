@@ -36,7 +36,7 @@
         }
 
         @GUI::Widget {
-            fixed_height: 24
+            fixed_height: 20
         }
     }
 
@@ -65,7 +65,7 @@
             layout: @GUI::VerticalBoxLayout
 
             @GUI::Widget {
-                fixed_height: 24
+                fixed_height: 22
                 layout: @GUI::HorizontalBoxLayout
 
                 @GUI::TextBox {
@@ -84,7 +84,7 @@
             }
 
             @GUI::Widget {
-                fixed_height: 24
+                fixed_height: 22
                 layout: @GUI::HorizontalBoxLayout
 
                 @GUI::Widget

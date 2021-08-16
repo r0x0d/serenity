@@ -90,5 +90,17 @@
     "author": "nooga",
     "url": "https://discord.com/channels/830522505605283862/830525235803586570/864277610510549002",
     "utc_time": 1626130562
+  },
+  {
+    "quote": "1.28 GiB worth of hash table is a lot of hash table",
+    "author": "awesomekling",
+    "url": "https://discord.com/channels/830522505605283862/830739873119207426/870071227929202738",
+    "utc_time": 1627511606
+  },
+  {
+    "quote": "Changelog: All boogs fixed, thar be no moar boogs",
+    "author": "CxByte",
+    "utc_time": "1627859603",
+    "url": "https://github.com/SerenityOS/serenity/pull/9127#issuecomment-890603297"
   }
 ]

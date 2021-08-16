@@ -15,13 +15,14 @@
 #include <Kernel/IO.h>
 #include <Kernel/Interrupts/APIC.h>
 #include <Kernel/Interrupts/SpuriousInterruptHandler.h>
+#include <Kernel/Memory/AnonymousVMObject.h>
+#include <Kernel/Memory/MemoryManager.h>
+#include <Kernel/Memory/PageDirectory.h>
+#include <Kernel/Memory/TypedMapping.h>
 #include <Kernel/Panic.h>
 #include <Kernel/Sections.h>
 #include <Kernel/Thread.h>
 #include <Kernel/Time/APICTimer.h>
-#include <Kernel/VM/MemoryManager.h>
-#include <Kernel/VM/PageDirectory.h>
-#include <Kernel/VM/TypedMapping.h>
 
 #define IRQ_APIC_TIMER (0xfc - IRQ_VECTOR_BASE)
 #define IRQ_APIC_IPI (0xfd - IRQ_VECTOR_BASE)
@@ -53,7 +54,7 @@
 
 namespace Kernel {
 
-static AK::Singleton<APIC> s_apic;
+static Singleton<APIC> s_apic;
 
 class APICIPIInterruptHandler final : public GenericInterruptHandler {
 public:
@@ -228,7 +229,7 @@ UNMAP_AFTER_INIT bool APIC::init_bsp()
     dbgln_if(APIC_DEBUG, "Initializing APIC, base: {}", apic_base);
     set_base(apic_base);
 
-    m_apic_base = MM.allocate_kernel_region(apic_base.page_base(), PAGE_SIZE, {}, Region::Access::Read | Region::Access::Write);
+    m_apic_base = MM.allocate_kernel_region(apic_base.page_base(), PAGE_SIZE, {}, Memory::Region::Access::ReadWrite);
     if (!m_apic_base) {
         dbgln("APIC: Failed to allocate memory for APIC base");
         return false;
@@ -245,7 +246,7 @@ UNMAP_AFTER_INIT bool APIC::init_bsp()
         return false;
     }
 
-    auto madt = map_typed<ACPI::Structures::MADT>(madt_address);
+    auto madt = Memory::map_typed<ACPI::Structures::MADT>(madt_address);
     size_t entry_index = 0;
     size_t entries_length = madt->h.length - sizeof(ACPI::Structures::MADT);
     auto* madt_entry = madt->entries;
@@ -274,6 +275,21 @@ UNMAP_AFTER_INIT bool APIC::init_bsp()
     return true;
 }
 
+UNMAP_AFTER_INIT static NonnullOwnPtr<Memory::Region> create_identity_mapped_region(PhysicalAddress paddr, size_t size)
+{
+    auto maybe_vmobject = Memory::AnonymousVMObject::try_create_for_physical_range(paddr, size);
+    // FIXME: Would be nice to be able to return a KResultOr from here.
+    VERIFY(!maybe_vmobject.is_error());
+
+    auto region = MM.allocate_kernel_region_with_vmobject(
+        Memory::VirtualRange { VirtualAddress { static_cast<FlatPtr>(paddr.get()) }, size },
+        maybe_vmobject.release_value(),
+        {},
+        Memory::Region::Access::ReadWriteExecute);
+    VERIFY(region);
+    return region.release_nonnull();
+}
+
 UNMAP_AFTER_INIT void APIC::do_boot_aps()
 {
     VERIFY(m_processor_enabled_cnt > 1);
@@ -283,13 +299,13 @@ UNMAP_AFTER_INIT void APIC::do_boot_aps()
     // Also account for the data appended to:
     // * aps_to_enable u32 values for ap_cpu_init_stacks
     // * aps_to_enable u32 values for ap_cpu_init_processor_info_array
-    auto apic_startup_region = MM.allocate_kernel_region_identity(PhysicalAddress(0x8000), page_round_up(apic_ap_start_size + (2 * aps_to_enable * sizeof(u32))), {}, Region::Access::Read | Region::Access::Write | Region::Access::Execute);
+    auto apic_startup_region = create_identity_mapped_region(PhysicalAddress(0x8000), Memory::page_round_up(apic_ap_start_size + (2 * aps_to_enable * sizeof(u32))));
     memcpy(apic_startup_region->vaddr().as_ptr(), reinterpret_cast<const void*>(apic_ap_start), apic_ap_start_size);
 
     // Allocate enough stacks for all APs
-    Vector<OwnPtr<Region>> apic_ap_stacks;
+    Vector<OwnPtr<Memory::Region>> apic_ap_stacks;
     for (u32 i = 0; i < aps_to_enable; i++) {
-        auto stack_region = MM.allocate_kernel_region(Thread::default_kernel_stack_size, {}, Region::Access::Read | Region::Access::Write, AllocationStrategy::AllocateNow);
+        auto stack_region = MM.allocate_kernel_region(Thread::default_kernel_stack_size, {}, Memory::Region::Access::ReadWrite, AllocationStrategy::AllocateNow);
         if (!stack_region) {
             dbgln("APIC: Failed to allocate stack for AP #{}", i);
             return;
@@ -362,6 +378,10 @@ UNMAP_AFTER_INIT void APIC::do_boot_aps()
     }
 
     dbgln_if(APIC_DEBUG, "APIC: {} processors are initialized and running", m_processor_enabled_cnt);
+
+    // NOTE: Since this region is identity-mapped, we have to unmap it manually to prevent the virtual
+    //       address range from leaking into the general virtual range allocator.
+    apic_startup_region->unmap(Memory::Region::ShouldDeallocateVirtualRange::No);
 }
 
 UNMAP_AFTER_INIT void APIC::boot_aps()

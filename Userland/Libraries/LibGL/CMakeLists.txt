@@ -1,5 +1,6 @@
 set(SOURCES
     Tex/NameAllocator.cpp
+    Tex/Sampler2D.cpp
     Tex/Texture2D.cpp
     Tex/TextureUnit.cpp
     Clipper.cpp
@@ -12,6 +13,7 @@ set(SOURCES
     GLTexture.cpp
     GLUtils.cpp
     GLVert.cpp
+    GLVertexArrays.cpp
     SoftwareGLContext.cpp
     SoftwareRasterizer.cpp
     DepthBuffer.cpp

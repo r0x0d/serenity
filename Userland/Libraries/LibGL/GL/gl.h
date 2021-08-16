@@ -15,6 +15,13 @@ extern "C" {
 #    define GLAPI extern
 #endif
 
+#define GL_VERSION_1_0
+#define GL_VERSION_1_1
+#define GL_VERSION_1_2
+#define GL_VERSION_1_3
+#define GL_VERSION_1_4
+#define GL_VERSION_1_5
+
 // OpenGL related `defines`
 #define GL_TRUE 1
 #define GL_FALSE 0
@@ -46,7 +53,9 @@ extern "C" {
 
 // Enable capabilities
 #define GL_CULL_FACE 0x0B44
+#define GL_FOG 0x0B60
 #define GL_DEPTH_TEST 0x0B71
+#define GL_POLYGON_OFFSET_FILL 0x8037
 
 // Alpha testing
 #define GL_ALPHA_TEST 0x0BC0
@@ -60,6 +69,11 @@ extern "C" {
 #define GL_VENDOR 0x1F00
 #define GL_RENDERER 0x1F01
 #define GL_VERSION 0x1F02
+#define GL_EXTENSIONS 0x1F03
+
+// Get parameters
+#define GL_MAX_TEXTURE_SIZE 0x0D33
+#define GL_MAX_TEXTURE_UNITS 0x84E2
 
 // Blend factors
 #define GL_ZERO 0
@@ -112,6 +126,9 @@ extern "C" {
 #define GL_GENERATE_MIPMAP_HINT 0x8192
 #define GL_TEXTURE_COMPRESSION_HINT 0x84EF
 
+// Read pixels
+#define GL_UNPACK_ROW_LENGTH 0x0CF2
+
 // Listing enums
 #define GL_COMPILE 0x1300
 #define GL_COMPILE_AND_EXECUTE 0x1301
@@ -124,6 +141,7 @@ extern "C" {
 #define GL_INT 0x1404
 #define GL_UNSIGNED_INT 0x1405
 #define GL_FLOAT 0x1406
+#define GL_DOUBLE 0x140A
 
 // Format enums
 #define GL_COLOR_INDEX 0x1900
@@ -149,6 +167,9 @@ extern "C" {
 #define GL_CONSTANT_ALPHA 0x8003
 #define GL_ONE_MINUS_CONSTANT_ALPHA 0x8004
 
+// Polygon modes
+#define GL_FILL 0x1B02
+
 // Pixel formats
 #define GL_RGB 0x1907
 #define GL_RGBA 0x1908
@@ -157,6 +178,9 @@ extern "C" {
 
 // Source pixel data format
 #define GL_UNSIGNED_BYTE 0x1401
+
+// Stencil buffer operations
+#define GL_REPLACE 0x1E01
 
 // Texture targets
 #define GL_TEXTURE_2D 0x0DE1
@@ -196,10 +220,37 @@ extern "C" {
 #define GL_TEXTURE31 0x84DF
 
 // Texture Environment and Parameters
+#define GL_MODULATE 0x2100
+#define GL_TEXTURE_ENV_MODE 0x2200
+#define GL_DECAL 0x2102
+#define GL_TEXTURE_ENV 0x2300
 #define GL_NEAREST 0x2600
 #define GL_LINEAR 0x2601
-#define GL_NEAREST_MIPMAP_LINEAR 0x2602
-#define GL_REPEAT 0x2603
+#define GL_NEAREST_MIPMAP_NEAREST 0x2700
+#define GL_LINEAR_MIPMAP_NEAREST 0x2701
+#define GL_NEAREST_MIPMAP_LINEAR 0x2702
+#define GL_LINEAR_MIPMAP_LINEAR 0x2703
+#define GL_TEXTURE_MAG_FILTER 0x2800
+#define GL_TEXTURE_MIN_FILTER 0x2801
+#define GL_TEXTURE_WRAP_S 0x2802
+#define GL_TEXTURE_WRAP_T 0x2803
+#define GL_CLAMP 0x2900
+#define GL_REPEAT 0x2901
+#define GL_MIRRORED_REPEAT 0x8370
+#define GL_CLAMP_TO_BORDER 0x812D
+#define GL_CLAMP_TO_EDGE 0x812F
+
+// Client state capabilities
+#define GL_VERTEX_ARRAY 0x8074
+#define GL_COLOR_ARRAY 0x8076
+#define GL_TEXTURE_COORD_ARRAY 0x8078
+
+// Fog parameters
+#define GL_EXP 0x0800
+#define GL_EXP2 0x0801
+#define GL_FOG_MODE 0x0B65
+#define GL_FOG_COLOR 0x0B66
+#define GL_FOG_DENSITY 0x0B62
 
 // OpenGL State & GLGet
 #define GL_MODELVIEW_MATRIX 0x0BA6
@@ -210,8 +261,10 @@ extern "C" {
 // Defines types used by all OpenGL applications
 // https://www.khronos.org/opengl/wiki/OpenGL_Type
 typedef char GLchar;
+typedef char GLbyte;
 typedef unsigned char GLuchar;
 typedef unsigned char GLubyte;
+typedef unsigned char GLboolean;
 typedef short GLshort;
 typedef unsigned short GLushort;
 typedef int GLint;
@@ -226,16 +279,19 @@ typedef float GLclampf;
 typedef double GLdouble;
 typedef unsigned int GLenum;
 typedef unsigned int GLbitfield;
+typedef unsigned char GLboolean;
 
 GLAPI void glBegin(GLenum mode);
 GLAPI void glClear(GLbitfield mask);
 GLAPI void glClearColor(GLclampf red, GLclampf green, GLclampf blue, GLclampf alpha);
 GLAPI void glClearDepth(GLdouble depth);
 GLAPI void glColor3f(GLfloat r, GLfloat g, GLfloat b);
+GLAPI void glColor3fv(const GLfloat* v);
 GLAPI void glColor4f(GLfloat r, GLfloat g, GLfloat b, GLfloat a);
 GLAPI void glColor4fv(const GLfloat* v);
 GLAPI void glColor4ub(GLubyte r, GLubyte g, GLubyte b, GLubyte a);
 GLAPI void glColor4ubv(const GLubyte* v);
+GLAPI void glColorMask(GLboolean red, GLboolean green, GLboolean blue, GLboolean alpha);
 GLAPI void glDeleteTextures(GLsizei n, const GLuint* textures);
 GLAPI void glEnd();
 GLAPI void glFrustum(GLdouble left, GLdouble right, GLdouble bottom, GLdouble top, GLdouble nearVal, GLdouble farVal);
@@ -295,9 +351,20 @@ GLAPI void glReadBuffer(GLenum mode);
 GLAPI void glReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type, GLvoid* pixels);
 GLAPI void glTexImage2D(GLenum target, GLint level, GLint internalFormat, GLsizei width, GLsizei height, GLint border, GLenum format, GLenum type, const GLvoid* data);
 GLAPI void glTexCoord2f(GLfloat s, GLfloat t);
+GLAPI void glTexCoord4fv(const GLfloat* v);
+GLAPI void glTexParameteri(GLenum target, GLenum pname, GLint param);
+GLAPI void glTexParameterf(GLenum target, GLenum pname, GLfloat param);
 GLAPI void glBindTexture(GLenum target, GLuint texture);
 GLAPI void glActiveTexture(GLenum texture);
 GLAPI void glGetFloatv(GLenum pname, GLfloat* params);
+GLAPI void glDepthMask(GLboolean flag);
+GLAPI void glEnableClientState(GLenum cap);
+GLAPI void glDisableClientState(GLenum cap);
+GLAPI void glVertexPointer(GLint size, GLenum type, GLsizei stride, const void* pointer);
+GLAPI void glColorPointer(GLint size, GLenum type, GLsizei stride, const void* pointer);
+GLAPI void glTexCoordPointer(GLint size, GLenum type, GLsizei stride, const void* pointer);
+GLAPI void glDrawArrays(GLenum mode, GLint first, GLsizei count);
+GLAPI void glDrawElements(GLenum mode, GLsizei count, GLenum type, const void* indices);
 
 #ifdef __cplusplus
 }

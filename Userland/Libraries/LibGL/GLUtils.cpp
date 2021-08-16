@@ -45,6 +45,11 @@ void glClearDepth(GLdouble depth)
     g_gl_context->gl_clear_depth(depth);
 }
 
+void glColorMask(GLboolean red, GLboolean green, GLboolean blue, GLboolean alpha)
+{
+    g_gl_context->gl_color_mask(red, green, blue, alpha);
+}
+
 GLubyte* glGetString(GLenum name)
 {
     return g_gl_context->gl_get_string(name);
@@ -88,4 +93,19 @@ void glReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format
 void glGetFloatv(GLenum pname, GLfloat* params)
 {
     g_gl_context->gl_get_floatv(pname, params);
+}
+
+void glDepthMask(GLboolean flag)
+{
+    g_gl_context->gl_depth_mask(flag);
+}
+
+void glEnableClientState(GLenum cap)
+{
+    g_gl_context->gl_enable_client_state(cap);
+}
+
+void glDisableClientState(GLenum cap)
+{
+    g_gl_context->gl_disable_client_state(cap);
 }

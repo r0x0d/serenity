@@ -37,7 +37,12 @@ Messages::ImageDecoderServer::DecodeImageResponse ClientConnection::decode_image
         return nullptr;
     }
 
-    auto decoder = Gfx::ImageDecoder::create(encoded_buffer.data<u8>(), encoded_buffer.size());
+    auto decoder = Gfx::ImageDecoder::try_create(ReadonlyBytes { encoded_buffer.data<u8>(), encoded_buffer.size() });
+
+    if (!decoder) {
+        dbgln_if(IMAGE_DECODER_DEBUG, "Could not find suitable image decoder plugin for data");
+        return { false, 0, Vector<Gfx::ShareableBitmap> {}, Vector<u32> {} };
+    }
 
     if (!decoder->frame_count()) {
         dbgln_if(IMAGE_DECODER_DEBUG, "Could not decode image from encoded data");
@@ -47,14 +52,7 @@ Messages::ImageDecoderServer::DecodeImageResponse ClientConnection::decode_image
     Vector<Gfx::ShareableBitmap> bitmaps;
     Vector<u32> durations;
     for (size_t i = 0; i < decoder->frame_count(); ++i) {
-        // FIXME: All image decoder plugins should be rewritten to return frame() instead of bitmap().
-        //        Non-animated images can simply return 1 frame.
-        Gfx::ImageFrameDescriptor frame;
-        if (decoder->is_animated()) {
-            frame = decoder->frame(i);
-        } else {
-            frame.image = decoder->bitmap();
-        }
+        auto frame = decoder->frame(i);
         if (frame.image)
             bitmaps.append(frame.image->to_shareable_bitmap());
         else

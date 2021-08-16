@@ -95,6 +95,12 @@ int perf_event(int type, uintptr_t arg1, FlatPtr arg2)
     __RETURN_WITH_ERRNO(rc, rc, -1);
 }
 
+int perf_register_string(char const* string, size_t string_length)
+{
+    int rc = syscall(SC_perf_register_string, string, string_length);
+    __RETURN_WITH_ERRNO(rc, rc, -1);
+}
+
 int get_stack_bounds(uintptr_t* user_stack_base, size_t* user_stack_size)
 {
     int rc = syscall(SC_get_stack_bounds, user_stack_base, user_stack_size);
@@ -150,5 +156,10 @@ u16 internet_checksum(const void* ptr, size_t count)
     while (checksum >> 16)
         checksum = (checksum & 0xffff) + (checksum >> 16);
     return htons(~checksum);
+}
+
+int emuctl(uintptr_t command, uintptr_t arg0, uintptr_t arg1)
+{
+    return syscall(SC_emuctl, command, arg0, arg1);
 }
 }

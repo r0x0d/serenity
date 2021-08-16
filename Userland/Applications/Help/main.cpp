@@ -14,6 +14,7 @@
 #include <LibGUI/Action.h>
 #include <LibGUI/Application.h>
 #include <LibGUI/BoxLayout.h>
+#include <LibGUI/Clipboard.h>
 #include <LibGUI/FilteringProxyModel.h>
 #include <LibGUI/ListView.h>
 #include <LibGUI/Menu.h>
@@ -108,11 +109,11 @@ int main(int argc, char* argv[])
         if (auto model = search_list_view.model()) {
             auto& search_model = *static_cast<GUI::FilteringProxyModel*>(model);
             search_model.set_filter_term(search_box.text());
-            search_model.update();
+            search_model.invalidate();
         }
     };
     search_list_view.set_model(GUI::FilteringProxyModel::construct(model));
-    search_list_view.model()->update();
+    search_list_view.model()->invalidate();
 
     tree_view.set_model(model);
     left_tab_bar.set_fixed_width(200);
@@ -260,22 +261,41 @@ int main(int argc, char* argv[])
     toolbar.add_action(*go_forward_action);
     toolbar.add_action(*go_home_action);
 
-    auto menubar = GUI::Menubar::construct();
-
-    auto& file_menu = menubar->add_menu("&File");
+    auto& file_menu = window->add_menu("&File");
     file_menu.add_action(GUI::CommonActions::make_quit_action([](auto&) {
         GUI::Application::the()->quit();
     }));
 
-    auto& go_menu = menubar->add_menu("&Go");
+    auto& go_menu = window->add_menu("&Go");
     go_menu.add_action(*go_back_action);
     go_menu.add_action(*go_forward_action);
     go_menu.add_action(*go_home_action);
 
-    auto& help_menu = menubar->add_menu("&Help");
+    auto& help_menu = window->add_menu("&Help");
     help_menu.add_action(GUI::CommonActions::make_about_action("Help", app_icon, window));
 
-    window->set_menubar(move(menubar));
+    auto context_menu = GUI::Menu::construct();
+    context_menu->add_action(*go_back_action);
+    context_menu->add_action(*go_forward_action);
+    context_menu->add_action(*go_home_action);
+    context_menu->add_separator();
+
+    RefPtr<GUI::Action> copy_action = GUI::CommonActions::make_copy_action([&](auto&) {
+        auto selected_text = page_view.selected_text();
+        if (!selected_text.is_empty())
+            GUI::Clipboard::the().set_plain_text(selected_text);
+    });
+    context_menu->add_action(*copy_action);
+
+    RefPtr<GUI::Action> select_all_function = GUI::CommonActions::make_select_all_action([&](auto&) {
+        page_view.select_all();
+    });
+    context_menu->add_action(*select_all_function);
+
+    page_view.on_context_menu_request = [&](auto& screen_position) {
+        copy_action->set_enabled(!page_view.selected_text().is_empty());
+        context_menu->popup(screen_position);
+    };
 
     if (start_page) {
         URL url = URL::create_with_url_or_path(start_page);

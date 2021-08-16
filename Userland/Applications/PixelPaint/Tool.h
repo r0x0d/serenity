@@ -8,6 +8,7 @@
 
 #include <LibGUI/Event.h>
 #include <LibGUI/Forward.h>
+#include <LibGfx/StandardCursor.h>
 
 namespace PixelPaint {
 
@@ -26,7 +27,9 @@ public:
     virtual void on_second_paint(Layer const&, GUI::PaintEvent&) { }
     virtual void on_keydown(GUI::KeyEvent&) { }
     virtual void on_keyup(GUI::KeyEvent&) { }
+    virtual void on_tool_activation() { }
     virtual GUI::Widget* get_properties_widget() { return nullptr; }
+    virtual Gfx::StandardCursor cursor() { return Gfx::StandardCursor::None; }
 
     void clear() { m_editor = nullptr; }
     void setup(ImageEditor&);

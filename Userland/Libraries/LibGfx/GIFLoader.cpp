@@ -5,16 +5,14 @@
  */
 
 #include <AK/Array.h>
-#include <AK/ByteBuffer.h>
 #include <AK/Debug.h>
 #include <AK/LexicalPath.h>
 #include <AK/MappedFile.h>
+#include <AK/Math.h>
 #include <AK/Memory.h>
 #include <AK/MemoryStream.h>
 #include <AK/NonnullOwnPtrVector.h>
 #include <LibGfx/GIFLoader.h>
-#include <math.h>
-#include <stdio.h>
 #include <string.h>
 
 namespace Gfx {
@@ -138,7 +136,7 @@ public:
         : m_lzw_bytes(lzw_bytes)
         , m_code_size(min_code_size)
         , m_original_code_size(min_code_size)
-        , m_table_capacity(pow(2, min_code_size))
+        , m_table_capacity(AK::exp2<u32>(min_code_size))
     {
         init_code_table();
     }
@@ -162,7 +160,7 @@ public:
         m_code_table.clear();
         m_code_table.extend(m_original_code_table);
         m_code_size = m_original_code_size;
-        m_table_capacity = pow(2, m_code_size);
+        m_table_capacity = AK::exp2<u32>(m_code_size);
         m_output.clear();
     }
 
@@ -299,10 +297,10 @@ static bool decode_frame(GIFLoadingContext& context, size_t frame_index)
     size_t start_frame = context.current_frame + 1;
     if (context.state < GIFLoadingContext::State::FrameComplete) {
         start_frame = 0;
-        context.frame_buffer = Bitmap::create_purgeable(BitmapFormat::BGRA8888, { context.logical_screen.width, context.logical_screen.height });
+        context.frame_buffer = Bitmap::try_create(BitmapFormat::BGRA8888, { context.logical_screen.width, context.logical_screen.height });
         if (!context.frame_buffer)
             return false;
-        context.prev_frame_buffer = Bitmap::create_purgeable(BitmapFormat::BGRA8888, { context.logical_screen.width, context.logical_screen.height });
+        context.prev_frame_buffer = Bitmap::try_create(BitmapFormat::BGRA8888, { context.logical_screen.width, context.logical_screen.height });
         if (!context.prev_frame_buffer)
             return false;
     } else if (frame_index < context.current_frame) {
@@ -563,7 +561,7 @@ static bool load_gif_frame_descriptors(GIFLoadingContext& context)
             image.interlaced = (packed_fields & 0x40) != 0;
 
             if (!image.use_global_color_map) {
-                size_t local_color_table_size = pow(2, (packed_fields & 7) + 1);
+                size_t local_color_table_size = AK::exp2<size_t>((packed_fields & 7) + 1);
 
                 for (size_t i = 0; i < local_color_table_size; ++i) {
                     u8 r = 0;
@@ -655,12 +653,11 @@ void GIFImageDecoderPlugin::set_volatile()
     }
 }
 
-bool GIFImageDecoderPlugin::set_nonvolatile()
+bool GIFImageDecoderPlugin::set_nonvolatile(bool& was_purged)
 {
-    if (!m_context->frame_buffer) {
-        return true;
-    }
-    return m_context->frame_buffer->set_nonvolatile();
+    if (!m_context->frame_buffer)
+        return false;
+    return m_context->frame_buffer->set_nonvolatile(was_purged);
 }
 
 bool GIFImageDecoderPlugin::sniff()

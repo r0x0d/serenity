@@ -43,11 +43,16 @@ struct ScopeFrame {
 };
 
 struct ExecutionContext {
+    explicit ExecutionContext(Heap& heap)
+        : arguments(heap)
+    {
+    }
+
     const ASTNode* current_node { nullptr };
     FlyString function_name;
     FunctionObject* function { nullptr };
     Value this_value;
-    Vector<Value> arguments;
+    MarkedValueList arguments;
     Object* arguments_object { nullptr };
     Environment* lexical_environment { nullptr };
     Environment* variable_environment { nullptr };
@@ -100,12 +105,17 @@ public:
         return *m_single_ascii_character_strings[character];
     }
 
+    bool did_reach_stack_space_limit() const
+    {
+        // Note: the 32 kiB used to be 16 kiB, but that turned out to not be enough with ASAN enabled.
+        return m_stack_info.size_free() < 32 * KiB;
+    }
+
     void push_execution_context(ExecutionContext& context, GlobalObject& global_object)
     {
         VERIFY(!exception());
         // Ensure we got some stack space left, so the next function call doesn't kill us.
-        // Note: the 32 kiB used to be 16 kiB, but that turned out to not be enough with ASAN enabled.
-        if (m_stack_info.size_free() < 32 * KiB)
+        if (did_reach_stack_space_limit())
             throw_exception<Error>(global_object, "Call stack size limit exceeded");
         else
             m_execution_context_stack.append(&context);
@@ -259,6 +269,8 @@ public:
 
 private:
     VM();
+
+    void ordinary_call_bind_this(FunctionObject&, ExecutionContext&, Value this_argument);
 
     [[nodiscard]] Value call_internal(FunctionObject&, Value this_value, Optional<MarkedValueList> arguments);
     void prepare_for_ordinary_call(FunctionObject&, ExecutionContext& callee_context, Value new_target);

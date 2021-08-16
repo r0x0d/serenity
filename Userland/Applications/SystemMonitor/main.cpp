@@ -37,7 +37,6 @@
 #include <LibGUI/Statusbar.h>
 #include <LibGUI/TabWidget.h>
 #include <LibGUI/TableView.h>
-#include <LibGUI/Toolbar.h>
 #include <LibGUI/Widget.h>
 #include <LibGUI/Window.h>
 #include <LibGfx/FontDatabase.h>
@@ -87,8 +86,8 @@ private:
 
 static bool can_access_pid(pid_t pid)
 {
-    auto path = String::formatted("/proc/{}", pid);
-    return access(path.characters(), X_OK) == 0;
+    int rc = kill(pid, 0);
+    return rc == 0;
 }
 
 int main(int argc, char** argv)
@@ -136,6 +135,12 @@ int main(int argc, char** argv)
     }
 
     if (unveil("/usr/lib", "r") < 0) {
+        perror("unveil");
+        return 1;
+    }
+
+    // This directory only exists if ports are installed
+    if (unveil("/usr/local/bin", "r") < 0 && errno != ENOENT) {
         perror("unveil");
         return 1;
     }
@@ -226,11 +231,11 @@ int main(int argc, char** argv)
     process_table_view.set_column_visible(ProcessModel::Column::DirtyPrivate, true);
 
     process_table_view.set_key_column_and_sort_order(ProcessModel::Column::CPU, GUI::SortOrder::Descending);
-    process_table_view.model()->update();
+    process_model->update();
 
     auto& refresh_timer = window->add<Core::Timer>(
         3000, [&] {
-            process_table_view.model()->update();
+            process_model->update();
             if (auto* memory_stats_widget = MemoryStatsWidget::the())
                 memory_stats_widget->refresh();
         });
@@ -243,7 +248,7 @@ int main(int argc, char** argv)
     };
 
     auto kill_action = GUI::Action::create(
-        "&Kill Process", { Mod_Ctrl, Key_K }, Gfx::Bitmap::load_from_file("/res/icons/16x16/kill.png"), [&](const GUI::Action&) {
+        "&Kill Process", { Mod_Ctrl, Key_K }, Gfx::Bitmap::try_load_from_file("/res/icons/16x16/kill.png"), [&](const GUI::Action&) {
             pid_t pid = selected_id(ProcessModel::Column::PID);
             if (pid != -1)
                 kill(pid, SIGKILL);
@@ -251,7 +256,7 @@ int main(int argc, char** argv)
         &process_table_view);
 
     auto stop_action = GUI::Action::create(
-        "&Stop Process", { Mod_Ctrl, Key_S }, Gfx::Bitmap::load_from_file("/res/icons/16x16/stop-hand.png"), [&](const GUI::Action&) {
+        "&Stop Process", { Mod_Ctrl, Key_S }, Gfx::Bitmap::try_load_from_file("/res/icons/16x16/stop-hand.png"), [&](const GUI::Action&) {
             pid_t pid = selected_id(ProcessModel::Column::PID);
             if (pid != -1)
                 kill(pid, SIGSTOP);
@@ -259,7 +264,7 @@ int main(int argc, char** argv)
         &process_table_view);
 
     auto continue_action = GUI::Action::create(
-        "&Continue Process", { Mod_Ctrl, Key_C }, Gfx::Bitmap::load_from_file("/res/icons/16x16/continue.png"), [&](const GUI::Action&) {
+        "&Continue Process", { Mod_Ctrl, Key_C }, Gfx::Bitmap::try_load_from_file("/res/icons/16x16/continue.png"), [&](const GUI::Action&) {
             pid_t pid = selected_id(ProcessModel::Column::PID);
             if (pid != -1)
                 kill(pid, SIGCONT);
@@ -268,7 +273,7 @@ int main(int argc, char** argv)
 
     auto profile_action = GUI::Action::create(
         "&Profile Process", { Mod_Ctrl, Key_P },
-        Gfx::Bitmap::load_from_file("/res/icons/16x16/app-profiler.png"), [&](auto&) {
+        Gfx::Bitmap::try_load_from_file("/res/icons/16x16/app-profiler.png"), [&](auto&) {
             pid_t pid = selected_id(ProcessModel::Column::PID);
             if (pid != -1) {
                 auto pid_string = String::number(pid);
@@ -309,8 +314,7 @@ int main(int argc, char** argv)
         },
         &process_table_view);
 
-    auto menubar = GUI::Menubar::construct();
-    auto& file_menu = menubar->add_menu("&File");
+    auto& file_menu = window->add_menu("&File");
     file_menu.add_action(GUI::CommonActions::make_quit_action([](auto&) {
         GUI::Application::the()->quit();
     }));
@@ -328,7 +332,7 @@ int main(int argc, char** argv)
             process_context_menu->popup(event.screen_position(), process_properties_action);
     };
 
-    auto& frequency_menu = menubar->add_menu("F&requency");
+    auto& frequency_menu = window->add_menu("F&requency");
     GUI::ActionGroup frequency_action_group;
     frequency_action_group.set_exclusive(true);
 
@@ -346,18 +350,21 @@ int main(int argc, char** argv)
     make_frequency_action(3, true);
     make_frequency_action(5);
 
-    auto& help_menu = menubar->add_menu("&Help");
+    auto& help_menu = window->add_menu("&Help");
     help_menu.add_action(GUI::CommonActions::make_about_action("System Monitor", app_icon, window));
-
-    window->set_menubar(move(menubar));
 
     process_table_view.on_activation = [&](auto&) {
         if (process_properties_action->is_enabled())
             process_properties_action->activate();
     };
 
+    static pid_t last_selected_pid;
+
     process_table_view.on_selection_change = [&] {
         pid_t pid = selected_id(ProcessModel::Column::PID);
+        if (pid == last_selected_pid || pid < 1)
+            return;
+        last_selected_pid = pid;
         bool has_access = can_access_pid(pid);
         kill_action->set_enabled(has_access);
         stop_action->set_enabled(has_access);
@@ -566,11 +573,12 @@ NonnullRefPtr<GUI::Widget> build_file_systems_tab()
         df_fields.empend("free_inode_count", "Free inodes", Gfx::TextAlignment::CenterRight);
         df_fields.empend("total_inode_count", "Total inodes", Gfx::TextAlignment::CenterRight);
         df_fields.empend("block_size", "Block size", Gfx::TextAlignment::CenterRight);
+
         fs_table_view.set_model(GUI::SortingProxyModel::create(GUI::JsonArrayModel::create("/proc/df", move(df_fields))));
 
         fs_table_view.set_column_painting_delegate(3, make<ProgressbarPaintingDelegate>());
 
-        fs_table_view.model()->update();
+        fs_table_view.model()->invalidate();
     };
     return fs_widget;
 }
@@ -628,7 +636,7 @@ NonnullRefPtr<GUI::Widget> build_pci_devices_tab()
             });
 
         pci_table_view.set_model(GUI::SortingProxyModel::create(GUI::JsonArrayModel::create("/proc/pci", move(pci_fields))));
-        pci_table_view.model()->update();
+        pci_table_view.model()->invalidate();
     };
 
     return pci_widget;
@@ -644,7 +652,7 @@ NonnullRefPtr<GUI::Widget> build_devices_tab()
 
         auto& devices_table_view = self.add<GUI::TableView>();
         devices_table_view.set_model(GUI::SortingProxyModel::create(DevicesModel::create()));
-        devices_table_view.model()->update();
+        devices_table_view.model()->invalidate();
     };
 
     return devices_widget;
@@ -747,8 +755,9 @@ NonnullRefPtr<GUI::Widget> build_processors_tab()
         processors_field.empend("type", "Type", Gfx::TextAlignment::CenterRight);
 
         auto& processors_table_view = self.add<GUI::TableView>();
-        processors_table_view.set_model(GUI::JsonArrayModel::create("/proc/cpuinfo", move(processors_field)));
-        processors_table_view.model()->update();
+        auto json_model = GUI::JsonArrayModel::create("/proc/cpuinfo", move(processors_field));
+        processors_table_view.set_model(json_model);
+        json_model->invalidate();
     };
 
     return processors_widget;

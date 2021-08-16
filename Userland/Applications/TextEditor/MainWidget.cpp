@@ -44,7 +44,6 @@
 namespace TextEditor {
 
 MainWidget::MainWidget()
-    : m_file_system_access_client(FileSystemAccessClient::construct())
 {
     load_from_gml(text_editor_window_gml);
 
@@ -94,7 +93,7 @@ MainWidget::MainWidget()
     };
     m_wrap_around_checkbox->set_checked(true);
 
-    m_find_next_action = GUI::Action::create("Find &Next", { Mod_Ctrl, Key_G }, Gfx::Bitmap::load_from_file("/res/icons/16x16/find-next.png"), [&](auto&) {
+    m_find_next_action = GUI::Action::create("Find &Next", { Mod_Ctrl, Key_G }, Gfx::Bitmap::try_load_from_file("/res/icons/16x16/find-next.png"), [&](auto&) {
         auto needle = m_find_textbox->text();
         if (needle.is_empty())
             return;
@@ -113,7 +112,7 @@ MainWidget::MainWidget()
         }
     });
 
-    m_find_previous_action = GUI::Action::create("Find Pr&evious", { Mod_Ctrl | Mod_Shift, Key_G }, Gfx::Bitmap::load_from_file("/res/icons/16x16/find-previous.png"), [&](auto&) {
+    m_find_previous_action = GUI::Action::create("Find Pr&evious", { Mod_Ctrl | Mod_Shift, Key_G }, Gfx::Bitmap::try_load_from_file("/res/icons/16x16/find-previous.png"), [&](auto&) {
         auto needle = m_find_textbox->text();
         if (needle.is_empty())
             return;
@@ -174,11 +173,11 @@ MainWidget::MainWidget()
 
     m_find_previous_button = *find_descendant_of_type_named<GUI::Button>("find_previous_button");
     m_find_previous_button->set_action(*m_find_previous_action);
-    m_find_previous_button->set_icon(Gfx::Bitmap::load_from_file("/res/icons/16x16/find-previous.png"));
+    m_find_previous_button->set_icon(Gfx::Bitmap::try_load_from_file("/res/icons/16x16/find-previous.png"));
 
     m_find_next_button = *find_descendant_of_type_named<GUI::Button>("find_next_button");
     m_find_next_button->set_action(*m_find_next_action);
-    m_find_next_button->set_icon(Gfx::Bitmap::load_from_file("/res/icons/16x16/find-next.png"));
+    m_find_next_button->set_icon(Gfx::Bitmap::try_load_from_file("/res/icons/16x16/find-next.png"));
 
     m_find_textbox->on_return_pressed = [this] {
         m_find_next_button->click();
@@ -212,7 +211,7 @@ MainWidget::MainWidget()
     });
     m_vim_emulation_setting_action->set_checked(false);
 
-    m_find_replace_action = GUI::Action::create("&Find/Replace...", { Mod_Ctrl, Key_F }, Gfx::Bitmap::load_from_file("/res/icons/16x16/find.png"), [this](auto&) {
+    m_find_replace_action = GUI::Action::create("&Find/Replace...", { Mod_Ctrl, Key_F }, Gfx::Bitmap::try_load_from_file("/res/icons/16x16/find.png"), [this](auto&) {
         m_find_replace_widget->set_visible(true);
         m_find_widget->set_visible(true);
         m_replace_widget->set_visible(true);
@@ -245,7 +244,7 @@ MainWidget::MainWidget()
     m_editor->on_cursor_change = [this] { update_statusbar(); };
     m_editor->on_selection_change = [this] { update_statusbar(); };
 
-    m_new_action = GUI::Action::create("&New", { Mod_Ctrl, Key_N }, Gfx::Bitmap::load_from_file("/res/icons/16x16/new.png"), [this](GUI::Action const&) {
+    m_new_action = GUI::Action::create("&New", { Mod_Ctrl, Key_N }, Gfx::Bitmap::try_load_from_file("/res/icons/16x16/new.png"), [this](GUI::Action const&) {
         if (editor().document().is_modified()) {
             auto save_document_first_result = GUI::MessageBox::show(window(), "Save changes to current document first?", "Warning", GUI::MessageBox::Type::Warning, GUI::MessageBox::InputType::YesNoCancel);
             if (save_document_first_result == GUI::Dialog::ExecResult::ExecYes)
@@ -260,11 +259,11 @@ MainWidget::MainWidget()
     });
 
     m_open_action = GUI::CommonActions::make_open_action([this](auto&) {
-        auto fd_response = m_file_system_access_client->prompt_open_file(Core::StandardPaths::home_directory(), Core::OpenMode::ReadOnly);
+        auto response = FileSystemAccessClient::Client::the().open_file(window()->window_id());
 
-        if (fd_response.error() != 0) {
-            if (fd_response.error() != -1)
-                GUI::MessageBox::show_error(window(), String::formatted("Opening \"{}\" failed: {}", fd_response.chosen_file().value(), strerror(fd_response.error())));
+        if (response.error != 0) {
+            if (response.error != -1)
+                GUI::MessageBox::show_error(window(), String::formatted("Opening \"{}\" failed: {}", *response.chosen_file, strerror(response.error)));
             return;
         }
 
@@ -276,40 +275,40 @@ MainWidget::MainWidget()
                 return;
         }
 
-        read_file_and_close(fd_response.fd()->take_fd(), fd_response.chosen_file().value());
+        read_file_and_close(*response.fd, *response.chosen_file);
     });
 
     m_save_as_action = GUI::CommonActions::make_save_as_action([&](auto&) {
-        auto response = m_file_system_access_client->prompt_save_file(m_name.is_null() ? "Untitled" : m_name, m_extension.is_null() ? "txt" : m_extension, Core::StandardPaths::home_directory(), Core::OpenMode::Truncate | Core::OpenMode::WriteOnly);
+        auto response = FileSystemAccessClient::Client::the().save_file(window()->window_id(), m_name, m_extension);
 
-        if (response.error() != 0) {
-            if (response.error() != -1)
-                GUI::MessageBox::show_error(window(), String::formatted("Saving \"{}\" failed: {}", response.chosen_file().value(), strerror(response.error())));
+        if (response.error != 0) {
+            if (response.error != -1)
+                GUI::MessageBox::show_error(window(), String::formatted("Saving \"{}\" failed: {}", *response.chosen_file, strerror(response.error)));
             return;
         }
 
-        if (!m_editor->write_to_file_and_close(response.fd()->take_fd())) {
+        if (!m_editor->write_to_file_and_close(*response.fd)) {
             GUI::MessageBox::show(window(), "Unable to save file.\n", "Error", GUI::MessageBox::Type::Error);
             return;
         }
         // FIXME: It would be cool if this would propagate from GUI::TextDocument somehow.
         window()->set_modified(false);
 
-        set_path(response.chosen_file().value());
-        dbgln("Wrote document to {}", response.chosen_file().value());
+        set_path(*response.chosen_file);
+        dbgln("Wrote document to {}", *response.chosen_file);
     });
 
     m_save_action = GUI::CommonActions::make_save_action([&](auto&) {
         if (!m_path.is_empty()) {
-            auto response = m_file_system_access_client->request_file(m_path, Core::OpenMode::Truncate | Core::OpenMode::WriteOnly);
+            auto response = FileSystemAccessClient::Client::the().request_file(window()->window_id(), m_path, Core::OpenMode::Truncate | Core::OpenMode::WriteOnly);
 
-            if (response.error() != 0) {
-                if (response.error() != -1)
-                    GUI::MessageBox::show_error(window(), String::formatted("Unable to save file: {}", strerror(response.error())));
+            if (response.error != 0) {
+                if (response.error != -1)
+                    GUI::MessageBox::show_error(window(), String::formatted("Unable to save file: {}", strerror(response.error)));
                 return;
             }
 
-            int fd = response.fd()->take_fd();
+            int fd = *response.fd;
 
             if (!m_editor->write_to_file_and_close(fd)) {
                 GUI::MessageBox::show(window(), "Unable to save file.\n", "Error", GUI::MessageBox::Type::Error);
@@ -370,9 +369,9 @@ Web::OutOfProcessWebView& MainWidget::ensure_web_view()
     return *m_page_view;
 }
 
-void MainWidget::initialize_menubar(GUI::Menubar& menubar)
+void MainWidget::initialize_menubar(GUI::Window& window)
 {
-    auto& file_menu = menubar.add_menu("&File");
+    auto& file_menu = window.add_menu("&File");
     file_menu.add_action(*m_new_action);
     file_menu.add_action(*m_open_action);
     file_menu.add_action(*m_save_action);
@@ -384,7 +383,7 @@ void MainWidget::initialize_menubar(GUI::Menubar& menubar)
         GUI::Application::the()->quit();
     }));
 
-    auto& edit_menu = menubar.add_menu("&Edit");
+    auto& edit_menu = window.add_menu("&Edit");
     edit_menu.add_action(m_editor->undo_action());
     edit_menu.add_action(m_editor->redo_action());
     edit_menu.add_separator();
@@ -450,7 +449,7 @@ void MainWidget::initialize_menubar(GUI::Menubar& menubar)
     m_layout_ruler_action->set_checked(show_ruler);
     m_editor->set_ruler_visible(show_ruler);
 
-    auto& view_menu = menubar.add_menu("&View");
+    auto& view_menu = window.add_menu("&View");
     auto& layout_menu = view_menu.add_submenu("&Layout");
     layout_menu.add_action(*m_layout_toolbar_action);
     layout_menu.add_action(*m_layout_statusbar_action);
@@ -458,9 +457,9 @@ void MainWidget::initialize_menubar(GUI::Menubar& menubar)
 
     view_menu.add_separator();
 
-    view_menu.add_action(GUI::Action::create("Editor &Font...", Gfx::Bitmap::load_from_file("/res/icons/16x16/app-font-editor.png"),
+    view_menu.add_action(GUI::Action::create("Editor &Font...", Gfx::Bitmap::try_load_from_file("/res/icons/16x16/app-font-editor.png"),
         [&](auto&) {
-            auto picker = GUI::FontPicker::construct(window(), &m_editor->font(), false);
+            auto picker = GUI::FontPicker::construct(&window, &m_editor->font(), false);
             if (picker->exec() == GUI::Dialog::ExecOK) {
                 dbgln("setting font {}", picker->font()->qualified_name());
                 m_editor->set_font(picker->font());
@@ -606,11 +605,11 @@ void MainWidget::initialize_menubar(GUI::Menubar& menubar)
     syntax_actions.add_action(*m_sql_highlight);
     syntax_menu.add_action(*m_sql_highlight);
 
-    auto& help_menu = menubar.add_menu("&Help");
+    auto& help_menu = window.add_menu("&Help");
     help_menu.add_action(GUI::CommonActions::make_help_action([](auto&) {
         Desktop::Launcher::open(URL::create_with_file_protocol("/usr/share/man/man1/TextEditor.md"), "/bin/Help");
     }));
-    help_menu.add_action(GUI::CommonActions::make_about_action("Text Editor", GUI::Icon::default_icon("app-text-editor"), window()));
+    help_menu.add_action(GUI::CommonActions::make_about_action("Text Editor", GUI::Icon::default_icon("app-text-editor"), &window));
 }
 
 void MainWidget::set_path(StringView const& path)
@@ -626,17 +625,20 @@ void MainWidget::set_path(StringView const& path)
         m_extension = lexical_path.extension();
     }
 
-    if (m_extension == "c" || m_extension == "cc" || m_extension == "cxx" || m_extension == "cpp" || m_extension == "h") {
+    if (m_extension == "c" || m_extension == "cc" || m_extension == "cxx" || m_extension == "cpp" || m_extension == "c++"
+        || m_extension == "h" || m_extension == "hh" || m_extension == "hxx" || m_extension == "hpp" || m_extension == "h++") {
         m_cpp_highlight->activate();
-    } else if (m_extension == "js" || m_extension == "json") {
+    } else if (m_extension == "js" || m_extension == "mjs" || m_extension == "json") {
         m_js_highlight->activate();
     } else if (m_extension == "gml") {
         m_gml_highlight->activate();
     } else if (m_extension == "ini") {
         m_ini_highlight->activate();
+    } else if (m_extension == "sh" || m_extension == "bash") {
+        m_shell_highlight->activate();
     } else if (m_extension == "sql") {
         m_sql_highlight->activate();
-    } else if (m_extension == "html") {
+    } else if (m_extension == "html" || m_extension == "htm") {
         m_html_highlight->activate();
     } else {
         m_plain_text_highlight->activate();
@@ -645,7 +647,7 @@ void MainWidget::set_path(StringView const& path)
     if (m_auto_detect_preview_mode) {
         if (m_extension == "md")
             set_preview_mode(PreviewMode::Markdown);
-        else if (m_extension == "html")
+        else if (m_extension == "html" || m_extension == "htm")
             set_preview_mode(PreviewMode::HTML);
         else
             set_preview_mode(PreviewMode::None);
@@ -694,6 +696,13 @@ bool MainWidget::read_file_and_close(int fd, String const& path)
     return true;
 }
 
+void MainWidget::open_nonexistent_file(String const& path)
+{
+    m_editor->set_text({});
+    set_path(path);
+    m_editor->set_focus(true);
+}
+
 bool MainWidget::request_close()
 {
     if (!editor().document().is_modified())
@@ -726,12 +735,14 @@ void MainWidget::drop_event(GUI::DropEvent& event)
             GUI::MessageBox::show(window(), "TextEditor can only open one file at a time!", "One at a time please!", GUI::MessageBox::Type::Error);
             return;
         }
-        auto file_response = m_file_system_access_client->request_file(urls.first().path(), Core::OpenMode::ReadOnly);
 
-        if (file_response.error() != 0)
+        // TODO: A drop event should be considered user consent for opening a file
+        auto file_response = FileSystemAccessClient::Client::the().request_file(window()->window_id(), urls.first().path(), Core::OpenMode::ReadOnly);
+
+        if (file_response.error != 0)
             return;
 
-        read_file_and_close(file_response.fd()->take_fd(), urls.first().path());
+        read_file_and_close(*file_response.fd, urls.first().path());
     }
 }
 

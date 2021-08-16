@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2018-2021, Andreas Kling <kling@serenityos.org>
  * Copyright (c) 2021, Liav A. <liavalb@hotmail.co.il>
  *
  * SPDX-License-Identifier: BSD-2-Clause
@@ -118,7 +118,6 @@ private:
     bool m_graphical { false };
 
     String m_tty_name;
-    RecursiveSpinLock m_lock;
 
 private:
     void initialize();
@@ -146,7 +145,7 @@ private:
     void clear_in_line(u16 row, u16 first_column, u16 last_column);
     void put_character_at(unsigned row, unsigned column, u32 ch, const VT::Attribute&);
 
-    OwnPtr<Region> m_cells;
+    OwnPtr<Memory::Region> m_cells;
     Vector<VirtualConsole::Line> m_lines;
     ConsoleImpl m_console_impl;
 };

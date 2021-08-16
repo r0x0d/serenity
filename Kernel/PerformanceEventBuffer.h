@@ -62,6 +62,11 @@ struct [[gnu::packed]] KFreePerformanceEvent {
     FlatPtr ptr;
 };
 
+struct [[gnu::packed]] SignpostPerformanceEvent {
+    FlatPtr arg1;
+    FlatPtr arg2;
+};
+
 struct [[gnu::packed]] PerformanceEvent {
     u16 type { 0 };
     u8 stack_size { 0 };
@@ -80,6 +85,7 @@ struct [[gnu::packed]] PerformanceEvent {
         ContextSwitchPerformanceEvent context_switch;
         KMallocPerformanceEvent kmalloc;
         KFreePerformanceEvent kfree;
+        SignpostPerformanceEvent signpost;
     } data;
     static constexpr size_t max_stack_frame_count = 64;
     FlatPtr stack[max_stack_frame_count];
@@ -95,7 +101,7 @@ public:
     static OwnPtr<PerformanceEventBuffer> try_create_with_size(size_t buffer_size);
 
     KResult append(int type, FlatPtr arg1, FlatPtr arg2, const StringView& arg3, Thread* current_thread = Thread::current());
-    KResult append_with_eip_and_ebp(ProcessID pid, ThreadID tid, u32 eip, u32 ebp,
+    KResult append_with_ip_and_bp(ProcessID pid, ThreadID tid, FlatPtr eip, FlatPtr ebp,
         int type, u32 lost_samples, FlatPtr arg1, FlatPtr arg2, const StringView& arg3);
 
     void clear()
@@ -114,6 +120,8 @@ public:
 
     void add_process(const Process&, ProcessEventType event_type);
 
+    KResultOr<FlatPtr> register_string(NonnullOwnPtr<KString>);
+
 private:
     explicit PerformanceEventBuffer(NonnullOwnPtr<KBuffer>);
 
@@ -124,6 +132,8 @@ private:
 
     size_t m_count { 0 };
     NonnullOwnPtr<KBuffer> m_buffer;
+
+    NonnullOwnPtrVector<KString> m_strings;
 };
 
 extern bool g_profiling_all_threads;

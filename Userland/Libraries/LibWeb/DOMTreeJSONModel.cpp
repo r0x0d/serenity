@@ -15,9 +15,9 @@ namespace Web {
 DOMTreeJSONModel::DOMTreeJSONModel(JsonObject dom_tree)
     : m_dom_tree(move(dom_tree))
 {
-    m_document_icon.set_bitmap_for_size(16, Gfx::Bitmap::load_from_file("/res/icons/16x16/filetype-html.png"));
-    m_element_icon.set_bitmap_for_size(16, Gfx::Bitmap::load_from_file("/res/icons/16x16/inspector-object.png"));
-    m_text_icon.set_bitmap_for_size(16, Gfx::Bitmap::load_from_file("/res/icons/16x16/filetype-unknown.png"));
+    m_document_icon.set_bitmap_for_size(16, Gfx::Bitmap::try_load_from_file("/res/icons/16x16/filetype-html.png"));
+    m_element_icon.set_bitmap_for_size(16, Gfx::Bitmap::try_load_from_file("/res/icons/16x16/inspector-object.png"));
+    m_text_icon.set_bitmap_for_size(16, Gfx::Bitmap::try_load_from_file("/res/icons/16x16/filetype-unknown.png"));
 
     map_dom_nodes_to_parent(nullptr, &m_dom_tree);
 }
@@ -150,11 +150,6 @@ GUI::Variant DOMTreeJSONModel::data(const GUI::ModelIndex& index, GUI::ModelRole
         return builder.to_string();
     }
     return {};
-}
-
-void DOMTreeJSONModel::update()
-{
-    did_update();
 }
 
 void DOMTreeJSONModel::map_dom_nodes_to_parent(JsonObject const* parent, JsonObject const* node)

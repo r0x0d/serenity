@@ -7,24 +7,27 @@
 #include "LineTool.h"
 #include "ImageEditor.h"
 #include "Layer.h"
+#include <AK/Math.h>
 #include <LibGUI/Action.h>
+#include <LibGUI/BoxLayout.h>
+#include <LibGUI/Label.h>
 #include <LibGUI/Menu.h>
 #include <LibGUI/Painter.h>
-#include <math.h>
+#include <LibGUI/ValueSlider.h>
 
 namespace PixelPaint {
 
 static Gfx::IntPoint constrain_line_angle(Gfx::IntPoint const& start_pos, Gfx::IntPoint const& end_pos, float angle_increment)
 {
-    float current_angle = atan2f(end_pos.y() - start_pos.y(), end_pos.x() - start_pos.x()) + float { M_PI * 2 };
+    float current_angle = AK::atan2<float>(end_pos.y() - start_pos.y(), end_pos.x() - start_pos.x()) + float { M_PI * 2 };
 
     float constrained_angle = ((int)((current_angle + angle_increment / 2) / angle_increment)) * angle_increment;
 
     auto diff = end_pos - start_pos;
-    float line_length = sqrt(diff.x() * diff.x() + diff.y() * diff.y());
+    float line_length = AK::hypot<float>(diff.x(), diff.y());
 
-    return { start_pos.x() + (int)(cosf(constrained_angle) * line_length),
-        start_pos.y() + (int)(sinf(constrained_angle) * line_length) };
+    return { start_pos.x() + (int)(AK::cos(constrained_angle) * line_length),
+        start_pos.y() + (int)(AK::sin(constrained_angle) * line_length) };
 }
 
 LineTool::LineTool()
@@ -97,25 +100,30 @@ void LineTool::on_keydown(GUI::KeyEvent& event)
     }
 }
 
-void LineTool::on_tool_button_contextmenu(GUI::ContextMenuEvent& event)
+GUI::Widget* LineTool::get_properties_widget()
 {
-    if (!m_context_menu) {
-        m_context_menu = GUI::Menu::construct();
-        m_thickness_actions.set_exclusive(true);
-        auto insert_action = [&](int size, bool checked = false) {
-            auto action = GUI::Action::create_checkable(String::number(size), [this, size](auto&) {
-                m_thickness = size;
-            });
-            action->set_checked(checked);
-            m_thickness_actions.add_action(*action);
-            m_context_menu->add_action(move(action));
+    if (!m_properties_widget) {
+        m_properties_widget = GUI::Widget::construct();
+        m_properties_widget->set_layout<GUI::VerticalBoxLayout>();
+
+        auto& thickness_container = m_properties_widget->add<GUI::Widget>();
+        thickness_container.set_fixed_height(20);
+        thickness_container.set_layout<GUI::HorizontalBoxLayout>();
+
+        auto& thickness_label = thickness_container.add<GUI::Label>("Thickness:");
+        thickness_label.set_text_alignment(Gfx::TextAlignment::CenterLeft);
+        thickness_label.set_fixed_size(80, 20);
+
+        auto& thickness_slider = thickness_container.add<GUI::ValueSlider>(Orientation::Horizontal, "px");
+        thickness_slider.set_range(1, 10);
+        thickness_slider.set_value(m_thickness);
+
+        thickness_slider.on_change = [&](int value) {
+            m_thickness = value;
         };
-        insert_action(1, true);
-        insert_action(2);
-        insert_action(3);
-        insert_action(4);
     }
-    m_context_menu->popup(event.screen_position());
+
+    return m_properties_widget.ptr();
 }
 
 }

@@ -7,12 +7,12 @@
 #include <AK/Format.h>
 #include <AK/StringBuilder.h>
 #include <LibCore/ArgsParser.h>
+#include <LibCore/ConfigFile.h>
 #include <getopt.h>
 #include <limits.h>
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
-
-static constexpr bool isnan(double __x) { return __builtin_isnan(__x); }
 
 static Optional<double> convert_to_double(const char* s)
 {
@@ -28,6 +28,7 @@ namespace Core {
 ArgsParser::ArgsParser()
 {
     add_option(m_show_help, "Display this message", "help", 0);
+    add_option(m_show_version, "Print version", "version", 0);
 }
 
 bool ArgsParser::parse(int argc, char* const* argv, FailureBehavior failure_behavior)
@@ -153,7 +154,13 @@ bool ArgsParser::parse(int argc, char* const* argv, FailureBehavior failure_beha
     }
 
     // We're done parsing! :)
-    // Now let's show help if requested.
+    // Now let's show version or help if requested.
+    if (m_show_version) {
+        print_version(stdout);
+        if (failure_behavior == FailureBehavior::Exit || failure_behavior == FailureBehavior::PrintUsageAndExit)
+            exit(0);
+        return false;
+    }
     if (m_show_help) {
         print_usage(stdout, argv[0]);
         if (failure_behavior == FailureBehavior::Exit || failure_behavior == FailureBehavior::PrintUsageAndExit)
@@ -233,6 +240,20 @@ void ArgsParser::print_usage(FILE* file, const char* argv0)
             out(file, "\t{}", arg.help_string);
         outln(file);
     }
+}
+
+void ArgsParser::print_version(FILE* file)
+{
+    auto version_config = Core::ConfigFile::open("/res/version.ini");
+    auto major_version = version_config->read_entry("Version", "Major", "0");
+    auto minor_version = version_config->read_entry("Version", "Minor", "0");
+
+    StringBuilder builder;
+    builder.appendff("{}.{}", major_version, minor_version);
+    if (auto git_version = version_config->read_entry("Version", "Git", ""); git_version != "")
+        builder.appendff(".g{}", git_version);
+
+    outln(file, builder.to_string());
 }
 
 void ArgsParser::add_option(Option&& option)

@@ -8,12 +8,10 @@
 
 #include <AK/Badge.h>
 #include <AK/Types.h>
+#include <Kernel/Forward.h>
 #include <Kernel/PhysicalAddress.h>
 
 namespace Kernel {
-
-class PageDirectory;
-class PageTableEntry;
 
 class PageDirectoryEntry {
 public:
@@ -28,7 +26,7 @@ public:
     void clear() { m_raw = 0; }
 
     u64 raw() const { return m_raw; }
-    void copy_from(Badge<PageDirectory>, const PageDirectoryEntry& other) { m_raw = other.m_raw; }
+    void copy_from(Badge<Memory::PageDirectory>, const PageDirectoryEntry& other) { m_raw = other.m_raw; }
 
     enum Flags {
         Present = 1 << 0,
@@ -141,10 +139,11 @@ class PageDirectoryPointerTable {
 public:
     PageDirectoryEntry* directory(size_t index)
     {
+        VERIFY(index <= (NumericLimits<size_t>::max() << 30));
         return (PageDirectoryEntry*)(PhysicalAddress::physical_page_base(raw[index]));
     }
 
-    u64 raw[4];
+    u64 raw[512];
 };
 
 }

@@ -5,8 +5,10 @@
  */
 
 #include <AK/StringView.h>
+#include <AK/Userspace.h>
 #include <Kernel/FileSystem/File.h>
 #include <Kernel/FileSystem/FileDescription.h>
+#include <Kernel/Process.h>
 
 namespace Kernel {
 
@@ -33,12 +35,12 @@ KResult File::close()
     return KSuccess;
 }
 
-int File::ioctl(FileDescription&, unsigned, FlatPtr)
+KResult File::ioctl(FileDescription&, unsigned, Userspace<void*>)
 {
-    return -ENOTTY;
+    return ENOTTY;
 }
 
-KResultOr<Region*> File::mmap(Process&, FileDescription&, const Range&, u64, int, bool)
+KResultOr<Memory::Region*> File::mmap(Process&, FileDescription&, Memory::VirtualRange const&, u64, int, bool)
 {
     return ENODEV;
 }
@@ -53,5 +55,4 @@ void File::detach(FileDescription&)
 {
     m_attach_count--;
 }
-
 }

@@ -9,7 +9,6 @@
 #include <LibCore/ConfigFile.h>
 #include <LibCore/DateTime.h>
 #include <LibCore/File.h>
-#include <LibCore/FileStream.h>
 #include <LibCore/Timer.h>
 #include <LibCrypto/ASN1/ASN1.h>
 #include <LibCrypto/ASN1/PEM.h>
@@ -345,7 +344,7 @@ bool TLSv12::add_client_key(ReadonlyBytes certificate_pem_buffer, ReadonlyBytes 
     return add_client_key(certificate);
 }
 
-AK::Singleton<DefaultRootCACertificates> DefaultRootCACertificates::s_the;
+Singleton<DefaultRootCACertificates> DefaultRootCACertificates::s_the;
 DefaultRootCACertificates::DefaultRootCACertificates()
 {
     // FIXME: This might not be the best format, find a better way to represent CA certificates.

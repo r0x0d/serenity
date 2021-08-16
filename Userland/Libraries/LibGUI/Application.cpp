@@ -28,7 +28,9 @@ public:
     {
         m_label->set_text(Gfx::parse_ampersand_string(tooltip));
         int tooltip_width = m_label->min_width() + 10;
-        int tooltip_height = m_label->font().glyph_height() * max(1, m_label->text().count("\n")) + 8;
+        int line_count = m_label->text().count("\n");
+        int glyph_height = m_label->font().glyph_height();
+        int tooltip_height = glyph_height * (1 + line_count) + ((glyph_height + 1) / 2) * line_count + 8;
 
         Gfx::IntRect desktop_rect = Desktop::the().rect();
         if (tooltip_width > desktop_rect.width())
@@ -66,11 +68,11 @@ Application* Application::the()
     return *s_the;
 }
 
-Application::Application(int argc, char** argv)
+Application::Application(int argc, char** argv, Core::EventLoop::MakeInspectable make_inspectable)
 {
     VERIFY(!*s_the);
     *s_the = *this;
-    m_event_loop = make<Core::EventLoop>();
+    m_event_loop = make<Core::EventLoop>(make_inspectable);
     WindowServerConnection::the();
     Clipboard::initialize({});
     if (argc > 0)
@@ -78,6 +80,9 @@ Application::Application(int argc, char** argv)
 
     if (getenv("GUI_FOCUS_DEBUG"))
         m_focus_debugging_enabled = true;
+
+    if (getenv("GUI_HOVER_DEBUG"))
+        m_hover_debugging_enabled = true;
 
     if (getenv("GUI_DND_DEBUG"))
         m_dnd_debugging_enabled = true;
@@ -88,7 +93,7 @@ Application::Application(int argc, char** argv)
     }
 
     m_tooltip_show_timer = Core::Timer::create_single_shot(700, [this] {
-        tooltip_show_timer_did_fire();
+        request_tooltip_show();
     });
 
     m_tooltip_hide_timer = Core::Timer::create_single_shot(50, [this] {
@@ -141,13 +146,27 @@ void Application::show_tooltip(String tooltip, const Widget* tooltip_source_widg
     m_tooltip_window->set_tooltip(move(tooltip));
 
     if (m_tooltip_window->is_visible()) {
-        tooltip_show_timer_did_fire();
+        request_tooltip_show();
         m_tooltip_show_timer->stop();
         m_tooltip_hide_timer->stop();
     } else {
         m_tooltip_show_timer->restart();
         m_tooltip_hide_timer->stop();
     }
+}
+
+void Application::show_tooltip_immediately(String tooltip, const Widget* tooltip_source_widget)
+{
+    m_tooltip_source_widget = tooltip_source_widget;
+    if (!m_tooltip_window) {
+        m_tooltip_window = TooltipWindow::construct();
+        m_tooltip_window->set_double_buffering_enabled(false);
+    }
+    m_tooltip_window->set_tooltip(move(tooltip));
+
+    request_tooltip_show();
+    m_tooltip_show_timer->stop();
+    m_tooltip_hide_timer->stop();
 }
 
 void Application::hide_tooltip()
@@ -189,7 +208,7 @@ Gfx::Palette Application::palette() const
     return Palette(*m_palette);
 }
 
-void Application::tooltip_show_timer_did_fire()
+void Application::request_tooltip_show()
 {
     VERIFY(m_tooltip_window);
     Gfx::IntRect desktop_rect = Desktop::the().rect();
@@ -222,12 +241,14 @@ void Application::tooltip_hide_timer_did_fire()
 void Application::window_did_become_active(Badge<Window>, Window& window)
 {
     m_active_window = window.make_weak_ptr<Window>();
+    window.update();
 }
 
 void Application::window_did_become_inactive(Badge<Window>, Window& window)
 {
     if (m_active_window.ptr() != &window)
         return;
+    window.update();
     m_active_window = nullptr;
 }
 

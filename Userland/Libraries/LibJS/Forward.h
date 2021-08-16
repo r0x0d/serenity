@@ -76,16 +76,26 @@
     __JS_ENUMERATE(Float32Array, float32_array, Float32ArrayPrototype, Float32ArrayConstructor, float)                          \
     __JS_ENUMERATE(Float64Array, float64_array, Float64ArrayPrototype, Float64ArrayConstructor, double)
 
-#define JS_ENUMERATE_TEMPORAL_OBJECTS                                          \
-    __JS_ENUMERATE(Calendar, calendar, CalendarPrototype, CalendarConstructor) \
-    __JS_ENUMERATE(Instant, instant, InstantPrototype, InstantConstructor)     \
-    __JS_ENUMERATE(TimeZone, time_zone, TimeZonePrototype, TimeZoneConstructor)
+#define JS_ENUMERATE_INTL_OBJECTS
 
-#define JS_ENUMERATE_ITERATOR_PROTOTYPES          \
-    __JS_ENUMERATE(Iterator, iterator)            \
-    __JS_ENUMERATE(ArrayIterator, array_iterator) \
-    __JS_ENUMERATE(MapIterator, map_iterator)     \
-    __JS_ENUMERATE(SetIterator, set_iterator)     \
+#define JS_ENUMERATE_TEMPORAL_OBJECTS                                                                    \
+    __JS_ENUMERATE(Calendar, calendar, CalendarPrototype, CalendarConstructor)                           \
+    __JS_ENUMERATE(Duration, duration, DurationPrototype, DurationConstructor)                           \
+    __JS_ENUMERATE(Instant, instant, InstantPrototype, InstantConstructor)                               \
+    __JS_ENUMERATE(PlainDate, plain_date, PlainDatePrototype, PlainDateConstructor)                      \
+    __JS_ENUMERATE(PlainDateTime, plain_date_time, PlainDateTimePrototype, PlainDateTimeConstructor)     \
+    __JS_ENUMERATE(PlainMonthDay, plain_month_day, PlainMonthDayPrototype, PlainMonthDayConstructor)     \
+    __JS_ENUMERATE(PlainTime, plain_time, PlainTimePrototype, PlainTimeConstructor)                      \
+    __JS_ENUMERATE(PlainYearMonth, plain_year_month, PlainYearMonthPrototype, PlainYearMonthConstructor) \
+    __JS_ENUMERATE(TimeZone, time_zone, TimeZonePrototype, TimeZoneConstructor)                          \
+    __JS_ENUMERATE(ZonedDateTime, zoned_date_time, ZonedDateTimePrototype, ZonedDateTimeConstructor)
+
+#define JS_ENUMERATE_ITERATOR_PROTOTYPES                         \
+    __JS_ENUMERATE(Iterator, iterator)                           \
+    __JS_ENUMERATE(ArrayIterator, array_iterator)                \
+    __JS_ENUMERATE(MapIterator, map_iterator)                    \
+    __JS_ENUMERATE(RegExpStringIterator, regexp_string_iterator) \
+    __JS_ENUMERATE(SetIterator, set_iterator)                    \
     __JS_ENUMERATE(StringIterator, string_iterator)
 
 #define JS_ENUMERATE_BUILTIN_TYPES \
@@ -160,6 +170,7 @@ class Statement;
 class StringOrSymbol;
 class Symbol;
 class Token;
+class Utf16String;
 class VM;
 class Value;
 class WeakContainer;
@@ -190,6 +201,15 @@ JS_ENUMERATE_NATIVE_ERRORS
 JS_ENUMERATE_TYPED_ARRAYS
 #undef __JS_ENUMERATE
 
+namespace Intl {
+#define __JS_ENUMERATE(ClassName, snake_name, ConstructorName, PrototypeName) \
+    class ClassName;                                                          \
+    class ConstructorName;                                                    \
+    class PrototypeName;
+JS_ENUMERATE_INTL_OBJECTS
+#undef __JS_ENUMERATE
+};
+
 namespace Temporal {
 #define __JS_ENUMERATE(ClassName, snake_name, ConstructorName, PrototypeName) \
     class ClassName;                                                          \
@@ -197,6 +217,7 @@ namespace Temporal {
     class PrototypeName;
 JS_ENUMERATE_TEMPORAL_OBJECTS
 #undef __JS_ENUMERATE
+struct TemporalDuration;
 };
 
 template<class T>

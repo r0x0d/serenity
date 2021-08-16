@@ -24,6 +24,7 @@ enum class Mode : u8 {
 enum class GameOverReason {
     Victory,
     NewGame,
+    Quit,
 };
 
 class Game final : public GUI::Frame {
@@ -67,6 +68,8 @@ private:
     void start_timer_if_necessary();
     void update_score(int delta);
     void draw_cards();
+    void mark_intersecting_stacks_dirty(Card& intersecting_card);
+    void ensure_top_card_is_visible(NonnullRefPtr<CardStack> stack);
     void detect_full_stacks();
     void detect_victory();
 

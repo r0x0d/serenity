@@ -8,8 +8,8 @@
 #include <AK/CharacterTypes.h>
 #include <AK/Function.h>
 #include <AK/Optional.h>
-#include <AK/Result.h>
 #include <AK/TemporaryChange.h>
+#include <AK/Utf16View.h>
 #include <LibJS/Interpreter.h>
 #include <LibJS/Parser.h>
 #include <LibJS/Runtime/AbstractOperations.h>
@@ -29,6 +29,7 @@
 #include <LibJS/Runtime/PropertyName.h>
 #include <LibJS/Runtime/ProxyObject.h>
 #include <LibJS/Runtime/Reference.h>
+#include <LibJS/Runtime/Utf16String.h>
 
 namespace JS {
 
@@ -308,7 +309,7 @@ bool validate_and_apply_property_descriptor(Object* object, PropertyName const& 
     return true;
 }
 
-// 10.1.14 GetPrototypeFromConstructor ( constructor, intrinsicDefaultProto )
+// 10.1.14 GetPrototypeFromConstructor ( constructor, intrinsicDefaultProto ), https://tc39.es/ecma262/#sec-getprototypefromconstructor
 Object* get_prototype_from_constructor(GlobalObject& global_object, FunctionObject const& constructor, Object* (GlobalObject::*intrinsic_default_prototype)())
 {
     auto& vm = global_object.vm();
@@ -357,7 +358,7 @@ Object* get_super_constructor(VM& vm)
     return super_constructor;
 }
 
-// 13.3.7.3 MakeSuperPropertyReference ( actualThis, propertyKey, strict )
+// 13.3.7.3 MakeSuperPropertyReference ( actualThis, propertyKey, strict ), https://tc39.es/ecma262/#sec-makesuperpropertyreference
 Reference make_super_property_reference(GlobalObject& global_object, Value actual_this, StringOrSymbol const& property_key, bool strict)
 {
     auto& vm = global_object.vm();
@@ -399,6 +400,7 @@ Value perform_eval(Value x, GlobalObject& caller_realm, CallerMode strict_caller
         return interpreter.execute_statement(caller_realm, program).value_or(js_undefined());
 
     TemporaryChange scope_change(vm.running_execution_context().lexical_environment, static_cast<Environment*>(&caller_realm.environment()));
+    TemporaryChange scope_change_strict(vm.running_execution_context().is_strict_mode, strict_caller == CallerMode::Strict);
     return interpreter.execute_statement(caller_realm, program).value_or(js_undefined());
 }
 
@@ -433,10 +435,7 @@ Object* create_unmapped_arguments_object(GlobalObject& global_object, Vector<Val
     }
 
     // 7. Perform ! DefinePropertyOrThrow(obj, @@iterator, PropertyDescriptor { [[Value]]: %Array.prototype.values%, [[Writable]]: true, [[Enumerable]]: false, [[Configurable]]: true }).
-    // FIXME: This is not guaranteed to be %Array.prototype.values%!
-    auto array_prototype_values = global_object.array_prototype()->get(vm.names.values);
-    if (vm.exception())
-        return {};
+    auto* array_prototype_values = global_object.array_prototype_values_function();
     object->define_property_or_throw(*vm.well_known_symbol_iterator(), { .value = array_prototype_values, .writable = true, .enumerable = false, .configurable = true });
     VERIFY(!vm.exception());
 
@@ -528,10 +527,7 @@ Object* create_mapped_arguments_object(GlobalObject& global_object, FunctionObje
     }
 
     // 20. Perform ! DefinePropertyOrThrow(obj, @@iterator, PropertyDescriptor { [[Value]]: %Array.prototype.values%, [[Writable]]: true, [[Enumerable]]: false, [[Configurable]]: true }).
-    // FIXME: This is not guaranteed to be %Array.prototype.values%!
-    auto array_prototype_values = global_object.array_prototype()->get(vm.names.values);
-    if (vm.exception())
-        return {};
+    auto* array_prototype_values = global_object.array_prototype_values_function();
     object->define_property_or_throw(*vm.well_known_symbol_iterator(), { .value = array_prototype_values, .writable = true, .enumerable = false, .configurable = true });
     VERIFY(!vm.exception());
 
@@ -574,44 +570,48 @@ Value canonical_numeric_index_string(GlobalObject& global_object, PropertyName c
 }
 
 // 22.1.3.17.1 GetSubstitution ( matched, str, position, captures, namedCaptures, replacement ), https://tc39.es/ecma262/#sec-getsubstitution
-String get_substitution(GlobalObject& global_object, String const& matched, String const& str, size_t position, Vector<Value> const& captures, Value named_captures, Value replacement)
+String get_substitution(GlobalObject& global_object, Utf16View const& matched, Utf16View const& str, size_t position, Vector<Value> const& captures, Value named_captures, Value replacement)
 {
     auto& vm = global_object.vm();
 
-    auto replace_string = replacement.to_string(global_object);
+    auto replace_string = replacement.to_utf16_string(global_object);
     if (vm.exception())
         return {};
+    auto replace_view = replace_string.view();
 
     StringBuilder result;
 
-    for (size_t i = 0; i < replace_string.length(); ++i) {
-        char curr = replace_string[i];
+    for (size_t i = 0; i < replace_view.length_in_code_units(); ++i) {
+        u16 curr = replace_view.code_unit_at(i);
 
-        if ((curr != '$') || (i + 1 >= replace_string.length())) {
+        if ((curr != '$') || (i + 1 >= replace_view.length_in_code_units())) {
             result.append(curr);
             continue;
         }
 
-        char next = replace_string[i + 1];
+        u16 next = replace_view.code_unit_at(i + 1);
 
         if (next == '$') {
-            result.append(next);
+            result.append('$');
             ++i;
         } else if (next == '&') {
             result.append(matched);
             ++i;
         } else if (next == '`') {
-            result.append(str.substring_view(0, position));
+            auto substring = str.substring_view(0, position);
+            result.append(substring);
             ++i;
         } else if (next == '\'') {
-            auto tail_pos = position + matched.length();
-            if (tail_pos < str.length())
-                result.append(str.substring_view(tail_pos));
+            auto tail_pos = position + matched.length_in_code_units();
+            if (tail_pos < str.length_in_code_units()) {
+                auto substring = str.substring_view(tail_pos);
+                result.append(substring);
+            }
             ++i;
         } else if (is_ascii_digit(next)) {
-            bool is_two_digits = (i + 2 < replace_string.length()) && is_ascii_digit(replace_string[i + 2]);
+            bool is_two_digits = (i + 2 < replace_view.length_in_code_units()) && is_ascii_digit(replace_view.code_unit_at(i + 2));
 
-            auto capture_postition_string = replace_string.substring_view(i + 1, is_two_digits ? 2 : 1);
+            auto capture_postition_string = replace_view.substring_view(i + 1, is_two_digits ? 2 : 1).to_utf8();
             auto capture_position = capture_postition_string.to_uint();
 
             if (capture_position.has_value() && (*capture_position > 0) && (*capture_position <= captures.size())) {
@@ -631,12 +631,20 @@ String get_substitution(GlobalObject& global_object, String const& matched, Stri
             }
         } else if (next == '<') {
             auto start_position = i + 2;
-            auto end_position = replace_string.find('>', start_position);
+            Optional<size_t> end_position;
+
+            for (size_t j = start_position; j < replace_view.length_in_code_units(); ++j) {
+                if (replace_view.code_unit_at(j) == '>') {
+                    end_position = j;
+                    break;
+                }
+            }
 
             if (named_captures.is_undefined() || !end_position.has_value()) {
                 result.append(curr);
             } else {
-                auto group_name = replace_string.substring(start_position, *end_position - start_position);
+                auto group_name_view = replace_view.substring_view(start_position, *end_position - start_position);
+                auto group_name = group_name_view.to_utf8(Utf16View::AllowInvalidCodeUnits::Yes);
 
                 auto capture = named_captures.as_object().get(group_name);
                 if (vm.exception())

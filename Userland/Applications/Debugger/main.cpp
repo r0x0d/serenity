@@ -6,13 +6,11 @@
 
 #include <AK/Assertions.h>
 #include <AK/ByteBuffer.h>
-#include <AK/Demangle.h>
 #include <AK/OwnPtr.h>
 #include <AK/Platform.h>
 #include <AK/StringBuilder.h>
 #include <LibC/sys/arch/i386/regs.h>
 #include <LibCore/ArgsParser.h>
-#include <LibCore/File.h>
 #include <LibDebug/DebugInfo.h>
 #include <LibDebug/DebugSession.h>
 #include <LibLine/Editor.h>
@@ -21,7 +19,6 @@
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <unistd.h>
 
 RefPtr<Line::Editor> editor;
@@ -39,13 +36,13 @@ static void handle_sigint(int)
 static void handle_print_registers(const PtraceRegisters& regs)
 {
 #if ARCH(I386)
-    outln("eax={:08x} ebx={:08x} ecx={:08x} edx={:08x}", regs.eax, regs.ebx, regs.ecx, regs.edx);
-    outln("esp={:08x} ebp={:08x} esi={:08x} edi={:08x}", regs.esp, regs.ebp, regs.esi, regs.edi);
-    outln("eip={:08x} eflags={:08x}", regs.eip, regs.eflags);
+    outln("eax={:p} ebx={:p} ecx={:p} edx={:p}", regs.eax, regs.ebx, regs.ecx, regs.edx);
+    outln("esp={:p} ebp={:p} esi={:p} edi={:p}", regs.esp, regs.ebp, regs.esi, regs.edi);
+    outln("eip={:p} eflags={:p}", regs.eip, regs.eflags);
 #else
-    outln("rax={:016x} rbx={:016x} rcx={:016x} rdx={:016x}", regs.rax, regs.rbx, regs.rcx, regs.rdx);
-    outln("rsp={:016x} rbp={:016x} rsi={:016x} rdi={:016x}", regs.rsp, regs.rbp, regs.rsi, regs.rdi);
-    outln("rip={:016x} rflags={:08x}", regs.rip, regs.rflags);
+    outln("rax={:p} rbx={:p} rcx={:p} rdx={:p}", regs.rax, regs.rbx, regs.rcx, regs.rdx);
+    outln("rsp={:p} rbp={:p} rsi={:p} rdi={:p}", regs.rsp, regs.rbp, regs.rsi, regs.rdi);
+    outln("rip={:p} rflags={:p}", regs.rip, regs.rflags);
 #endif
 }
 

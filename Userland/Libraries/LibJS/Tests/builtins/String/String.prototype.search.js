@@ -45,3 +45,16 @@ test("override exec with non-function", () => {
     re.exec = 3;
     expect("test".search(re)).toBe(0);
 });
+
+test("UTF-16", () => {
+    var s = "😀";
+    expect(s.search("😀")).toBe(0);
+    expect(s.search("\ud83d")).toBe(0);
+    expect(s.search("\ude00")).toBe(1);
+    expect(s.search("foo")).toBe(-1);
+
+    s = "\u{80}\u{160}";
+    expect(s.search("\u{80}")).toBe(0);
+    expect(s.search("\u{160}")).toBe(1);
+    expect(s.search("foo")).toBe(-1);
+});

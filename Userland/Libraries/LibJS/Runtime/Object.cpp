@@ -6,8 +6,6 @@
  */
 
 #include <AK/String.h>
-#include <AK/TemporaryChange.h>
-#include <LibJS/Heap/Heap.h>
 #include <LibJS/Interpreter.h>
 #include <LibJS/Runtime/AbstractOperations.h>
 #include <LibJS/Runtime/Accessor.h>
@@ -92,7 +90,7 @@ Value Object::get(PropertyName const& property_name) const
 // 7.3.3 GetV ( V, P ) is defined as Value::get().
 
 // 7.3.4 Set ( O, P, V, Throw ), https://tc39.es/ecma262/#sec-set-o-p-v-throw
-bool Object::set(PropertyName const& property_name, Value value, bool throw_exceptions)
+bool Object::set(PropertyName const& property_name, Value value, ShouldThrowExceptions throw_exceptions)
 {
     VERIFY(!value.is_empty());
     auto& vm = this->vm();
@@ -110,7 +108,7 @@ bool Object::set(PropertyName const& property_name, Value value, bool throw_exce
         return {};
 
     // 5. If success is false and Throw is true, throw a TypeError exception.
-    if (!success && throw_exceptions) {
+    if (!success && throw_exceptions == ShouldThrowExceptions::Yes) {
         // FIXME: Improve/contextualize error message
         vm.throw_exception<TypeError>(global_object(), ErrorType::ObjectSetReturnedFalse);
         return {};
@@ -1029,14 +1027,14 @@ void Object::define_native_accessor(PropertyName const& property_name, Function<
         auto name = String::formatted("get {}", formatted_property_name);
         getter_function = NativeFunction::create(global_object(), name, move(getter));
         getter_function->define_direct_property(vm.names.length, Value(0), Attribute::Configurable);
-        getter_function->define_direct_property(vm.names.name, js_string(vm.heap(), name), Attribute::Configurable);
+        getter_function->define_direct_property(vm.names.name, js_string(vm, name), Attribute::Configurable);
     }
     FunctionObject* setter_function = nullptr;
     if (setter) {
         auto name = String::formatted("set {}", formatted_property_name);
         setter_function = NativeFunction::create(global_object(), name, move(setter));
         setter_function->define_direct_property(vm.names.length, Value(1), Attribute::Configurable);
-        setter_function->define_direct_property(vm.names.name, js_string(vm.heap(), name), Attribute::Configurable);
+        setter_function->define_direct_property(vm.names.name, js_string(vm, name), Attribute::Configurable);
     }
     return define_direct_accessor(property_name, getter_function, setter_function, attribute);
 }
@@ -1090,7 +1088,7 @@ void Object::define_native_function(PropertyName const& property_name, Function<
     }
     auto* function = NativeFunction::create(global_object(), function_name, move(native_function));
     function->define_direct_property(vm.names.length, Value(length), Attribute::Configurable);
-    function->define_direct_property(vm.names.name, js_string(vm.heap(), function_name), Attribute::Configurable);
+    function->define_direct_property(vm.names.name, js_string(vm, function_name), Attribute::Configurable);
     define_direct_property(property_name, function, attribute);
 }
 
@@ -1199,19 +1197,6 @@ Value Object::ordinary_to_primitive(Value::PreferredType preferred_type) const
     }
     vm.throw_exception<TypeError>(global_object(), ErrorType::Convert, "object", preferred_type == Value::PreferredType::String ? "string" : "number");
     return {};
-}
-
-Value Object::invoke_internal(PropertyName const& property_name, Optional<MarkedValueList> arguments)
-{
-    auto& vm = this->vm();
-    auto property = get(property_name);
-    if (vm.exception())
-        return {};
-    if (!property.is_function()) {
-        vm.throw_exception<TypeError>(global_object(), ErrorType::NotAFunction, property.to_string_without_side_effects());
-        return {};
-    }
-    return vm.call(property.as_function(), this, move(arguments));
 }
 
 }

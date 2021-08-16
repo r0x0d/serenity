@@ -58,10 +58,20 @@ public:
     virtual void gl_read_buffer(GLenum mode) = 0;
     virtual void gl_read_pixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type, GLvoid* pixels) = 0;
     virtual void gl_tex_image_2d(GLenum target, GLint level, GLint internal_format, GLsizei width, GLsizei height, GLint border, GLenum format, GLenum type, const GLvoid* data) = 0;
+    virtual void gl_tex_parameter(GLenum target, GLenum pname, GLfloat param) = 0;
     virtual void gl_tex_coord(GLfloat s, GLfloat t, GLfloat r, GLfloat q) = 0;
     virtual void gl_bind_texture(GLenum target, GLuint texture) = 0;
     virtual void gl_active_texture(GLenum texture) = 0;
     virtual void gl_get_floatv(GLenum pname, GLfloat* params) = 0;
+    virtual void gl_depth_mask(GLboolean flag) = 0;
+    virtual void gl_enable_client_state(GLenum cap) = 0;
+    virtual void gl_disable_client_state(GLenum cap) = 0;
+    virtual void gl_vertex_pointer(GLint size, GLenum type, GLsizei stride, const void* pointer) = 0;
+    virtual void gl_color_pointer(GLint size, GLenum type, GLsizei stride, const void* pointer) = 0;
+    virtual void gl_tex_coord_pointer(GLint size, GLenum type, GLsizei stride, const void* pointer) = 0;
+    virtual void gl_draw_arrays(GLenum mode, GLint first, GLsizei count) = 0;
+    virtual void gl_draw_elements(GLenum mode, GLsizei count, GLenum type, const void* indices) = 0;
+    virtual void gl_color_mask(GLboolean red, GLboolean green, GLboolean blue, GLboolean alpha) = 0;
 
     virtual void present() = 0;
 };

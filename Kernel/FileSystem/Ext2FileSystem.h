@@ -41,10 +41,10 @@ private:
     virtual KResultOr<size_t> read_bytes(off_t, size_t, UserOrKernelBuffer& buffer, FileDescription*) const override;
     virtual InodeMetadata metadata() const override;
     virtual KResult traverse_as_directory(Function<bool(FileSystem::DirectoryEntryView const&)>) const override;
-    virtual RefPtr<Inode> lookup(StringView name) override;
+    virtual KResultOr<NonnullRefPtr<Inode>> lookup(StringView name) override;
     virtual void flush_metadata() override;
     virtual KResultOr<size_t> write_bytes(off_t, size_t, const UserOrKernelBuffer& data, FileDescription*) override;
-    virtual KResultOr<NonnullRefPtr<Inode>> create_child(const String& name, mode_t, dev_t, uid_t, gid_t) override;
+    virtual KResultOr<NonnullRefPtr<Inode>> create_child(StringView name, mode_t, dev_t, uid_t, gid_t) override;
     virtual KResult add_child(Inode& child, const StringView& name, mode_t) override;
     virtual KResult remove_child(const StringView& name) override;
     virtual KResult set_atime(time_t) override;
@@ -52,7 +52,6 @@ private:
     virtual KResult set_mtime(time_t) override;
     virtual KResult increment_link_count() override;
     virtual KResult decrement_link_count() override;
-    virtual KResultOr<size_t> directory_entry_count() const override;
     virtual KResult chmod(mode_t) override;
     virtual KResult chown(uid_t, gid_t) override;
     virtual KResult truncate(u64) override;
@@ -93,14 +92,14 @@ public:
     static NonnullRefPtr<Ext2FS> create(FileDescription&);
 
     virtual ~Ext2FS() override;
-    virtual bool initialize() override;
+    virtual KResult initialize() override;
 
     virtual unsigned total_block_count() const override;
     virtual unsigned free_block_count() const override;
     virtual unsigned total_inode_count() const override;
     virtual unsigned free_inode_count() const override;
 
-    virtual KResult prepare_to_unmount() const override;
+    virtual KResult prepare_to_unmount() override;
 
     virtual bool supports_watchers() const override { return true; }
 
@@ -128,8 +127,8 @@ private:
 
     bool flush_super_block();
 
-    virtual const char* class_name() const override;
-    virtual NonnullRefPtr<Inode> root_inode() const override;
+    virtual StringView class_name() const override { return "Ext2FS"sv; }
+    virtual Ext2FSInode& root_inode() override;
     RefPtr<Inode> get_inode(InodeIdentifier) const;
     KResultOr<NonnullRefPtr<Inode>> create_inode(Ext2FSInode& parent_inode, const String& name, mode_t, dev_t, uid_t, gid_t);
     KResult create_directory(Ext2FSInode& parent_inode, const String& name, mode_t, uid_t, gid_t);
@@ -169,21 +168,22 @@ private:
     bool m_block_group_descriptors_dirty { false };
 
     struct CachedBitmap {
-        CachedBitmap(BlockIndex bi, KBuffer&& buf)
+        CachedBitmap(BlockIndex bi, NonnullOwnPtr<KBuffer> buf)
             : bitmap_block_index(bi)
             , buffer(move(buf))
         {
         }
         BlockIndex bitmap_block_index { 0 };
         bool dirty { false };
-        KBuffer buffer;
-        BitmapView bitmap(u32 blocks_per_group) { return BitmapView { buffer.data(), blocks_per_group }; }
+        NonnullOwnPtr<KBuffer> buffer;
+        BitmapView bitmap(u32 blocks_per_group) { return BitmapView { buffer->data(), blocks_per_group }; }
     };
 
     KResultOr<CachedBitmap*> get_bitmap_block(BlockIndex);
     KResult update_bitmap_block(BlockIndex bitmap_block, size_t bit_index, bool new_state, u32& super_block_counter, u16& group_descriptor_counter);
 
     Vector<OwnPtr<CachedBitmap>> m_cached_bitmaps;
+    RefPtr<Ext2FSInode> m_root_inode;
 };
 
 inline Ext2FS& Ext2FSInode::fs()

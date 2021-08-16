@@ -22,11 +22,11 @@ public:
     virtual ~Plan9FS() override;
     static NonnullRefPtr<Plan9FS> create(FileDescription&);
 
-    virtual bool initialize() override;
+    virtual KResult initialize() override;
 
     virtual bool supports_watchers() const override { return false; }
 
-    virtual NonnullRefPtr<Inode> root_inode() const override;
+    virtual Inode& root_inode() override;
 
     u16 allocate_tag() { return m_next_tag++; }
     u32 allocate_fid() { return m_next_fid++; }
@@ -89,7 +89,7 @@ private:
         {
             set_block_condition(fs.m_completion_blocker);
         }
-        virtual const char* state_string() const override { return "Waiting"; }
+        virtual StringView state_string() const override { return "Waiting"sv; }
         virtual Type blocker_type() const override { return Type::Plan9FS; }
         virtual void not_blocking(bool) override;
 
@@ -113,7 +113,7 @@ private:
     };
     friend class Blocker;
 
-    virtual const char* class_name() const override { return "Plan9FS"; }
+    virtual StringView class_name() const override { return "Plan9FS"sv; }
 
     bool is_complete(const ReceiveCompletion&);
     KResult post_message(Message&, RefPtr<ReceiveCompletion>);
@@ -135,7 +135,7 @@ private:
     ProtocolVersion m_remote_protocol_version { ProtocolVersion::v9P2000 };
     size_t m_max_message_size { 4 * KiB };
 
-    Lock m_send_lock { "Plan9FS send" };
+    Mutex m_send_lock { "Plan9FS send" };
     Plan9FSBlockCondition m_completion_blocker;
     HashMap<u16, NonnullRefPtr<ReceiveCompletion>> m_completions;
 
@@ -159,11 +159,10 @@ public:
     virtual KResultOr<size_t> read_bytes(off_t, size_t, UserOrKernelBuffer& buffer, FileDescription*) const override;
     virtual KResultOr<size_t> write_bytes(off_t, size_t, const UserOrKernelBuffer& data, FileDescription*) override;
     virtual KResult traverse_as_directory(Function<bool(FileSystem::DirectoryEntryView const&)>) const override;
-    virtual RefPtr<Inode> lookup(StringView name) override;
-    virtual KResultOr<NonnullRefPtr<Inode>> create_child(const String& name, mode_t, dev_t, uid_t, gid_t) override;
+    virtual KResultOr<NonnullRefPtr<Inode>> lookup(StringView name) override;
+    virtual KResultOr<NonnullRefPtr<Inode>> create_child(StringView name, mode_t, dev_t, uid_t, gid_t) override;
     virtual KResult add_child(Inode&, const StringView& name, mode_t) override;
     virtual KResult remove_child(const StringView& name) override;
-    virtual KResultOr<size_t> directory_entry_count() const override;
     virtual KResult chmod(mode_t) override;
     virtual KResult chown(uid_t, gid_t) override;
     virtual KResult truncate(u64) override;

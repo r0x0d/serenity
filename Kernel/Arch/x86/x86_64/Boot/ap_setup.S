@@ -1,5 +1,18 @@
-#define _BOOTLOADER
 #include <Kernel/Sections.h>
+
+.section .text
+
+.global gdt64ptr
+gdt64ptr:
+#if ARCH(X86_64)
+.quad 0
+#else
+.int 0
+#endif
+
+.global code64_sel
+code64_sel:
+.short 0
 
 .extern init_ap
 .type init_ap, @function
@@ -92,10 +105,13 @@ apic_ap_start32:
     movl %eax, %cr0
 
     /* load the temporary 64-bit gdt from boot that points above 3GB */
-    lgdt gdt64ptr
+    // FIXME: uncomment this
+    //mov gdt64ptr, %eax
+    lgdt (%eax)
 
     /* jump above 3GB into our identity mapped area now */
-    ljmpl $code64_sel, $(apic_ap_start64 - apic_ap_start + 0xc0008000)
+    // FIXME: this assumes that code64_sel is always 8
+    ljmpl $8, $(apic_ap_start64 - apic_ap_start + 0xc0008000)
 .code64
 apic_ap_start64:
     mov $0, %ax
@@ -125,7 +141,8 @@ apic_ap_start64:
 
     /* push the Processor pointer this CPU is going to use */
     movq (ap_cpu_init_processor_info_array - apic_ap_start)(%ebp), %rax
-    movq $KERNEL_BASE, %r8
+    leaq kernel_mapping_base(%rip), %r8
+    movq (%r8), %r8
     addq %r8, %rax
     movq 0(%rax, %rsi, 4), %rax
     push %rax
@@ -140,9 +157,9 @@ apic_ap_start64:
     /* We are in identity mapped P0x8000 and the BSP will unload this code
        once all APs are initialized, so call init_ap but return to our
        infinite loop */
-    movabs $loop, %rax
+    leaq loop(%rip), %rax
     pushq %rax
-    movabs $init_ap, %rax
+    leaq init_ap(%rip), %rax
     jmp *(%rax)
 
 loop:

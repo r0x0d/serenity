@@ -39,11 +39,11 @@ SoundPlayerWidgetAdvancedView::SoundPlayerWidgetAdvancedView(GUI::Window& window
 
     m_player_view->set_layout<GUI::VerticalBoxLayout>();
 
-    m_play_icon = Gfx::Bitmap::load_from_file("/res/icons/16x16/play.png");
-    m_pause_icon = Gfx::Bitmap::load_from_file("/res/icons/16x16/pause.png");
-    m_stop_icon = Gfx::Bitmap::load_from_file("/res/icons/16x16/stop.png");
-    m_back_icon = Gfx::Bitmap::load_from_file("/res/icons/16x16/go-back.png");
-    m_next_icon = Gfx::Bitmap::load_from_file("/res/icons/16x16/go-forward.png");
+    m_play_icon = Gfx::Bitmap::try_load_from_file("/res/icons/16x16/play.png");
+    m_pause_icon = Gfx::Bitmap::try_load_from_file("/res/icons/16x16/pause.png");
+    m_stop_icon = Gfx::Bitmap::try_load_from_file("/res/icons/16x16/stop.png");
+    m_back_icon = Gfx::Bitmap::try_load_from_file("/res/icons/16x16/go-back.png");
+    m_next_icon = Gfx::Bitmap::try_load_from_file("/res/icons/16x16/go-forward.png");
 
     m_visualization = m_player_view->add<BarsVisualizationWidget>();
 
@@ -258,7 +258,7 @@ void SoundPlayerWidgetAdvancedView::read_playlist(StringView path)
     for (auto& item : *items)
         m_playlist_model->items().append(item);
     set_playlist_visible(true);
-    m_playlist_model->update();
+    m_playlist_model->invalidate();
 
     open_file(items->at(0).path);
 
@@ -288,13 +288,12 @@ void SoundPlayerWidgetAdvancedView::try_fill_missing_info(Vector<M3UEntry>& entr
     LexicalPath playlist_path(playlist_p);
     Vector<M3UEntry*> to_delete;
     for (auto& entry : entries) {
-        LexicalPath entry_path(entry.path);
-        if (!entry_path.is_absolute()) {
-            entry.path = String::formatted("{}/{}", playlist_path.dirname(), entry_path.basename());
+        if (!LexicalPath(entry.path).is_absolute()) {
+            entry.path = String::formatted("{}/{}", playlist_path.dirname(), entry.path);
         }
 
         if (!Core::File::exists(entry.path)) {
-            GUI::MessageBox::show(window(), String::formatted("The file \"{}\" present in the playlist does not exist or was not found. This file will be ignored.", entry_path.basename()), "Error reading playlist", GUI::MessageBox::Type::Warning);
+            GUI::MessageBox::show(window(), String::formatted("The file \"{}\" present in the playlist does not exist or was not found. This file will be ignored.", entry.path), "Error reading playlist", GUI::MessageBox::Type::Warning);
             to_delete.append(&entry);
             continue;
         }

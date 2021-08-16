@@ -21,7 +21,6 @@
 #include <LibGUI/InputBox.h>
 #include <LibGUI/ItemListModel.h>
 #include <LibGUI/MessageBox.h>
-#include <LibGUI/SeparatorWidget.h>
 #include <LibGUI/SortingProxyModel.h>
 #include <LibGUI/SpinBox.h>
 #include <LibGUI/TabWidget.h>
@@ -72,9 +71,9 @@ GalleryWidget::GalleryWidget()
         m_label_frame->set_frame_thickness(value);
     };
 
-    m_button_icons.append(Gfx::Bitmap::load_from_file("/res/icons/16x16/book-open.png"));
-    m_button_icons.append(Gfx::Bitmap::load_from_file("/res/icons/16x16/inspector-object.png"));
-    m_button_icons.append(Gfx::Bitmap::load_from_file("/res/icons/16x16/ladybug.png"));
+    m_button_icons.append(Gfx::Bitmap::try_load_from_file("/res/icons/16x16/book-open.png"));
+    m_button_icons.append(Gfx::Bitmap::try_load_from_file("/res/icons/16x16/inspector-object.png"));
+    m_button_icons.append(Gfx::Bitmap::try_load_from_file("/res/icons/16x16/ladybug.png"));
 
     m_icon_button = basics_tab.find_descendant_of_type_named<GUI::Button>("icon_button");
     m_icon_button->set_icon(*m_button_icons[2]);
@@ -94,7 +93,7 @@ GalleryWidget::GalleryWidget()
     m_text_editor = basics_tab.find_descendant_of_type_named<GUI::TextEditor>("text_editor");
 
     m_font_button = basics_tab.find_descendant_of_type_named<GUI::Button>("font_button");
-    m_font_button->set_icon(Gfx::Bitmap::load_from_file("/res/icons/16x16/app-font-editor.png"));
+    m_font_button->set_icon(Gfx::Bitmap::try_load_from_file("/res/icons/16x16/app-font-editor.png"));
 
     m_font_button->on_click = [&](auto) {
         auto picker = GUI::FontPicker::construct(window(), &m_text_editor->font(), false);
@@ -104,7 +103,7 @@ GalleryWidget::GalleryWidget()
     };
 
     m_file_button = basics_tab.find_descendant_of_type_named<GUI::Button>("file_button");
-    m_file_button->set_icon(Gfx::Bitmap::load_from_file("/res/icons/16x16/open.png"));
+    m_file_button->set_icon(Gfx::Bitmap::try_load_from_file("/res/icons/16x16/open.png"));
 
     m_file_button->on_click = [&](auto) {
         Optional<String> open_path = GUI::FilePicker::get_open_filepath(window());
@@ -114,7 +113,7 @@ GalleryWidget::GalleryWidget()
     };
 
     m_input_button = basics_tab.find_descendant_of_type_named<GUI::Button>("input_button");
-    m_input_button->set_icon(Gfx::Bitmap::load_from_file("/res/icons/16x16/properties.png"));
+    m_input_button->set_icon(Gfx::Bitmap::try_load_from_file("/res/icons/16x16/properties.png"));
 
     m_input_button->on_click = [&](auto) {
         String value;
@@ -132,7 +131,7 @@ GalleryWidget::GalleryWidget()
     };
 
     m_msgbox_button = basics_tab.find_descendant_of_type_named<GUI::Button>("msgbox_button");
-    m_msgbox_button->set_icon(Gfx::Bitmap::load_from_file("/res/icons/16x16/app-irc-client.png"));
+    m_msgbox_button->set_icon(Gfx::Bitmap::try_load_from_file("/res/icons/16x16/app-irc-client.png"));
 
     m_msgbox_type = GUI::MessageBox::Type::None;
     m_msgbox_input_type = GUI::MessageBox::InputType::OK;
@@ -291,7 +290,7 @@ GalleryWidget::GalleryWidget()
 
     m_cursors_tableview->set_model(sorting_proxy_model);
     m_cursors_tableview->set_key_column_and_sort_order(MouseCursorModel::Column::Name, GUI::SortOrder::Ascending);
-    m_cursors_tableview->model()->update();
+    m_cursors_tableview->model()->invalidate();
     m_cursors_tableview->set_column_width(0, 25);
 
     m_cursors_tableview->on_activation = [&](const GUI::ModelIndex& index) {
@@ -364,7 +363,7 @@ GalleryWidget::GalleryWidget()
 
     m_icons_tableview->set_model(sorting_proxy_icons_model);
     m_icons_tableview->set_key_column_and_sort_order(FileIconsModel::Column::Name, GUI::SortOrder::Ascending);
-    m_icons_tableview->model()->update();
+    m_icons_tableview->model()->invalidate();
     m_icons_tableview->set_column_width(0, 36);
     m_icons_tableview->set_column_width(1, 20);
 }

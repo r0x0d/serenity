@@ -19,6 +19,7 @@
 #include <LibCpp/SyntaxHighlighter.h>
 #include <LibGUI/Action.h>
 #include <LibGUI/Application.h>
+#include <LibGUI/GMLAutocompleteProvider.h>
 #include <LibGUI/GMLSyntaxHighlighter.h>
 #include <LibGUI/INISyntaxHighlighter.h>
 #include <LibGUI/Label.h>
@@ -28,9 +29,10 @@
 #include <LibGUI/Window.h>
 #include <LibJS/SyntaxHighlighter.h>
 #include <LibMarkdown/Document.h>
-#include <LibWeb/DOM/ElementFactory.h>
+#include <LibSQL/AST/SyntaxHighlighter.h>
 #include <LibWeb/DOM/Text.h>
 #include <LibWeb/HTML/HTMLHeadElement.h>
+#include <LibWeb/HTML/SyntaxHighlighter/SyntaxHighlighter.h>
 #include <LibWeb/OutOfProcessWebView.h>
 #include <Shell/SyntaxHighlighter.h>
 #include <fcntl.h>
@@ -429,13 +431,13 @@ void Editor::clear_execution_position()
 
 const Gfx::Bitmap& Editor::breakpoint_icon_bitmap()
 {
-    static auto bitmap = Gfx::Bitmap::load_from_file("/res/icons/16x16/breakpoint.png");
+    static auto bitmap = Gfx::Bitmap::try_load_from_file("/res/icons/16x16/breakpoint.png");
     return *bitmap;
 }
 
 const Gfx::Bitmap& Editor::current_position_icon_bitmap()
 {
-    static auto bitmap = Gfx::Bitmap::load_from_file("/res/icons/16x16/go-forward.png");
+    static auto bitmap = Gfx::Bitmap::try_load_from_file("/res/icons/16x16/go-forward.png");
     return *bitmap;
 }
 
@@ -480,6 +482,8 @@ void Editor::set_document(GUI::TextDocument& doc)
         }
         m_language_client->open_file(code_document.file_path(), fd);
         close(fd);
+    } else {
+        set_autocomplete_provider_for(code_document);
     }
 }
 
@@ -594,6 +598,9 @@ void Editor::set_syntax_highlighter_for(const CodeDocument& document)
     case Language::GML:
         set_syntax_highlighter(make<GUI::GMLSyntaxHighlighter>());
         break;
+    case Language::HTML:
+        set_syntax_highlighter(make<Web::HTML::SyntaxHighlighter>());
+        break;
     case Language::JavaScript:
         set_syntax_highlighter(make<JS::SyntaxHighlighter>());
         break;
@@ -603,8 +610,22 @@ void Editor::set_syntax_highlighter_for(const CodeDocument& document)
     case Language::Shell:
         set_syntax_highlighter(make<Shell::SyntaxHighlighter>());
         break;
+    case Language::SQL:
+        set_syntax_highlighter(make<SQL::AST::SyntaxHighlighter>());
+        break;
     default:
         set_syntax_highlighter({});
+    }
+}
+
+void Editor::set_autocomplete_provider_for(CodeDocument const& document)
+{
+    switch (document.language()) {
+    case Language::GML:
+        set_autocomplete_provider(make<GUI::GMLAutocompleteProvider>());
+        break;
+    default:
+        set_autocomplete_provider({});
     }
 }
 

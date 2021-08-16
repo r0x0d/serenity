@@ -6,7 +6,6 @@
 
 #include "PlaylistWidget.h"
 #include "Player.h"
-#include "SoundPlayerWidgetAdvancedView.h"
 #include <AK/LexicalPath.h>
 #include <LibGUI/BoxLayout.h>
 #include <LibGUI/HeaderView.h>
@@ -91,10 +90,6 @@ String PlaylistModel::column_name(int column) const
         return "Filesize";
     }
     VERIFY_NOT_REACHED();
-}
-
-void PlaylistModel::update()
-{
 }
 
 void PlaylistTableView::doubleclick_event(GUI::MouseEvent& event)

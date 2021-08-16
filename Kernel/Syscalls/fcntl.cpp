@@ -12,6 +12,7 @@ namespace Kernel {
 
 KResultOr<FlatPtr> Process::sys$fcntl(int fd, int cmd, u32 arg)
 {
+    VERIFY_PROCESS_BIG_LOCK_ACQUIRED(this);
     REQUIRE_PROMISE(stdio);
     dbgln_if(IO_DEBUG, "sys$fcntl: fd={}, cmd={}, arg={}", fd, cmd, arg);
     auto description = fds().file_description(fd);
@@ -24,11 +25,12 @@ KResultOr<FlatPtr> Process::sys$fcntl(int fd, int cmd, u32 arg)
         int arg_fd = (int)arg;
         if (arg_fd < 0)
             return EINVAL;
-        int new_fd = fds().allocate(arg_fd);
-        if (new_fd < 0)
-            return new_fd;
-        m_fds[new_fd].set(*description);
-        return new_fd;
+        auto new_fd_or_error = fds().allocate(arg_fd);
+        if (new_fd_or_error.is_error())
+            return new_fd_or_error.error();
+        auto new_fd = new_fd_or_error.release_value();
+        m_fds[new_fd.fd].set(*description);
+        return new_fd.fd;
     }
     case F_GETFD:
         return m_fds[fd].flags();
@@ -42,6 +44,10 @@ KResultOr<FlatPtr> Process::sys$fcntl(int fd, int cmd, u32 arg)
         break;
     case F_ISTTY:
         return description->is_tty();
+    case F_GETLK:
+        return description->get_flock(Userspace<flock*>(arg));
+    case F_SETLK:
+        return description->apply_flock(*Process::current(), Userspace<const flock*>(arg));
     default:
         return EINVAL;
     }

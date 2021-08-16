@@ -4,7 +4,6 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
-#include <AK/ByteBuffer.h>
 #include <AK/JsonObject.h>
 #include <AK/JsonValue.h>
 #include <LibCore/DateTime.h>
@@ -93,7 +92,7 @@ int main()
 
         String what = "n/a";
 
-        for (auto& process : process_statistics.value()) {
+        for (auto& process : process_statistics.value().processes) {
             if (process.tty == tty && process.pid == process.pgid)
                 what = process.name;
         }

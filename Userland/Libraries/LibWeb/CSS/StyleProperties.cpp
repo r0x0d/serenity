@@ -9,7 +9,6 @@
 #include <LibGfx/FontDatabase.h>
 #include <LibWeb/CSS/StyleProperties.h>
 #include <LibWeb/FontCache.h>
-#include <ctype.h>
 
 namespace Web::CSS {
 
@@ -55,6 +54,13 @@ Length StyleProperties::length_or_fallback(CSS::PropertyID id, const Length& fal
     auto value = property(id);
     if (!value.has_value())
         return fallback;
+
+    if (value.value()->is_calculated()) {
+        Length length = Length(0, Length::Type::Calculated);
+        length.set_calculated_style(verify_cast<CalculatedStyleValue>(value.value().ptr()));
+        return length;
+    }
+
     return value.value()->to_length();
 }
 
@@ -222,6 +228,18 @@ Optional<int> StyleProperties::z_index() const
     return static_cast<int>(value.value()->to_length().raw_value());
 }
 
+Optional<float> StyleProperties::opacity() const
+{
+    auto value = property(CSS::PropertyID::Opacity);
+    if (!value.has_value())
+        return {};
+
+    if (auto length = value.value()->to_length(); length.is_percentage())
+        return clamp(static_cast<float>(length.raw_value() / 100), 0.0f, 1.0f);
+    else
+        return clamp(static_cast<float>(length.raw_value()), 0.0f, 1.0f);
+}
+
 Optional<CSS::FlexDirection> StyleProperties::flex_direction() const
 {
     auto value = property(CSS::PropertyID::FlexDirection);
@@ -267,6 +285,9 @@ Optional<CSS::FlexBasisData> StyleProperties::flex_basis() const
     if (value.value()->is_identifier() && value.value()->to_identifier() == CSS::ValueID::Content)
         return { { CSS::FlexBasis::Content, {} } };
 
+    if (value.value()->is_auto())
+        return { { CSS::FlexBasis::Auto, {} } };
+
     if (value.value()->is_length())
         return { { CSS::FlexBasis::Length, value.value()->to_length() } };
 
@@ -278,12 +299,13 @@ Optional<float> StyleProperties::flex_grow_factor() const
     auto value = property(CSS::PropertyID::FlexGrow);
     if (!value.has_value())
         return {};
-    if (value.value()->is_length() && verify_cast<CSS::LengthStyleValue>(value.value().ptr())->to_length().raw_value() == 0)
+    if (value.value()->is_numeric()) {
+        auto numeric = verify_cast<CSS::NumericStyleValue>(value.value().ptr());
+        return numeric->value();
+    }
+    if (value.value()->is_length() && value.value()->to_length().raw_value() == 0)
         return { 0 };
-    if (!value.value()->is_numeric())
-        return {};
-    auto numeric = verify_cast<CSS::NumericStyleValue>(value.value().ptr());
-    return numeric->value();
+    return {};
 }
 
 Optional<float> StyleProperties::flex_shrink_factor() const
@@ -291,12 +313,33 @@ Optional<float> StyleProperties::flex_shrink_factor() const
     auto value = property(CSS::PropertyID::FlexShrink);
     if (!value.has_value())
         return {};
-    if (value.value()->is_length() && verify_cast<CSS::LengthStyleValue>(value.value().ptr())->to_length().raw_value() == 0)
+    if (!value.value()->is_numeric()) {
+        auto numeric = verify_cast<CSS::NumericStyleValue>(value.value().ptr());
+        return numeric->value();
+    }
+    if (value.value()->is_length() && value.value()->to_length().raw_value() == 0)
         return { 0 };
-    if (!value.value()->is_numeric())
+    return {};
+}
+Optional<CSS::JustifyContent> StyleProperties::justify_content() const
+{
+    auto value = property(CSS::PropertyID::JustifyContent);
+    if (!value.has_value())
         return {};
-    auto numeric = verify_cast<CSS::NumericStyleValue>(value.value().ptr());
-    return numeric->value();
+    switch (value.value()->to_identifier()) {
+    case CSS::ValueID::FlexStart:
+        return CSS::JustifyContent::FlexStart;
+    case CSS::ValueID::FlexEnd:
+        return CSS::JustifyContent::FlexEnd;
+    case CSS::ValueID::Center:
+        return CSS::JustifyContent::Center;
+    case CSS::ValueID::SpaceBetween:
+        return CSS::JustifyContent::SpaceBetween;
+    case CSS::ValueID::SpaceAround:
+        return CSS::JustifyContent::SpaceAround;
+    default:
+        return {};
+    }
 }
 
 Optional<CSS::Position> StyleProperties::position() const
@@ -724,5 +767,19 @@ Optional<CSS::Repeat> StyleProperties::background_repeat_y() const
     default:
         return {};
     }
+}
+
+Optional<CSS::BoxShadowData> StyleProperties::box_shadow() const
+{
+    auto value_or_error = property(CSS::PropertyID::BoxShadow);
+    if (!value_or_error.has_value())
+        return {};
+
+    auto value = value_or_error.value();
+    if (!value->is_box_shadow())
+        return {};
+
+    auto box = verify_cast<CSS::BoxShadowStyleValue>(value.ptr());
+    return { { box->offset_x(), box->offset_y(), box->blur_radius(), box->color() } };
 }
 }

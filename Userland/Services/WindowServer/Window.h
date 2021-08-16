@@ -14,6 +14,7 @@
 #include <LibGfx/DisjointRectSet.h>
 #include <LibGfx/Rect.h>
 #include <WindowServer/Cursor.h>
+#include <WindowServer/Menubar.h>
 #include <WindowServer/Screen.h>
 #include <WindowServer/WindowFrame.h>
 #include <WindowServer/WindowType.h>
@@ -25,7 +26,6 @@ class ClientConnection;
 class Cursor;
 class KeyEvent;
 class Menu;
-class Menubar;
 class MenuItem;
 class MouseEvent;
 class WindowStack;
@@ -333,10 +333,15 @@ public:
     Gfx::DisjointRectSet& opaque_rects() { return m_opaque_rects; }
     Gfx::DisjointRectSet& transparency_rects() { return m_transparency_rects; }
     Gfx::DisjointRectSet& transparency_wallpaper_rects() { return m_transparency_wallpaper_rects; }
+    // The affected transparency rects are the rectangles of other windows (above or below)
+    // that also need to be marked dirty whenever a window's dirty rect in a transparency
+    // area needs to be rendered
+    auto& affected_transparency_rects() { return m_affected_transparency_rects; }
 
-    Menubar* menubar() { return m_menubar; }
-    const Menubar* menubar() const { return m_menubar; }
-    void set_menubar(Menubar*);
+    Menubar& menubar() { return m_menubar; }
+    Menubar const& menubar() const { return m_menubar; }
+
+    void add_menu(Menu& menu);
 
     WindowStack& window_stack()
     {
@@ -362,6 +367,16 @@ public:
     void set_moving_to_another_stack(bool value) { m_moving_to_another_stack = value; }
     bool is_moving_to_another_stack() const { return m_moving_to_another_stack; }
 
+    void add_stealing_for_client(i32 client_id) { m_stealable_by_client_ids.append(move(client_id)); }
+    void remove_stealing_for_client(i32 client_id)
+    {
+        m_stealable_by_client_ids.remove_all_matching([client_id](i32 approved_client_id) {
+            return approved_client_id == client_id;
+        });
+    }
+    void remove_all_stealing() { m_stealable_by_client_ids.clear(); }
+    bool is_stealable_by_client(i32 client_id) const { return m_stealable_by_client_ids.contains_slow(client_id); }
+
 private:
     Window(ClientConnection&, WindowType, int window_id, bool modal, bool minimizable, bool frameless, bool resizable, bool fullscreen, bool accessory, Window* parent_window = nullptr);
     Window(Core::Object&, WindowType);
@@ -381,7 +396,7 @@ private:
     Vector<WeakPtr<Window>> m_child_windows;
     Vector<WeakPtr<Window>> m_accessory_windows;
 
-    RefPtr<Menubar> m_menubar;
+    Menubar m_menubar;
 
     String m_title;
     Gfx::IntRect m_rect;
@@ -392,6 +407,7 @@ private:
     Gfx::DisjointRectSet m_opaque_rects;
     Gfx::DisjointRectSet m_transparency_rects;
     Gfx::DisjointRectSet m_transparency_wallpaper_rects;
+    HashMap<Window*, Gfx::DisjointRectSet> m_affected_transparency_rects;
     WindowType m_type { WindowType::Normal };
     bool m_global_cursor_tracking_enabled { false };
     bool m_automatic_cursor_tracking_enabled { false };
@@ -418,6 +434,7 @@ private:
     bool m_pinned { false };
     bool m_moving_to_another_stack { false };
     bool m_invalidate_last_render_rects { false };
+    Vector<i32> m_stealable_by_client_ids;
     WindowTileType m_tiled { WindowTileType::None };
     Gfx::IntRect m_untiled_rect;
     bool m_occluded { false };

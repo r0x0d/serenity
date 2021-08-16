@@ -10,6 +10,7 @@
 #include <AK/NonnullOwnPtrVector.h>
 #include <AK/NonnullRefPtrVector.h>
 #include <AK/RefPtr.h>
+#include <AK/Result.h>
 #include <AK/Vector.h>
 #include <LibWeb/CSS/Parser/DeclarationOrAtRule.h>
 #include <LibWeb/CSS/Parser/StyleBlockRule.h>
@@ -19,6 +20,7 @@
 #include <LibWeb/CSS/Parser/StyleRule.h>
 #include <LibWeb/CSS/Parser/Tokenizer.h>
 #include <LibWeb/CSS/Selector.h>
+#include <LibWeb/CSS/StyleValue.h>
 
 namespace Web::CSS {
 
@@ -26,21 +28,20 @@ class CSSStyleSheet;
 class CSSRule;
 class CSSStyleRule;
 struct StyleProperty;
-class StyleValue;
 enum class PropertyID;
 
 class ParsingContext {
 public:
     ParsingContext();
-    explicit ParsingContext(DOM::Document const&);
-    explicit ParsingContext(DOM::ParentNode const&);
+    explicit ParsingContext(DOM::Document&);
+    explicit ParsingContext(DOM::ParentNode&);
 
     bool in_quirks_mode() const;
-
+    DOM::Document* document() const { return m_document; }
     URL complete_url(String const&) const;
 
 private:
-    const DOM::Document* m_document { nullptr };
+    DOM::Document* m_document { nullptr };
 };
 
 template<typename T>
@@ -51,7 +52,7 @@ public:
 
     bool has_next_token();
     T const& next_token();
-    T const& peek_token();
+    T const& peek_token(int offset = 0);
     T const& current_token();
     void reconsume_current_input_token();
 
@@ -74,71 +75,58 @@ public:
 
     // The normal parser entry point, for parsing stylesheets.
     NonnullRefPtr<CSSStyleSheet> parse_as_stylesheet();
-    template<typename T>
-    NonnullRefPtr<CSSStyleSheet> parse_as_stylesheet(TokenStream<T>&);
-
     // For the content of at-rules such as @media. It differs from "Parse a stylesheet" in the handling of <CDO-token> and <CDC-token>.
     NonnullRefPtrVector<CSSRule> parse_as_list_of_rules();
-    template<typename T>
-    NonnullRefPtrVector<CSSRule> parse_as_list_of_rules(TokenStream<T>&);
-
     // For use by the CSSStyleSheet#insertRule method, and similar functions which might exist, which parse text into a single rule.
     RefPtr<CSSRule> parse_as_rule();
-    template<typename T>
-    RefPtr<CSSRule> parse_as_rule(TokenStream<T>&);
-
     // Used in @supports conditions. [CSS3-CONDITIONAL]
     Optional<StyleProperty> parse_as_declaration();
-    template<typename T>
-    Optional<StyleProperty> parse_as_declaration(TokenStream<T>&);
-
     // For the contents of a style attribute, which parses text into the contents of a single style rule.
     RefPtr<CSSStyleDeclaration> parse_as_list_of_declarations();
-    template<typename T>
-    RefPtr<CSSStyleDeclaration> parse_as_list_of_declarations(TokenStream<T>&);
-
     // For things that need to consume a single value, like the parsing rules for attr().
     Optional<StyleComponentValueRule> parse_as_component_value();
-    template<typename T>
-    Optional<StyleComponentValueRule> parse_as_component_value(TokenStream<T>&);
-
     // For the contents of presentational attributes, which parse text into a single declaration’s value, or for parsing a stand-alone selector [SELECT] or list of Media Queries [MEDIAQ], as in Selectors API or the media HTML attribute.
     Vector<StyleComponentValueRule> parse_as_list_of_component_values();
-    template<typename T>
-    Vector<StyleComponentValueRule> parse_as_list_of_component_values(TokenStream<T>&);
-
     Vector<Vector<StyleComponentValueRule>> parse_as_comma_separated_list_of_component_values();
-    template<typename T>
-    Vector<Vector<StyleComponentValueRule>> parse_as_comma_separated_list_of_component_values(TokenStream<T>&);
 
-    template<typename T>
-    RefPtr<Selector> parse_single_selector(TokenStream<T>&, bool is_relative = false);
-
-    Optional<Selector::SimpleSelector::NthChildPattern> parse_nth_child_pattern(TokenStream<StyleComponentValueRule>&);
-
-    // FIXME: https://www.w3.org/TR/selectors-4/
     // Contrary to the name, these parse a comma-separated list of selectors, according to the spec.
-    NonnullRefPtrVector<Selector> parse_a_selector();
-    template<typename T>
-    NonnullRefPtrVector<Selector> parse_a_selector(TokenStream<T>&);
+    Optional<SelectorList> parse_as_selector();
+    Optional<SelectorList> parse_as_relative_selector();
 
-    NonnullRefPtrVector<Selector> parse_a_relative_selector();
-    template<typename T>
-    NonnullRefPtrVector<Selector> parse_a_relative_selector(TokenStream<T>&);
+    RefPtr<StyleValue> parse_as_css_value(PropertyID);
 
+    // FIXME: These want to be private, but StyleResolver still uses them for now.
     RefPtr<StyleValue> parse_css_value(PropertyID, TokenStream<StyleComponentValueRule>&);
-
-    // FIXME: https://drafts.csswg.org/css-backgrounds-3/
-    static Optional<String> as_valid_background_repeat(String input) { return input; }
-    static Optional<String> as_valid_background_attachment(String input) { return input; }
-    static Optional<String> as_valid_background_position(String input) { return input; }
-    static Optional<String> as_valid_background_clip(String input) { return input; }
-    static Optional<String> as_valid_background_origin(String input) { return input; }
-    static Optional<String> as_valid_background_size(String input) { return input; }
-    static Optional<String> as_valid_border_style(String input) { return input; }
-    static Optional<String> as_valid_border_image_repeat(String input) { return input; }
+    static RefPtr<StyleValue> parse_css_value(ParsingContext const&, PropertyID, StyleComponentValueRule const&);
 
 private:
+    template<typename T>
+    NonnullRefPtr<CSSStyleSheet> parse_a_stylesheet(TokenStream<T>&);
+    template<typename T>
+    NonnullRefPtrVector<CSSRule> parse_a_list_of_rules(TokenStream<T>&);
+    template<typename T>
+    RefPtr<CSSRule> parse_a_rule(TokenStream<T>&);
+    template<typename T>
+    Optional<StyleProperty> parse_a_declaration(TokenStream<T>&);
+    template<typename T>
+    RefPtr<CSSStyleDeclaration> parse_a_list_of_declarations(TokenStream<T>&);
+    template<typename T>
+    Optional<StyleComponentValueRule> parse_a_component_value(TokenStream<T>&);
+    template<typename T>
+    Vector<StyleComponentValueRule> parse_a_list_of_component_values(TokenStream<T>&);
+    template<typename T>
+    Vector<Vector<StyleComponentValueRule>> parse_a_comma_separated_list_of_component_values(TokenStream<T>&);
+    template<typename T>
+    Optional<SelectorList> parse_a_selector(TokenStream<T>&);
+    template<typename T>
+    Optional<SelectorList> parse_a_relative_selector(TokenStream<T>&);
+    template<typename T>
+    Optional<SelectorList> parse_a_selector_list(TokenStream<T>&);
+    template<typename T>
+    Optional<SelectorList> parse_a_relative_selector_list(TokenStream<T>&);
+
+    Optional<Selector::SimpleSelector::ANPlusBPattern> parse_a_n_plus_b_pattern(TokenStream<StyleComponentValueRule>&);
+
     [[nodiscard]] NonnullRefPtrVector<StyleRule> consume_a_list_of_rules(bool top_level);
     template<typename T>
     [[nodiscard]] NonnullRefPtrVector<StyleRule> consume_a_list_of_rules(TokenStream<T>&, bool top_level);
@@ -176,6 +164,54 @@ private:
     [[nodiscard]] Optional<StyleProperty> convert_to_style_property(StyleDeclarationRule&);
 
     static Optional<float> try_parse_float(StringView string);
+    static Optional<Color> parse_color(ParsingContext const&, StyleComponentValueRule const&);
+    static Optional<Length> parse_length(ParsingContext const&, StyleComponentValueRule const&);
+    static Optional<URL> parse_url_function(ParsingContext const&, StyleComponentValueRule const&);
+
+    static RefPtr<StyleValue> parse_builtin_or_dynamic_value(ParsingContext const&, StyleComponentValueRule const&);
+    static RefPtr<StyleValue> parse_length_value(ParsingContext const&, StyleComponentValueRule const&);
+    static RefPtr<StyleValue> parse_numeric_value(ParsingContext const&, StyleComponentValueRule const&);
+    static RefPtr<StyleValue> parse_identifier_value(ParsingContext const&, StyleComponentValueRule const&);
+    static RefPtr<StyleValue> parse_color_value(ParsingContext const&, StyleComponentValueRule const&);
+    static RefPtr<StyleValue> parse_string_value(ParsingContext const&, StyleComponentValueRule const&);
+    static RefPtr<StyleValue> parse_image_value(ParsingContext const&, StyleComponentValueRule const&);
+    static RefPtr<StyleValue> parse_background_value(ParsingContext const&, Vector<StyleComponentValueRule> const&);
+    static RefPtr<StyleValue> parse_background_image_value(ParsingContext const&, Vector<StyleComponentValueRule> const&);
+    static RefPtr<StyleValue> parse_background_repeat_value(ParsingContext const&, Vector<StyleComponentValueRule> const&);
+    static RefPtr<StyleValue> parse_border_value(ParsingContext const&, PropertyID, Vector<StyleComponentValueRule> const&);
+    static RefPtr<StyleValue> parse_border_radius_value(ParsingContext const&, Vector<StyleComponentValueRule> const&);
+    static RefPtr<StyleValue> parse_border_radius_shorthand_value(ParsingContext const&, Vector<StyleComponentValueRule> const&);
+    static RefPtr<StyleValue> parse_box_shadow_value(ParsingContext const&, Vector<StyleComponentValueRule> const&);
+    static RefPtr<StyleValue> parse_flex_value(ParsingContext const&, Vector<StyleComponentValueRule> const&);
+    static RefPtr<StyleValue> parse_flex_flow_value(ParsingContext const&, Vector<StyleComponentValueRule> const&);
+    static RefPtr<StyleValue> parse_font_value(ParsingContext const&, Vector<StyleComponentValueRule> const&);
+    static RefPtr<StyleValue> parse_font_family_value(ParsingContext const&, Vector<StyleComponentValueRule> const&, size_t start_index = 0);
+    static RefPtr<StyleValue> parse_list_style_value(ParsingContext const&, Vector<StyleComponentValueRule> const&);
+    static RefPtr<StyleValue> parse_overflow_value(ParsingContext const&, Vector<StyleComponentValueRule> const&);
+    static RefPtr<StyleValue> parse_text_decoration_value(ParsingContext const&, Vector<StyleComponentValueRule> const&);
+
+    // calc() parsing, according to https://www.w3.org/TR/css-values-3/#calc-syntax
+    static OwnPtr<CalculatedStyleValue::CalcSum> parse_calc_sum(ParsingContext const&, TokenStream<StyleComponentValueRule>&);
+    static OwnPtr<CalculatedStyleValue::CalcProduct> parse_calc_product(ParsingContext const&, TokenStream<StyleComponentValueRule>&);
+    static Optional<CalculatedStyleValue::CalcValue> parse_calc_value(ParsingContext const&, TokenStream<StyleComponentValueRule>&);
+    static OwnPtr<CalculatedStyleValue::CalcNumberSum> parse_calc_number_sum(ParsingContext const&, TokenStream<StyleComponentValueRule>&);
+    static OwnPtr<CalculatedStyleValue::CalcNumberProduct> parse_calc_number_product(ParsingContext const&, TokenStream<StyleComponentValueRule>&);
+    static Optional<CalculatedStyleValue::CalcNumberValue> parse_calc_number_value(ParsingContext const&, TokenStream<StyleComponentValueRule>&);
+    static OwnPtr<CalculatedStyleValue::CalcProductPartWithOperator> parse_calc_product_part_with_operator(ParsingContext const&, TokenStream<StyleComponentValueRule>&);
+    static OwnPtr<CalculatedStyleValue::CalcSumPartWithOperator> parse_calc_sum_part_with_operator(ParsingContext const&, TokenStream<StyleComponentValueRule>&);
+    static OwnPtr<CalculatedStyleValue::CalcNumberProductPartWithOperator> parse_calc_number_product_part_with_operator(ParsingContext const&, TokenStream<StyleComponentValueRule>& tokens);
+    static OwnPtr<CalculatedStyleValue::CalcNumberSumPartWithOperator> parse_calc_number_sum_part_with_operator(ParsingContext const&, TokenStream<StyleComponentValueRule>&);
+    static OwnPtr<CalculatedStyleValue::CalcSum> parse_calc_expression(ParsingContext const&, Vector<StyleComponentValueRule> const&);
+
+    enum class SelectorParsingResult {
+        Done,
+        SyntaxError,
+    };
+
+    RefPtr<Selector> parse_complex_selector(TokenStream<StyleComponentValueRule>&, bool allow_starting_combinator);
+    Result<Selector::CompoundSelector, SelectorParsingResult> parse_compound_selector(TokenStream<StyleComponentValueRule>&);
+    Optional<Selector::Combinator> parse_selector_combinator(TokenStream<StyleComponentValueRule>&);
+    Result<Selector::SimpleSelector, SelectorParsingResult> parse_simple_selector(TokenStream<StyleComponentValueRule>&);
 
     ParsingContext m_context;
 
@@ -183,5 +219,16 @@ private:
     Vector<Token> m_tokens;
     TokenStream<Token> m_token_stream;
 };
+
+}
+
+namespace Web {
+
+RefPtr<CSS::CSSStyleSheet> parse_css(CSS::ParsingContext const&, StringView const&);
+RefPtr<CSS::CSSStyleDeclaration> parse_css_declaration(CSS::ParsingContext const&, StringView const&);
+RefPtr<CSS::StyleValue> parse_css_value(CSS::ParsingContext const&, StringView const&, CSS::PropertyID property_id = CSS::PropertyID::Invalid);
+Optional<CSS::SelectorList> parse_selector(CSS::ParsingContext const&, StringView const&);
+
+RefPtr<CSS::StyleValue> parse_html_length(DOM::Document const&, StringView const&);
 
 }

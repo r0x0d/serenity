@@ -27,7 +27,6 @@ public:
 
     virtual int row_count(const GUI::ModelIndex& = GUI::ModelIndex()) const override { return m_keys.size(); }
     virtual int column_count(const GUI::ModelIndex& = GUI::ModelIndex()) const override { return 1; }
-    virtual void update() override { }
 
     virtual GUI::Variant data(const GUI::ModelIndex& index, GUI::ModelRole role = GUI::ModelRole::Display) const override
     {
@@ -46,7 +45,7 @@ public:
         object.for_each_member([this](auto& name, auto&) {
             m_keys.append(name);
         });
-        did_update();
+        invalidate();
     }
 
 private:
@@ -64,7 +63,7 @@ HelpWindow::HelpWindow(GUI::Window* parent)
 {
     resize(530, 365);
     set_title("Spreadsheet Functions Help");
-    set_icon(Gfx::Bitmap::load_from_file("/res/icons/16x16/app-help.png"));
+    set_icon(Gfx::Bitmap::try_load_from_file("/res/icons/16x16/app-help.png"));
 
     auto& widget = set_main_widget<GUI::Widget>();
     widget.set_layout<GUI::VerticalBoxLayout>();

@@ -41,6 +41,7 @@
 #include <LibJS/Runtime/GeneratorObjectPrototype.h>
 #include <LibJS/Runtime/GlobalEnvironment.h>
 #include <LibJS/Runtime/GlobalObject.h>
+#include <LibJS/Runtime/Intl/Intl.h>
 #include <LibJS/Runtime/IteratorPrototype.h>
 #include <LibJS/Runtime/JSONObject.h>
 #include <LibJS/Runtime/MapConstructor.h>
@@ -59,6 +60,7 @@
 #include <LibJS/Runtime/ReflectObject.h>
 #include <LibJS/Runtime/RegExpConstructor.h>
 #include <LibJS/Runtime/RegExpPrototype.h>
+#include <LibJS/Runtime/RegExpStringIteratorPrototype.h>
 #include <LibJS/Runtime/SetConstructor.h>
 #include <LibJS/Runtime/SetIteratorPrototype.h>
 #include <LibJS/Runtime/SetPrototype.h>
@@ -70,11 +72,25 @@
 #include <LibJS/Runtime/SymbolPrototype.h>
 #include <LibJS/Runtime/Temporal/CalendarConstructor.h>
 #include <LibJS/Runtime/Temporal/CalendarPrototype.h>
+#include <LibJS/Runtime/Temporal/DurationConstructor.h>
+#include <LibJS/Runtime/Temporal/DurationPrototype.h>
 #include <LibJS/Runtime/Temporal/InstantConstructor.h>
 #include <LibJS/Runtime/Temporal/InstantPrototype.h>
+#include <LibJS/Runtime/Temporal/PlainDateConstructor.h>
+#include <LibJS/Runtime/Temporal/PlainDatePrototype.h>
+#include <LibJS/Runtime/Temporal/PlainDateTimeConstructor.h>
+#include <LibJS/Runtime/Temporal/PlainDateTimePrototype.h>
+#include <LibJS/Runtime/Temporal/PlainMonthDayConstructor.h>
+#include <LibJS/Runtime/Temporal/PlainMonthDayPrototype.h>
+#include <LibJS/Runtime/Temporal/PlainTimeConstructor.h>
+#include <LibJS/Runtime/Temporal/PlainTimePrototype.h>
+#include <LibJS/Runtime/Temporal/PlainYearMonthConstructor.h>
+#include <LibJS/Runtime/Temporal/PlainYearMonthPrototype.h>
 #include <LibJS/Runtime/Temporal/Temporal.h>
 #include <LibJS/Runtime/Temporal/TimeZoneConstructor.h>
 #include <LibJS/Runtime/Temporal/TimeZonePrototype.h>
+#include <LibJS/Runtime/Temporal/ZonedDateTimeConstructor.h>
+#include <LibJS/Runtime/Temporal/ZonedDateTimePrototype.h>
 #include <LibJS/Runtime/TypedArray.h>
 #include <LibJS/Runtime/TypedArrayConstructor.h>
 #include <LibJS/Runtime/TypedArrayPrototype.h>
@@ -141,6 +157,18 @@ void GlobalObject::initialize_global_object()
 #undef __JS_ENUMERATE
 
 #define __JS_ENUMERATE(ClassName, snake_name, PrototypeName, ConstructorName) \
+    if (!m_intl_##snake_name##_prototype)                                     \
+        m_intl_##snake_name##_prototype = heap().allocate<Intl::PrototypeName>(*this, *this);
+    JS_ENUMERATE_INTL_OBJECTS
+#undef __JS_ENUMERATE
+
+    // Must be allocated before `Intl::Intl` below.
+#define __JS_ENUMERATE(ClassName, snake_name, PrototypeName, ConstructorName) \
+    initialize_constructor(vm.names.ClassName, m_intl_##snake_name##_constructor, m_intl_##snake_name##_prototype);
+    JS_ENUMERATE_INTL_OBJECTS
+#undef __JS_ENUMERATE
+
+#define __JS_ENUMERATE(ClassName, snake_name, PrototypeName, ConstructorName) \
     if (!m_temporal_##snake_name##_prototype)                                 \
         m_temporal_##snake_name##_prototype = heap().allocate<Temporal::PrototypeName>(*this, *this);
     JS_ENUMERATE_TEMPORAL_OBJECTS
@@ -159,7 +187,6 @@ void GlobalObject::initialize_global_object()
     define_native_function(vm.names.parseFloat, parse_float, 1, attr);
     define_native_function(vm.names.parseInt, parse_int, 2, attr);
     define_native_function(vm.names.eval, eval, 1, attr);
-    m_eval_function = &get_without_side_effects(vm.names.eval).as_function();
 
     // 10.2.4.1 %ThrowTypeError% ( ), https://tc39.es/ecma262/#sec-%throwtypeerror%
     m_throw_type_error_function = NativeFunction::create(global_object(), {}, [](VM& vm, GlobalObject& global_object) {
@@ -171,8 +198,8 @@ void GlobalObject::initialize_global_object()
     m_throw_type_error_function->internal_prevent_extensions();
 
     // 10.2.4 AddRestrictedFunctionProperties ( F, realm ), https://tc39.es/ecma262/#sec-addrestrictedfunctionproperties
-    m_function_prototype->define_direct_accessor(vm.names.caller, throw_type_error_function(), throw_type_error_function(), Attribute::Configurable);
-    m_function_prototype->define_direct_accessor(vm.names.arguments, throw_type_error_function(), throw_type_error_function(), Attribute::Configurable);
+    m_function_prototype->define_direct_accessor(vm.names.caller, m_throw_type_error_function, m_throw_type_error_function, Attribute::Configurable);
+    m_function_prototype->define_direct_accessor(vm.names.arguments, m_throw_type_error_function, m_throw_type_error_function, Attribute::Configurable);
 
     define_native_function(vm.names.encodeURI, encode_uri, 1, attr);
     define_native_function(vm.names.decodeURI, decode_uri, 1, attr);
@@ -191,6 +218,7 @@ void GlobalObject::initialize_global_object()
     define_direct_property(vm.names.Math, heap().allocate<MathObject>(*this, *this), attr);
     define_direct_property(vm.names.JSON, heap().allocate<JSONObject>(*this, *this), attr);
     define_direct_property(vm.names.Reflect, heap().allocate<ReflectObject>(*this, *this), attr);
+    define_direct_property(vm.names.Intl, heap().allocate<Intl::Intl>(*this, *this), attr);
     define_direct_property(vm.names.Temporal, heap().allocate<Temporal::Temporal>(*this, *this), attr);
 
     // This must be initialized before allocating AggregateErrorConstructor, which uses ErrorConstructor as its prototype.
@@ -231,6 +259,10 @@ void GlobalObject::initialize_global_object()
     m_generator_function_constructor = heap().allocate<GeneratorFunctionConstructor>(*this, *this);
     // 27.3.3.1 GeneratorFunction.prototype.constructor, https://tc39.es/ecma262/#sec-generatorfunction.prototype.constructor
     m_generator_function_prototype->define_direct_property(vm.names.constructor, m_generator_function_constructor, Attribute::Configurable);
+
+    m_array_prototype_values_function = &m_array_prototype->get_without_side_effects(vm.names.values).as_function();
+    m_eval_function = &get_without_side_effects(vm.names.eval).as_function();
+    m_temporal_time_zone_prototype_get_offset_nanoseconds_for_function = &m_temporal_time_zone_prototype->get_without_side_effects(vm.names.getOffsetNanosecondsFor).as_function();
 }
 
 GlobalObject::~GlobalObject()
@@ -247,11 +279,21 @@ void GlobalObject::visit_edges(Visitor& visitor)
     visitor.visit(m_proxy_constructor);
     visitor.visit(m_generator_object_prototype);
     visitor.visit(m_environment);
+    visitor.visit(m_array_prototype_values_function);
+    visitor.visit(m_eval_function);
+    visitor.visit(m_temporal_time_zone_prototype_get_offset_nanoseconds_for_function);
+    visitor.visit(m_throw_type_error_function);
 
 #define __JS_ENUMERATE(ClassName, snake_name, PrototypeName, ConstructorName, ArrayType) \
     visitor.visit(m_##snake_name##_constructor);                                         \
     visitor.visit(m_##snake_name##_prototype);
     JS_ENUMERATE_BUILTIN_TYPES
+#undef __JS_ENUMERATE
+
+#define __JS_ENUMERATE(ClassName, snake_name, PrototypeName, ConstructorName) \
+    visitor.visit(m_intl_##snake_name##_constructor);                         \
+    visitor.visit(m_intl_##snake_name##_prototype);
+    JS_ENUMERATE_INTL_OBJECTS
 #undef __JS_ENUMERATE
 
 #define __JS_ENUMERATE(ClassName, snake_name, PrototypeName, ConstructorName) \
@@ -264,9 +306,6 @@ void GlobalObject::visit_edges(Visitor& visitor)
     visitor.visit(m_##snake_name##_prototype);
     JS_ENUMERATE_ITERATOR_PROTOTYPES
 #undef __JS_ENUMERATE
-
-    visitor.visit(m_eval_function);
-    visitor.visit(m_throw_type_error_function);
 }
 
 JS_DEFINE_NATIVE_FUNCTION(GlobalObject::gc)

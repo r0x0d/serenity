@@ -34,6 +34,8 @@ void TypedArrayPrototype::initialize(GlobalObject& object)
     define_native_function(vm.names.fill, fill, 1, attr);
     define_native_function(vm.names.find, find, 1, attr);
     define_native_function(vm.names.findIndex, find_index, 1, attr);
+    define_native_function(vm.names.findLast, find_last, 1, attr);
+    define_native_function(vm.names.findLastIndex, find_last_index, 1, attr);
     define_native_function(vm.names.forEach, for_each, 1, attr);
     define_native_function(vm.names.includes, includes, 1, attr);
     define_native_function(vm.names.indexOf, index_of, 1, attr);
@@ -116,6 +118,34 @@ static void for_each_item(VM& vm, GlobalObject& global_object, const String& nam
     auto this_value = vm.argument(1);
 
     for (size_t i = 0; i < initial_length; ++i) {
+        auto value = typed_array->get(i);
+        if (vm.exception())
+            return;
+
+        auto callback_result = vm.call(*callback_function, this_value, value, Value((i32)i), typed_array);
+        if (vm.exception())
+            return;
+
+        if (callback(i, value, callback_result) == IterationDecision::Break)
+            break;
+    }
+}
+
+static void for_each_item_from_last(VM& vm, GlobalObject& global_object, const String& name, Function<IterationDecision(size_t index, Value value, Value callback_result)> callback)
+{
+    auto* typed_array = validate_typed_array_from_this(global_object);
+    if (!typed_array)
+        return;
+
+    auto initial_length = typed_array->array_length();
+
+    auto* callback_function = callback_from_args(global_object, name);
+    if (!callback_function)
+        return;
+
+    auto this_value = vm.argument(1);
+
+    for (ssize_t i = (ssize_t)initial_length - 1; i >= 0; --i) {
         auto value = typed_array->get(i);
         if (vm.exception())
             return;
@@ -267,7 +297,7 @@ JS_DEFINE_NATIVE_FUNCTION(TypedArrayPrototype::fill)
     }
 
     for (; k < final; ++k) {
-        typed_array->set(k, value, true);
+        typed_array->set(k, value, Object::ShouldThrowExceptions::Yes);
         if (vm.exception())
             return {};
     }
@@ -294,6 +324,34 @@ JS_DEFINE_NATIVE_FUNCTION(TypedArrayPrototype::find_index)
 {
     auto result_index = -1;
     for_each_item(vm, global_object, "findIndex", [&](auto index, auto, auto callback_result) {
+        if (callback_result.to_boolean()) {
+            result_index = index;
+            return IterationDecision::Break;
+        }
+        return IterationDecision::Continue;
+    });
+    return Value(result_index);
+}
+
+// 4 %TypedArray%.prototype.findLast ( predicate [ , thisArg ] ), https://tc39.es/proposal-array-find-from-last/index.html#sec-%typedarray%.prototype.findlast
+JS_DEFINE_NATIVE_FUNCTION(TypedArrayPrototype::find_last)
+{
+    auto result = js_undefined();
+    for_each_item_from_last(vm, global_object, "findLast", [&](auto, auto value, auto callback_result) {
+        if (callback_result.to_boolean()) {
+            result = value;
+            return IterationDecision::Break;
+        }
+        return IterationDecision::Continue;
+    });
+    return result;
+}
+
+// 5 %TypedArray%.prototype.findLastIndex ( predicate [ , thisArg ] ), https://tc39.es/proposal-array-find-from-last/index.html#sec-%typedarray%.prototype.findlastindex
+JS_DEFINE_NATIVE_FUNCTION(TypedArrayPrototype::find_last_index)
+{
+    auto result_index = -1;
+    for_each_item_from_last(vm, global_object, "findLastIndex", [&](auto index, auto, auto callback_result) {
         if (callback_result.to_boolean()) {
             result_index = index;
             return IterationDecision::Break;
@@ -868,7 +926,7 @@ JS_DEFINE_NATIVE_FUNCTION(TypedArrayPrototype::slice)
         if (typed_array->element_name() != new_array->element_name()) {
             for (i32 n = 0; k < final; ++k, ++n) {
                 auto k_value = typed_array->get(k);
-                new_array->set(n, k_value, true);
+                new_array->set(n, k_value, Object::ShouldThrowExceptions::Yes);
             }
         } else {
             auto element_size = typed_array->element_size();
@@ -1033,7 +1091,7 @@ JS_DEFINE_NATIVE_FUNCTION(TypedArrayPrototype::sort)
 
     u32 j;
     for (j = 0; j < items.size(); ++j) {
-        typed_array->set(j, items[j], true);
+        typed_array->set(j, items[j], Object::ShouldThrowExceptions::Yes);
         if (vm.exception())
             return {};
     }
@@ -1132,10 +1190,10 @@ JS_DEFINE_NATIVE_FUNCTION(TypedArrayPrototype::reverse)
         auto upper_value = typed_array->get(upper);
 
         // f. Perform ! Set(O, lowerP, upperValue, true).
-        typed_array->set(lower, upper_value, true);
+        typed_array->set(lower, upper_value, Object::ShouldThrowExceptions::Yes);
 
         // g. Perform ! Set(O, upperP, lowerValue, true).
-        typed_array->set(upper, lower_value, true);
+        typed_array->set(upper, lower_value, Object::ShouldThrowExceptions::Yes);
 
         // h. Set lower to lower + 1.
     }
@@ -1385,7 +1443,7 @@ JS_DEFINE_NATIVE_FUNCTION(TypedArrayPrototype::filter)
     // 11. For each element e of kept, do
     for (auto& value : kept) {
         // a. Perform ! Set(A, ! ToString(𝔽(n)), e, true).
-        filter_array->set(index, value, true);
+        filter_array->set(index, value, Object::ShouldThrowExceptions::Yes);
 
         // b. Set n to n + 1.
         ++index;
@@ -1434,7 +1492,7 @@ JS_DEFINE_NATIVE_FUNCTION(TypedArrayPrototype::map)
             return {};
 
         // d. Perform ? Set(A, Pk, mappedValue, true).
-        return_array->set(i, mapped_value, true);
+        return_array->set(i, mapped_value, Object::ShouldThrowExceptions::Yes);
         if (vm.exception())
             return {};
 
@@ -1463,10 +1521,7 @@ JS_DEFINE_NATIVE_FUNCTION(TypedArrayPrototype::to_locale_string)
             return {};
         if (value.is_nullish())
             continue;
-        auto* value_object = value.to_object(global_object);
-        if (!value_object)
-            return {};
-        auto locale_string_result = value_object->invoke(vm.names.toLocaleString);
+        auto locale_string_result = value.invoke(global_object, vm.names.toLocaleString);
         if (vm.exception())
             return {};
         auto string = locale_string_result.to_string(global_object);

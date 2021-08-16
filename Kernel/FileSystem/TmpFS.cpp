@@ -6,7 +6,6 @@
 
 #include <Kernel/FileSystem/TmpFS.h>
 #include <Kernel/Process.h>
-#include <Kernel/Thread.h>
 #include <LibC/limits.h>
 
 namespace Kernel {
@@ -24,22 +23,23 @@ TmpFS::~TmpFS()
 {
 }
 
-bool TmpFS::initialize()
+KResult TmpFS::initialize()
 {
     m_root_inode = TmpFSInode::create_root(*this);
-    return !m_root_inode.is_null();
+    if (!m_root_inode)
+        return ENOMEM;
+    return KSuccess;
 }
 
-NonnullRefPtr<Inode> TmpFS::root_inode() const
+Inode& TmpFS::root_inode()
 {
     VERIFY(!m_root_inode.is_null());
-
     return *m_root_inode;
 }
 
 void TmpFS::register_inode(TmpFSInode& inode)
 {
-    Locker locker(m_lock);
+    MutexLocker locker(m_lock);
     VERIFY(inode.identifier().fsid() == fsid());
 
     auto index = inode.identifier().index();
@@ -48,7 +48,7 @@ void TmpFS::register_inode(TmpFSInode& inode)
 
 void TmpFS::unregister_inode(InodeIdentifier identifier)
 {
-    Locker locker(m_lock);
+    MutexLocker locker(m_lock);
     VERIFY(identifier.fsid() == fsid());
 
     m_inodes.remove(identifier.index());
@@ -56,14 +56,14 @@ void TmpFS::unregister_inode(InodeIdentifier identifier)
 
 unsigned TmpFS::next_inode_index()
 {
-    Locker locker(m_lock);
+    MutexLocker locker(m_lock);
 
     return m_next_inode_index++;
 }
 
 RefPtr<Inode> TmpFS::get_inode(InodeIdentifier identifier) const
 {
-    Locker locker(m_lock, Lock::Mode::Shared);
+    MutexLocker locker(m_lock, Mutex::Mode::Shared);
     VERIFY(identifier.fsid() == fsid());
 
     auto it = m_inodes.find(identifier.index());
@@ -105,14 +105,14 @@ RefPtr<TmpFSInode> TmpFSInode::create_root(TmpFS& fs)
 
 InodeMetadata TmpFSInode::metadata() const
 {
-    Locker locker(m_lock, Lock::Mode::Shared);
+    MutexLocker locker(m_inode_lock, Mutex::Mode::Shared);
 
     return m_metadata;
 }
 
 KResult TmpFSInode::traverse_as_directory(Function<bool(FileSystem::DirectoryEntryView const&)> callback) const
 {
-    Locker locker(m_lock, Lock::Mode::Shared);
+    MutexLocker locker(m_inode_lock, Mutex::Mode::Shared);
 
     if (!is_directory())
         return ENOTDIR;
@@ -120,16 +120,15 @@ KResult TmpFSInode::traverse_as_directory(Function<bool(FileSystem::DirectoryEnt
     callback({ ".", identifier(), 0 });
     callback({ "..", m_parent, 0 });
 
-    for (auto& it : m_children) {
-        auto& entry = it.value;
-        callback({ entry.name, entry.inode->identifier(), 0 });
+    for (auto& child : m_children) {
+        callback({ child.name->view(), child.inode->identifier(), 0 });
     }
     return KSuccess;
 }
 
 KResultOr<size_t> TmpFSInode::read_bytes(off_t offset, size_t size, UserOrKernelBuffer& buffer, FileDescription*) const
 {
-    Locker locker(m_lock, Lock::Mode::Shared);
+    MutexLocker locker(m_inode_lock, Mutex::Mode::Shared);
     VERIFY(!is_directory());
     VERIFY(offset >= 0);
 
@@ -149,7 +148,7 @@ KResultOr<size_t> TmpFSInode::read_bytes(off_t offset, size_t size, UserOrKernel
 
 KResultOr<size_t> TmpFSInode::write_bytes(off_t offset, size_t size, const UserOrKernelBuffer& buffer, FileDescription*)
 {
-    Locker locker(m_lock);
+    MutexLocker locker(m_inode_lock);
     VERIFY(!is_directory());
     VERIFY(offset >= 0);
 
@@ -196,27 +195,34 @@ KResultOr<size_t> TmpFSInode::write_bytes(off_t offset, size_t size, const UserO
     return size;
 }
 
-RefPtr<Inode> TmpFSInode::lookup(StringView name)
+KResultOr<NonnullRefPtr<Inode>> TmpFSInode::lookup(StringView name)
 {
-    Locker locker(m_lock, Lock::Mode::Shared);
+    MutexLocker locker(m_inode_lock, Mutex::Mode::Shared);
     VERIFY(is_directory());
 
     if (name == ".")
-        return this;
-    if (name == "..")
-        return fs().get_inode(m_parent);
+        return *this;
+    if (name == "..") {
+        auto inode = fs().get_inode(m_parent);
+        // FIXME: If this cannot fail, we should probably VERIFY here instead.
+        if (!inode)
+            return ENOENT;
+        return inode.release_nonnull();
+    }
 
-    auto it = m_children.find(name);
-    if (it == m_children.end())
-        return {};
-    return fs().get_inode(it->value.inode->identifier());
+    auto* child = find_child_by_name(name);
+    if (!child)
+        return ENOENT;
+    return child->inode;
 }
 
-KResultOr<size_t> TmpFSInode::directory_entry_count() const
+TmpFSInode::Child* TmpFSInode::find_child_by_name(StringView name)
 {
-    Locker locker(m_lock, Lock::Mode::Shared);
-    VERIFY(is_directory());
-    return 2 + m_children.size();
+    for (auto& child : m_children) {
+        if (child.name->view() == name)
+            return &child;
+    }
+    return nullptr;
 }
 
 void TmpFSInode::notify_watchers()
@@ -237,7 +243,7 @@ void TmpFSInode::flush_metadata()
 
 KResult TmpFSInode::chmod(mode_t mode)
 {
-    Locker locker(m_lock);
+    MutexLocker locker(m_inode_lock);
 
     m_metadata.mode = mode;
     notify_watchers();
@@ -246,7 +252,7 @@ KResult TmpFSInode::chmod(mode_t mode)
 
 KResult TmpFSInode::chown(uid_t uid, gid_t gid)
 {
-    Locker locker(m_lock);
+    MutexLocker locker(m_inode_lock);
 
     m_metadata.uid = uid;
     m_metadata.gid = gid;
@@ -254,9 +260,9 @@ KResult TmpFSInode::chown(uid_t uid, gid_t gid)
     return KSuccess;
 }
 
-KResultOr<NonnullRefPtr<Inode>> TmpFSInode::create_child(const String& name, mode_t mode, dev_t dev, uid_t uid, gid_t gid)
+KResultOr<NonnullRefPtr<Inode>> TmpFSInode::create_child(StringView name, mode_t mode, dev_t dev, uid_t uid, gid_t gid)
 {
-    Locker locker(m_lock);
+    MutexLocker locker(m_inode_lock);
 
     // TODO: Support creating devices on TmpFS.
     if (dev != 0)
@@ -281,41 +287,50 @@ KResultOr<NonnullRefPtr<Inode>> TmpFSInode::create_child(const String& name, mod
     return child.release_nonnull();
 }
 
-KResult TmpFSInode::add_child(Inode& child, const StringView& name, mode_t)
+KResult TmpFSInode::add_child(Inode& child, StringView const& name, mode_t)
 {
-    Locker locker(m_lock);
     VERIFY(is_directory());
     VERIFY(child.fsid() == fsid());
 
     if (name.length() > NAME_MAX)
         return ENAMETOOLONG;
 
-    m_children.set(name, { name, static_cast<TmpFSInode&>(child) });
+    auto name_kstring = KString::try_create(name);
+    if (!name_kstring)
+        return ENOMEM;
+
+    auto* child_entry = new (nothrow) Child { name_kstring.release_nonnull(), static_cast<TmpFSInode&>(child) };
+    if (!child_entry)
+        return ENOMEM;
+
+    MutexLocker locker(m_inode_lock);
+    m_children.append(*child_entry);
     did_add_child(child.identifier(), name);
     return KSuccess;
 }
 
-KResult TmpFSInode::remove_child(const StringView& name)
+KResult TmpFSInode::remove_child(StringView const& name)
 {
-    Locker locker(m_lock);
+    MutexLocker locker(m_inode_lock);
     VERIFY(is_directory());
 
     if (name == "." || name == "..")
         return KSuccess;
 
-    auto it = m_children.find(name);
-    if (it == m_children.end())
+    auto* child = find_child_by_name(name);
+    if (!child)
         return ENOENT;
-    auto child_id = it->value.inode->identifier();
-    it->value.inode->did_delete_self();
-    m_children.remove(it);
+
+    auto child_id = child->inode->identifier();
+    child->inode->did_delete_self();
+    m_children.remove(*child);
     did_remove_child(child_id, name);
     return KSuccess;
 }
 
 KResult TmpFSInode::truncate(u64 size)
 {
-    Locker locker(m_lock);
+    MutexLocker locker(m_inode_lock);
     VERIFY(!is_directory());
 
     if (size == 0)
@@ -345,7 +360,7 @@ KResult TmpFSInode::truncate(u64 size)
 
 KResult TmpFSInode::set_atime(time_t time)
 {
-    Locker locker(m_lock);
+    MutexLocker locker(m_inode_lock);
 
     m_metadata.atime = time;
     set_metadata_dirty(true);
@@ -355,7 +370,7 @@ KResult TmpFSInode::set_atime(time_t time)
 
 KResult TmpFSInode::set_ctime(time_t time)
 {
-    Locker locker(m_lock);
+    MutexLocker locker(m_inode_lock);
 
     m_metadata.ctime = time;
     notify_watchers();
@@ -364,7 +379,7 @@ KResult TmpFSInode::set_ctime(time_t time)
 
 KResult TmpFSInode::set_mtime(time_t t)
 {
-    Locker locker(m_lock);
+    MutexLocker locker(m_inode_lock);
 
     m_metadata.mtime = t;
     notify_watchers();

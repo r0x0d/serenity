@@ -24,7 +24,7 @@ I'm also on [Patreon](https://www.patreon.com/serenityos) and [GitHub Sponsors](
 
 ## Kernel features
 
-* x86 (32-bit) kernel with pre-emptive multi-threading
+* x86 (32-bit) and x86_64 (64-bit) kernel with pre-emptive multi-threading
 * Hardware protections (SMEP, SMAP, UMIP, NX, WP, TSD, ...)
 * IPv4 stack with ARP, TCP, UDP and ICMP protocols
 * ext2 filesystem
@@ -71,6 +71,7 @@ I'm also on [Patreon](https://www.patreon.com/serenityos) and [GitHub Sponsors](
 * Higher-level threading (LibThreading)
 * Transport Layer Security (LibTLS)
 * HTTP and HTTPS (LibHTTP)
+* IMAP (LibIMAP)
 
 ## Userland features
 
@@ -81,6 +82,7 @@ I'm also on [Patreon](https://www.patreon.com/serenityos) and [GitHub Sponsors](
 * C++ IDE (HackStudio)
 * IRC client
 * Desktop synthesizer (Piano)
+* E-mail client (Mail)
 * Various desktop apps & games
 * Color themes
 
@@ -136,6 +138,11 @@ Join our Discord server: [SerenityOS Discord](https://discord.gg/serenityos)
 * **Stephan Unverwerth** - [sunverwerth](https://github.com/sunverwerth)
 * **Max Wipfli** - [MaxWipfli](https://github.com/MaxWipfli)
 * **Daniel Bertalan** - [BertalanD](https://github.com/BertalanD)
+* **Jelle Raaijmakers** - [GMTA](https://github.com/GMTA)
+* **Sam Atkins** - [AtkinsSJ](http://github.com/AtkinsSJ)
+* **Tobias Christiansen** - [TobyAsE](https://github.com/TobyAsE)
+* **Lenny Maiorani** - [ldm5180](https://github.com/ldm5180)
+* **sin-ack** - [sin-ack](https://github.com/sin-ack)
 
 (And many more!) The people listed above have landed more than 100 commits in the project. :^)
 

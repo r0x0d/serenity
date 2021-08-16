@@ -113,12 +113,10 @@ int main(int argc, char** argv)
     window->resize(685, 500);
     window->set_icon(app_icon.bitmap_for_size(16));
 
-    auto menubar = GUI::Menubar::construct();
-
-    auto& file_menu = menubar->add_menu("&File");
+    auto& file_menu = window->add_menu("&File");
     file_menu.add_action(GUI::CommonActions::make_quit_action([&](auto&) { app->quit(); }));
 
-    auto& help_menu = menubar->add_menu("&Help");
+    auto& help_menu = window->add_menu("&Help");
     help_menu.add_action(GUI::CommonActions::make_help_action([](auto&) {
         Desktop::Launcher::open(URL::create_with_file_protocol("/usr/share/man/man1/Inspector.md"), "/bin/Help");
     }));
@@ -155,7 +153,7 @@ int main(int argc, char** argv)
 
     auto properties_tree_view_context_menu = GUI::Menu::construct("Properties Tree View");
 
-    auto copy_bitmap = Gfx::Bitmap::load_from_file("/res/icons/16x16/edit-copy.png");
+    auto copy_bitmap = Gfx::Bitmap::try_load_from_file("/res/icons/16x16/edit-copy.png");
     auto copy_property_name_action = GUI::Action::create("Copy Property Name", copy_bitmap, [&](auto&) {
         GUI::Clipboard::the().set_plain_text(properties_tree_view.selection().first().data().to_string());
     });
@@ -172,7 +170,6 @@ int main(int argc, char** argv)
         }
     };
 
-    window->set_menubar(move(menubar));
     window->show();
     remote_process.update();
 

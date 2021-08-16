@@ -33,7 +33,7 @@ public:
     {
         if (g_profiling_all_threads) {
             VERIFY(g_global_perf_events);
-            [[maybe_unused]] auto rc = g_global_perf_events->append_with_eip_and_ebp(
+            [[maybe_unused]] auto rc = g_global_perf_events->append_with_ip_and_bp(
                 process.pid(), 0, 0, 0, PERF_EVENT_PROCESS_EXIT, 0, 0, 0, nullptr);
         }
     }
@@ -61,26 +61,20 @@ public:
         if (current_thread.is_profiling_suppressed())
             return;
         if (auto* event_buffer = current_thread.process().current_perf_events_buffer()) {
-#if ARCH(I386)
-            [[maybe_unused]] auto rc = event_buffer->append_with_eip_and_ebp(
+            [[maybe_unused]] auto rc = event_buffer->append_with_ip_and_bp(
                 current_thread.pid(), current_thread.tid(),
-                regs.eip, regs.ebp, PERF_EVENT_SAMPLE, lost_time, 0, 0, nullptr);
-#else
-            [[maybe_unused]] auto rc = event_buffer->append_with_eip_and_ebp(
-                current_thread.pid(), current_thread.tid(),
-                regs.rip, regs.rbp, PERF_EVENT_SAMPLE, lost_time, 0, 0, nullptr);
-#endif
+                regs.ip(), regs.bp(), PERF_EVENT_SAMPLE, lost_time, 0, 0, nullptr);
         }
     }
 
-    inline static void add_mmap_perf_event(Process& current_process, Region const& region)
+    inline static void add_mmap_perf_event(Process& current_process, Memory::Region const& region)
     {
         if (auto* event_buffer = current_process.current_perf_events_buffer()) {
             [[maybe_unused]] auto res = event_buffer->append(PERF_EVENT_MMAP, region.vaddr().get(), region.size(), region.name());
         }
     }
 
-    inline static void add_unmap_perf_event(Process& current_process, Range const& region)
+    inline static void add_unmap_perf_event(Process& current_process, Memory::VirtualRange const& region)
     {
         if (auto* event_buffer = current_process.current_perf_events_buffer()) {
             [[maybe_unused]] auto res = event_buffer->append(PERF_EVENT_MUNMAP, region.base().get(), region.size(), nullptr);
@@ -119,15 +113,20 @@ public:
         if (thread.is_profiling_suppressed())
             return;
         if (auto* event_buffer = thread.process().current_perf_events_buffer()) {
-#if ARCH(I386)
-            [[maybe_unused]] auto rc = event_buffer->append_with_eip_and_ebp(
+            [[maybe_unused]] auto rc = event_buffer->append_with_ip_and_bp(
                 thread.pid(), thread.tid(),
-                regs.eip, regs.ebp, PERF_EVENT_PAGE_FAULT, 0, 0, 0, nullptr);
-#else
-            [[maybe_unused]] auto rc = event_buffer->append_with_eip_and_ebp(
+                regs.ip(), regs.bp(), PERF_EVENT_PAGE_FAULT, 0, 0, 0, nullptr);
+        }
+    }
+
+    inline static void add_syscall_event(Thread& thread, const RegisterState& regs)
+    {
+        if (thread.is_profiling_suppressed())
+            return;
+        if (auto* event_buffer = thread.process().current_perf_events_buffer()) {
+            [[maybe_unused]] auto rc = event_buffer->append_with_ip_and_bp(
                 thread.pid(), thread.tid(),
-                regs.rip, regs.rbp, PERF_EVENT_PAGE_FAULT, 0, 0, 0, nullptr);
-#endif
+                regs.ip(), regs.bp(), PERF_EVENT_SYSCALL, 0, 0, 0, nullptr);
         }
     }
 

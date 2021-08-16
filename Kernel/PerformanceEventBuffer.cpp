@@ -25,16 +25,16 @@ NEVER_INLINE KResult PerformanceEventBuffer::append(int type, FlatPtr arg1, Flat
     FlatPtr ebp;
     asm volatile("movl %%ebp, %%eax"
                  : "=a"(ebp));
-    return append_with_eip_and_ebp(current_thread->pid(), current_thread->tid(), 0, ebp, type, 0, arg1, arg2, arg3);
+    return append_with_ip_and_bp(current_thread->pid(), current_thread->tid(), 0, ebp, type, 0, arg1, arg2, arg3);
 }
 
-static Vector<FlatPtr, PerformanceEvent::max_stack_frame_count> raw_backtrace(FlatPtr ebp, FlatPtr eip)
+static Vector<FlatPtr, PerformanceEvent::max_stack_frame_count> raw_backtrace(FlatPtr bp, FlatPtr ip)
 {
     Vector<FlatPtr, PerformanceEvent::max_stack_frame_count> backtrace;
-    if (eip != 0)
-        backtrace.append(eip);
+    if (ip != 0)
+        backtrace.append(ip);
     FlatPtr stack_ptr_copy;
-    FlatPtr stack_ptr = (FlatPtr)ebp;
+    FlatPtr stack_ptr = bp;
     // FIXME: Figure out how to remove this SmapDisabler without breaking profile stacks.
     SmapDisabler disabler;
     while (stack_ptr) {
@@ -54,8 +54,8 @@ static Vector<FlatPtr, PerformanceEvent::max_stack_frame_count> raw_backtrace(Fl
     return backtrace;
 }
 
-KResult PerformanceEventBuffer::append_with_eip_and_ebp(ProcessID pid, ThreadID tid,
-    u32 eip, u32 ebp, int type, u32 lost_samples, FlatPtr arg1, FlatPtr arg2, const StringView& arg3)
+KResult PerformanceEventBuffer::append_with_ip_and_bp(ProcessID pid, ThreadID tid,
+    FlatPtr ip, FlatPtr bp, int type, u32 lost_samples, FlatPtr arg1, FlatPtr arg2, const StringView& arg3)
 {
     if (count() >= capacity())
         return ENOBUFS;
@@ -135,11 +135,17 @@ KResult PerformanceEventBuffer::append_with_eip_and_ebp(ProcessID pid, ThreadID 
         break;
     case PERF_EVENT_PAGE_FAULT:
         break;
+    case PERF_EVENT_SYSCALL:
+        break;
+    case PERF_EVENT_SIGNPOST:
+        event.data.signpost.arg1 = arg1;
+        event.data.signpost.arg2 = arg2;
+        break;
     default:
         return EINVAL;
     }
 
-    auto backtrace = raw_backtrace(ebp, eip);
+    auto backtrace = raw_backtrace(bp, ip);
     event.stack_size = min(sizeof(event.stack) / sizeof(FlatPtr), static_cast<size_t>(backtrace.size()));
     memcpy(event.stack, backtrace.data(), event.stack_size * sizeof(FlatPtr));
 
@@ -160,6 +166,13 @@ PerformanceEvent& PerformanceEventBuffer::at(size_t index)
 template<typename Serializer>
 bool PerformanceEventBuffer::to_json_impl(Serializer& object) const
 {
+    {
+        auto strings = object.add_array("strings");
+        for (auto& it : m_strings) {
+            strings.add(it.view());
+        }
+    }
+
     auto array = object.add_array("events");
     bool seen_first_sample = false;
     for (size_t i = 0; i < m_count; ++i) {
@@ -226,6 +239,14 @@ bool PerformanceEventBuffer::to_json_impl(Serializer& object) const
         case PERF_EVENT_PAGE_FAULT:
             event_object.add("type", "page_fault");
             break;
+        case PERF_EVENT_SYSCALL:
+            event_object.add("type", "syscall");
+            break;
+        case PERF_EVENT_SIGNPOST:
+            event_object.add("type"sv, "signpost"sv);
+            event_object.add("arg1"sv, event.data.signpost.arg1);
+            event_object.add("arg2"sv, event.data.signpost.arg2);
+            break;
         }
         event_object.add("pid", event.pid);
         event_object.add("tid", event.tid);
@@ -253,7 +274,7 @@ bool PerformanceEventBuffer::to_json(KBufferBuilder& builder) const
 
 OwnPtr<PerformanceEventBuffer> PerformanceEventBuffer::try_create_with_size(size_t buffer_size)
 {
-    auto buffer = KBuffer::try_create_with_size(buffer_size, Region::Access::Read | Region::Access::Write, "Performance events", AllocationStrategy::AllocateNow);
+    auto buffer = KBuffer::try_create_with_size(buffer_size, Memory::Region::Access::ReadWrite, "Performance events", AllocationStrategy::AllocateNow);
     if (!buffer)
         return {};
     return adopt_own_if_nonnull(new (nothrow) PerformanceEventBuffer(buffer.release_nonnull()));
@@ -261,7 +282,7 @@ OwnPtr<PerformanceEventBuffer> PerformanceEventBuffer::try_create_with_size(size
 
 void PerformanceEventBuffer::add_process(const Process& process, ProcessEventType event_type)
 {
-    ScopedSpinLock locker(process.space().get_lock());
+    ScopedSpinLock locker(process.address_space().get_lock());
 
     String executable;
     if (process.executable())
@@ -269,19 +290,29 @@ void PerformanceEventBuffer::add_process(const Process& process, ProcessEventTyp
     else
         executable = String::formatted("<{}>", process.name());
 
-    [[maybe_unused]] auto rc = append_with_eip_and_ebp(process.pid(), 0, 0, 0,
+    [[maybe_unused]] auto rc = append_with_ip_and_bp(process.pid(), 0, 0, 0,
         event_type == ProcessEventType::Create ? PERF_EVENT_PROCESS_CREATE : PERF_EVENT_PROCESS_EXEC,
         0, process.pid().value(), 0, executable);
 
     process.for_each_thread([&](auto& thread) {
-        [[maybe_unused]] auto rc = append_with_eip_and_ebp(process.pid(), thread.tid().value(),
+        [[maybe_unused]] auto rc = append_with_ip_and_bp(process.pid(), thread.tid().value(),
             0, 0, PERF_EVENT_THREAD_CREATE, 0, 0, 0, nullptr);
     });
 
-    for (auto& region : process.space().regions()) {
-        [[maybe_unused]] auto rc = append_with_eip_and_ebp(process.pid(), 0,
+    for (auto& region : process.address_space().regions()) {
+        [[maybe_unused]] auto rc = append_with_ip_and_bp(process.pid(), 0,
             0, 0, PERF_EVENT_MMAP, 0, region->range().base().get(), region->range().size(), region->name());
     }
+}
+
+KResultOr<FlatPtr> PerformanceEventBuffer::register_string(NonnullOwnPtr<KString> string)
+{
+    FlatPtr string_id = m_strings.size();
+
+    if (!m_strings.try_append(move(string)))
+        return ENOBUFS;
+
+    return string_id;
 }
 
 }

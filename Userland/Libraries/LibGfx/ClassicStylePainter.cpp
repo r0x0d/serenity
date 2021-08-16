@@ -14,7 +14,7 @@
 
 namespace Gfx {
 
-void ClassicStylePainter::paint_tab_button(Painter& painter, const IntRect& rect, const Palette& palette, bool active, bool hovered, bool enabled, bool top)
+void ClassicStylePainter::paint_tab_button(Painter& painter, const IntRect& rect, const Palette& palette, bool active, bool hovered, bool enabled, bool top, bool in_active_window)
 {
     Color base_color = palette.button();
     Color highlight_color2 = palette.threed_highlight();
@@ -32,7 +32,17 @@ void ClassicStylePainter::paint_tab_button(Painter& painter, const IntRect& rect
         painter.fill_rect({ 1, 1, rect.width() - 2, rect.height() - 1 }, base_color);
 
         // Top line
-        painter.draw_line({ 2, 0 }, { rect.width() - 3, 0 }, highlight_color2);
+        if (active) {
+            auto accent = palette.accent();
+            if (!in_active_window)
+                accent = accent.to_grayscale();
+            painter.draw_line({ 3, 0 }, { rect.width() - 3, 0 }, accent.darkened());
+            Gfx::IntRect accent_rect { 1, 1, rect.width() - 2, 2 };
+            painter.fill_rect_with_gradient(accent_rect, accent, accent.lightened(1.5f));
+            painter.set_pixel({ 2, 0 }, highlight_color2);
+        } else {
+            painter.draw_line({ 2, 0 }, { rect.width() - 3, 0 }, highlight_color2);
+        }
 
         // Left side
         painter.draw_line({ 0, 2 }, { 0, rect.height() - 1 }, highlight_color2);
@@ -54,7 +64,16 @@ void ClassicStylePainter::paint_tab_button(Painter& painter, const IntRect& rect
         painter.fill_rect({ 0, 0, rect.width() - 1, rect.height() }, base_color);
 
         // Bottom line
-        painter.draw_line({ 2, rect.height() - 1 }, { rect.width() - 3, rect.height() - 1 }, shadow_color2);
+        if (active) {
+            auto accent = palette.accent();
+            if (!in_active_window)
+                accent = accent.to_grayscale();
+            Gfx::IntRect accent_rect { 1, rect.height() - 3, rect.width() - 2, 2 };
+            painter.fill_rect_with_gradient(accent_rect, accent, accent.lightened(1.5f));
+            painter.draw_line({ 2, rect.height() - 1 }, { rect.width() - 3, rect.height() - 1 }, accent.darkened());
+        } else {
+            painter.draw_line({ 2, rect.height() - 1 }, { rect.width() - 3, rect.height() - 1 }, shadow_color2);
+        }
 
         // Left side
         painter.draw_line({ 0, 0 }, { 0, rect.height() - 3 }, highlight_color2);
@@ -186,17 +205,6 @@ void ClassicStylePainter::paint_button(Painter& painter, const IntRect& rect, co
         // Bottom shadow
         painter.draw_line({ rect.width() - 2, 1 }, { rect.width() - 2, rect.height() - 3 }, shadow_color);
         painter.draw_line({ 1, rect.height() - 2 }, { rect.width() - 2, rect.height() - 2 }, shadow_color);
-    }
-}
-
-void ClassicStylePainter::paint_surface(Painter& painter, const IntRect& rect, const Palette& palette, bool paint_vertical_lines, bool paint_top_line)
-{
-    painter.fill_rect({ rect.x(), rect.y() + 1, rect.width(), rect.height() - 2 }, palette.button());
-    painter.draw_line(rect.top_left(), rect.top_right(), paint_top_line ? palette.threed_highlight() : palette.button());
-    painter.draw_line(rect.bottom_left(), rect.bottom_right(), palette.threed_shadow1());
-    if (paint_vertical_lines) {
-        painter.draw_line(rect.top_left().translated(0, 1), rect.bottom_left().translated(0, -1), palette.threed_highlight());
-        painter.draw_line(rect.top_right(), rect.bottom_right().translated(0, -1), palette.threed_shadow1());
     }
 }
 
@@ -344,10 +352,10 @@ static const Gfx::Bitmap& circle_bitmap(bool checked, bool changing)
 void ClassicStylePainter::paint_radio_button(Painter& painter, const IntRect& rect, const Palette&, bool is_checked, bool is_being_pressed)
 {
     if (!s_unfilled_circle_bitmap) {
-        s_unfilled_circle_bitmap = Bitmap::load_from_file("/res/icons/serenity/unfilled-radio-circle.png");
-        s_filled_circle_bitmap = Bitmap::load_from_file("/res/icons/serenity/filled-radio-circle.png");
-        s_changing_filled_circle_bitmap = Bitmap::load_from_file("/res/icons/serenity/changing-filled-radio-circle.png");
-        s_changing_unfilled_circle_bitmap = Bitmap::load_from_file("/res/icons/serenity/changing-unfilled-radio-circle.png");
+        s_unfilled_circle_bitmap = Bitmap::try_load_from_file("/res/icons/serenity/unfilled-radio-circle.png");
+        s_filled_circle_bitmap = Bitmap::try_load_from_file("/res/icons/serenity/filled-radio-circle.png");
+        s_changing_filled_circle_bitmap = Bitmap::try_load_from_file("/res/icons/serenity/changing-filled-radio-circle.png");
+        s_changing_unfilled_circle_bitmap = Bitmap::try_load_from_file("/res/icons/serenity/changing-unfilled-radio-circle.png");
     }
 
     auto& bitmap = circle_bitmap(is_checked, is_being_pressed);

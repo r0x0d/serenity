@@ -1,37 +1,38 @@
-ENTRY(start)
+#include <AK/Platform.h>
 
-KERNEL_VIRTUAL_BASE = 0xc0000000;
+ENTRY(init)
+
+#define PF_X 0x1
+#define PF_W 0x2
+#define PF_R 0x4
 
 PHDRS
 {
-  boot_text PT_LOAD ;
-  boot_bss PT_LOAD ;
-  text PT_LOAD ;
-  data PT_LOAD ;
-  bss PT_LOAD ;
-  ksyms PT_LOAD ;
+  elf_headers PT_LOAD FILEHDR PHDRS FLAGS(PF_R) ;
+  super_pages PT_LOAD FLAGS(PF_R | PF_W) ;
+  text PT_LOAD FLAGS(PF_R | PF_X) ;
+  data PT_LOAD FLAGS(PF_R | PF_W) ;
+  bss PT_LOAD FLAGS(PF_R | PF_W) ;
+  dynamic_segment PT_LOAD FLAGS(PF_R | PF_W) ;
+  dynamic PT_DYNAMIC FLAGS(PF_R | PF_W) ;
+  ksyms PT_LOAD FLAGS(PF_R) ;
 }
 
 SECTIONS
 {
-    . = KERNEL_VIRTUAL_BASE + 0x00100000;
-
     start_of_kernel_image = .;
 
-    .boot_text ALIGN(4K) : AT (ADDR(.boot_text) - KERNEL_VIRTUAL_BASE)
+    .elf_headers (SIZEOF_HEADERS) : AT (ADDR(.elf_headers) + SIZEOF_HEADERS)
     {
-        KEEP(*(.boot_text))
-        KEEP(*(.multiboot))
-    } :boot_text
+        start_of_elf_headers = .;
+    } :elf_headers
 
-    .boot_bss ALIGN(4K) (NOLOAD) : AT (ADDR(.boot_bss) - KERNEL_VIRTUAL_BASE)
+    .super_pages ALIGN(4K) (NOLOAD) : AT (ADDR(.super_pages))
     {
-        KEEP(*(.page_tables))
-        KEEP(*(.stack))
         *(.super_pages)
-    } :boot_bss
+    } :super_pages
 
-    .text ALIGN(4K) : AT (ADDR(.text) - KERNEL_VIRTUAL_BASE)
+    .text ALIGN(4K) : AT (ADDR(.text))
     {
         start_of_kernel_text = .;
 
@@ -45,7 +46,7 @@ SECTIONS
         *(.text*)
     } :text
 
-    .unmap_after_init ALIGN(4K) : AT (ADDR(.unmap_after_init) - KERNEL_VIRTUAL_BASE)
+    .unmap_after_init ALIGN(4K) : AT (ADDR(.unmap_after_init))
     {
         start_of_unmap_after_init = .;
         *(.unmap_after_init*);
@@ -54,7 +55,7 @@ SECTIONS
         end_of_kernel_text = .;
     } :text
 
-    .rodata ALIGN(4K) : AT (ADDR(.rodata) - KERNEL_VIRTUAL_BASE)
+    .rodata ALIGN(4K) : AT (ADDR(.rodata))
     {
         start_heap_ctors = .;
         *libkernel_heap.a:*(.ctors)
@@ -67,21 +68,21 @@ SECTIONS
         *(.rodata*)
     } :data
 
-    .data ALIGN(4K) : AT (ADDR(.data) - KERNEL_VIRTUAL_BASE)
+    .data ALIGN(4K) : AT (ADDR(.data))
     {
         start_of_kernel_data = .;
         *(.data*)
         end_of_kernel_data = .;
     } :data
 
-    .ro_after_init ALIGN(4K) (NOLOAD) : AT(ADDR(.ro_after_init) - KERNEL_VIRTUAL_BASE)
+    .ro_after_init ALIGN(4K) (NOLOAD) : AT(ADDR(.ro_after_init))
     {
         start_of_ro_after_init = .;
         *(.ro_after_init);
         end_of_ro_after_init = .;
     } :data
 
-    .bss ALIGN(4K) (NOLOAD) : AT (ADDR(.bss) - KERNEL_VIRTUAL_BASE)
+    .bss ALIGN(4K) (NOLOAD) : AT (ADDR(.bss))
     {
         start_of_kernel_bss = .;
         *(page_tables)
@@ -93,10 +94,17 @@ SECTIONS
         *(.heap)
     } :bss
 
-    end_of_kernel_image = .;
-
-    .ksyms ALIGN(4K) : AT (ADDR(.ksyms) - KERNEL_VIRTUAL_BASE)
+    .dynamic ALIGN(4K) : AT (ADDR(.dynamic))
     {
+        *(.dynamic)
+    } :dynamic_segment :dynamic
+
+    .ksyms ALIGN(4K) : AT (ADDR(.ksyms))
+    {
+        start_of_kernel_ksyms = .;
         *(.kernel_symbols)
+        end_of_kernel_ksyms = .;
     } :ksyms
+
+    end_of_kernel_image = .;
 }

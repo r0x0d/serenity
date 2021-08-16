@@ -12,7 +12,7 @@
 #include <LibGUI/Label.h>
 #include <LibGUI/Menu.h>
 #include <LibGUI/Painter.h>
-#include <LibGUI/Slider.h>
+#include <LibGUI/ValueSlider.h>
 
 namespace PixelPaint {
 
@@ -31,7 +31,7 @@ void PenTool::on_mousedown(Layer& layer, GUI::MouseEvent& event, GUI::MouseEvent
 
     GUI::Painter painter(layer.bitmap());
     painter.draw_line(event.position(), event.position(), m_editor->color_for(event), m_thickness);
-    layer.did_modify_bitmap(Gfx::IntRect::centered_on(event.position(), Gfx::IntSize { m_thickness, m_thickness }));
+    layer.did_modify_bitmap(Gfx::IntRect::centered_on(event.position(), Gfx::IntSize { m_thickness + 2, m_thickness + 2 }));
     m_last_drawing_event_position = event.position();
 }
 
@@ -57,31 +57,10 @@ void PenTool::on_mousemove(Layer& layer, GUI::MouseEvent& event, GUI::MouseEvent
         painter.draw_line(event.position(), event.position(), m_editor->color_for(event), m_thickness);
         changed_rect = Gfx::IntRect::from_two_points(event.position(), event.position());
     }
-    changed_rect.inflate(m_thickness, m_thickness);
+    changed_rect.inflate(m_thickness + 2, m_thickness + 2);
     layer.did_modify_bitmap(changed_rect);
 
     m_last_drawing_event_position = event.position();
-}
-
-void PenTool::on_tool_button_contextmenu(GUI::ContextMenuEvent& event)
-{
-    if (!m_context_menu) {
-        m_context_menu = GUI::Menu::construct();
-        m_thickness_actions.set_exclusive(true);
-        auto insert_action = [&](int size, bool checked = false) {
-            auto action = GUI::Action::create_checkable(String::number(size), [this, size](auto&) {
-                m_thickness = size;
-            });
-            action->set_checked(checked);
-            m_thickness_actions.add_action(*action);
-            m_context_menu->add_action(move(action));
-        };
-        insert_action(1, true);
-        insert_action(2);
-        insert_action(3);
-        insert_action(4);
-    }
-    m_context_menu->popup(event.screen_position());
 }
 
 GUI::Widget* PenTool::get_properties_widget()
@@ -98,11 +77,11 @@ GUI::Widget* PenTool::get_properties_widget()
         thickness_label.set_text_alignment(Gfx::TextAlignment::CenterLeft);
         thickness_label.set_fixed_size(80, 20);
 
-        auto& thickness_slider = thickness_container.add<GUI::HorizontalSlider>();
-        thickness_slider.set_fixed_height(20);
+        auto& thickness_slider = thickness_container.add<GUI::ValueSlider>(Orientation::Horizontal, "px");
         thickness_slider.set_range(1, 20);
         thickness_slider.set_value(m_thickness);
-        thickness_slider.on_change = [this](int value) {
+
+        thickness_slider.on_change = [&](int value) {
             m_thickness = value;
         };
     }

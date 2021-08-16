@@ -8,36 +8,16 @@
 
 #include <AK/Function.h>
 #include <AK/LexicalPath.h>
-#include <FileSystemAccessServer/ClientConnection.h>
-#include <FileSystemAccessServer/FileSystemAccessClientEndpoint.h>
-#include <FileSystemAccessServer/FileSystemAccessServerEndpoint.h>
+#include <LibFileSystemAccessClient/Client.h>
 #include <LibGUI/ActionGroup.h>
 #include <LibGUI/Application.h>
 #include <LibGUI/Icon.h>
 #include <LibGUI/TextEditor.h>
 #include <LibGUI/Widget.h>
 #include <LibGUI/Window.h>
-#include <LibIPC/ServerConnection.h>
 #include <LibWeb/Forward.h>
 
 namespace TextEditor {
-
-class FileSystemAccessClient final
-    : public IPC::ServerConnection<FileSystemAccessClientEndpoint, FileSystemAccessServerEndpoint>
-    , public FileSystemAccessClientEndpoint {
-    C_OBJECT(FileSystemAccessClient)
-
-public:
-    virtual void die() override
-    {
-    }
-
-private:
-    explicit FileSystemAccessClient()
-        : IPC::ServerConnection<FileSystemAccessClientEndpoint, FileSystemAccessServerEndpoint>(*this, "/tmp/portal/filesystemaccess")
-    {
-    }
-};
 
 class MainWidget final : public GUI::Widget {
     C_OBJECT(MainWidget);
@@ -45,6 +25,7 @@ class MainWidget final : public GUI::Widget {
 public:
     virtual ~MainWidget() override;
     bool read_file_and_close(int fd, String const& path);
+    void open_nonexistent_file(String const& path);
     bool request_close();
 
     GUI::TextEditor& editor() { return *m_editor; }
@@ -59,7 +40,7 @@ public:
     void set_auto_detect_preview_mode(bool value) { m_auto_detect_preview_mode = value; }
 
     void update_title();
-    void initialize_menubar(GUI::Menubar&);
+    void initialize_menubar(GUI::Window&);
 
 private:
     MainWidget();
@@ -73,8 +54,6 @@ private:
     void set_web_view_visible(bool);
 
     virtual void drop_event(GUI::DropEvent&) override;
-
-    NonnullRefPtr<FileSystemAccessClient> m_file_system_access_client;
 
     RefPtr<GUI::TextEditor> m_editor;
     String m_path;

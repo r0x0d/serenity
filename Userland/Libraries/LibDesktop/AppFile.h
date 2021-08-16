@@ -26,11 +26,13 @@ public:
     String name() const;
     String executable() const;
     String category() const;
+    String description() const;
+    String icon_path() const;
+    GUI::Icon icon() const;
+    bool run_in_terminal() const;
     Vector<String> launcher_file_types() const;
     Vector<String> launcher_protocols() const;
     bool spawn() const;
-
-    GUI::Icon icon() const { return GUI::FileIconProvider::icon_for_path(executable()); };
 
 private:
     explicit AppFile(const StringView& path);

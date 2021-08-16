@@ -6,7 +6,6 @@
 
 #include <Kernel/Debug.h>
 #include <Kernel/FileSystem/Custody.h>
-#include <Kernel/FileSystem/FileDescription.h>
 #include <Kernel/FileSystem/VirtualFileSystem.h>
 #include <Kernel/Process.h>
 
@@ -14,6 +13,7 @@ namespace Kernel {
 
 KResultOr<FlatPtr> Process::sys$open(Userspace<const Syscall::SC_open_params*> user_params)
 {
+    VERIFY_PROCESS_BIG_LOCK_ACQUIRED(this)
     Syscall::SC_open_params params;
     if (!copy_from_user(&params, user_params))
         return EFAULT;
@@ -44,10 +44,11 @@ KResultOr<FlatPtr> Process::sys$open(Userspace<const Syscall::SC_open_params*> u
         return path.error();
 
     dbgln_if(IO_DEBUG, "sys$open(dirfd={}, path='{}', options={}, mode={})", dirfd, path.value()->view(), options, mode);
-    int fd = m_fds.allocate();
-    if (fd < 0)
-        return fd;
 
+    auto fd_or_error = m_fds.allocate();
+    if (fd_or_error.is_error())
+        return fd_or_error.error();
+    auto new_fd = fd_or_error.release_value();
     RefPtr<Custody> base;
     if (dirfd == AT_FDCWD) {
         base = current_directory();
@@ -71,20 +72,21 @@ KResultOr<FlatPtr> Process::sys$open(Userspace<const Syscall::SC_open_params*> u
         return ENXIO;
 
     u32 fd_flags = (options & O_CLOEXEC) ? FD_CLOEXEC : 0;
-    m_fds[fd].set(move(description), fd_flags);
-    return fd;
+    m_fds[new_fd.fd].set(move(description), fd_flags);
+    return new_fd.fd;
 }
 
 KResultOr<FlatPtr> Process::sys$close(int fd)
 {
+    VERIFY_PROCESS_BIG_LOCK_ACQUIRED(this)
     REQUIRE_PROMISE(stdio);
     auto description = fds().file_description(fd);
     dbgln_if(IO_DEBUG, "sys$close({}) {}", fd, description.ptr());
     if (!description)
         return EBADF;
-    int rc = description->close();
+    auto result = description->close();
     m_fds[fd] = {};
-    return rc;
+    return result;
 }
 
 }

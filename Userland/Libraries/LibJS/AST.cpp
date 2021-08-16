@@ -111,7 +111,7 @@ Value FunctionExpression::execute(Interpreter& interpreter, GlobalObject& global
         func_env->create_immutable_binding(global_object, name(), false);
     }
 
-    auto closure = OrdinaryFunctionObject::create(global_object, name(), body(), parameters(), function_length(), func_env, kind(), is_strict_mode() || interpreter.vm().in_strict_mode(), is_arrow_function());
+    auto closure = OrdinaryFunctionObject::create(global_object, name(), body(), parameters(), function_length(), func_env, kind(), is_strict_mode(), is_arrow_function());
 
     if (has_identifier)
         func_env->initialize_binding(global_object, name(), closure);
@@ -161,12 +161,8 @@ CallExpression::ThisAndCallee CallExpression::compute_this_and_callee(Interprete
         return { this_value, callee };
     }
 
-    if (interpreter.vm().in_strict_mode()) {
-        // If we are in strict mode, |this| should never be bound to global object by default.
-        return { js_undefined(), m_callee->execute(interpreter, global_object) };
-    }
-
-    return { &global_object, m_callee->execute(interpreter, global_object) };
+    // [[Call]] will handle that in non-strict mode the this value becomes the global object
+    return { js_undefined(), m_callee->execute(interpreter, global_object) };
 }
 
 // 13.3.8.1 Runtime Semantics: ArgumentListEvaluation, https://tc39.es/ecma262/#sec-runtime-semantics-argumentlistevaluation
@@ -2024,7 +2020,9 @@ void RegExpLiteral::dump(int indent) const
 Value RegExpLiteral::execute(Interpreter& interpreter, GlobalObject& global_object) const
 {
     InterpreterNodeScope node_scope { interpreter, *this };
-    return regexp_create(global_object, js_string(interpreter.heap(), pattern()), js_string(interpreter.heap(), flags()));
+
+    Regex<ECMA262> regex(parsed_regex(), parsed_pattern(), parsed_flags());
+    return RegExpObject::create(global_object, move(regex), pattern(), flags());
 }
 
 void ArrayExpression::dump(int indent) const
@@ -2436,4 +2434,72 @@ void ScopeNode::add_hoisted_function(NonnullRefPtr<FunctionDeclaration> hoisted_
 {
     m_hoisted_functions.append(hoisted_function);
 }
+
+Value ImportStatement::execute(Interpreter& interpreter, GlobalObject&) const
+{
+    InterpreterNodeScope node_scope { interpreter, *this };
+    dbgln("Modules are not fully supported yet!");
+    TODO();
+    return {};
+}
+
+Value ExportStatement::execute(Interpreter& interpreter, GlobalObject& global_object) const
+{
+    InterpreterNodeScope node_scope { interpreter, *this };
+    if (m_statement)
+        return m_statement->execute(interpreter, global_object);
+
+    return {};
+}
+
+void ExportStatement::dump(int indent) const
+{
+    ASTNode::dump(indent);
+    print_indent(indent + 1);
+    outln("(ExportEntries)");
+
+    auto string_or_null = [](String const& string) -> String {
+        if (string.is_empty()) {
+            return "null";
+        }
+        return String::formatted("\"{}\"", string);
+    };
+
+    for (auto& entry : m_entries) {
+        print_indent(indent + 2);
+        outln("ModuleRequest: {}, ImportName: {}, LocalName: {}, ExportName: {}", string_or_null(entry.module_request), entry.kind == ExportEntry::ModuleRequest ? string_or_null(entry.local_or_import_name) : "null", entry.kind != ExportEntry::ModuleRequest ? string_or_null(entry.local_or_import_name) : "null", string_or_null(entry.export_name));
+    }
+}
+
+void ImportStatement::dump(int indent) const
+{
+    ASTNode::dump(indent);
+    print_indent(indent + 1);
+    if (m_entries.is_empty()) {
+        // direct from "module" import
+        outln("Entire module '{}'", m_module_request);
+    } else {
+        outln("(ExportEntries) from {}", m_module_request);
+
+        for (auto& entry : m_entries) {
+            print_indent(indent + 2);
+            outln("ImportName: {}, LocalName: {}", entry.import_name, entry.local_name);
+        }
+    }
+}
+
+bool ExportStatement::has_export(StringView export_name) const
+{
+    return any_of(m_entries.begin(), m_entries.end(), [&](auto& entry) {
+        return entry.export_name == export_name;
+    });
+}
+
+bool ImportStatement::has_bound_name(StringView name) const
+{
+    return any_of(m_entries.begin(), m_entries.end(), [&](auto& entry) {
+        return entry.local_name == name;
+    });
+}
+
 }

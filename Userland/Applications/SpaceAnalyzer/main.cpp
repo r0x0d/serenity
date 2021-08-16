@@ -8,13 +8,11 @@
 #include <AK/LexicalPath.h>
 #include <AK/Queue.h>
 #include <AK/QuickSort.h>
-#include <AK/RefCounted.h>
 #include <AK/URL.h>
 #include <Applications/SpaceAnalyzer/SpaceAnalyzerGML.h>
 #include <LibCore/DirIterator.h>
 #include <LibCore/File.h>
 #include <LibDesktop/Launcher.h>
-#include <LibGUI/AboutDialog.h>
 #include <LibGUI/Application.h>
 #include <LibGUI/Breadcrumbbar.h>
 #include <LibGUI/Clipboard.h>
@@ -271,9 +269,7 @@ int main(int argc, char* argv[])
     auto& treemapwidget = *mainwidget.find_descendant_of_type_named<SpaceAnalyzer::TreeMapWidget>("tree_map");
     auto& statusbar = *mainwidget.find_descendant_of_type_named<GUI::Statusbar>("statusbar");
 
-    auto menubar = GUI::Menubar::construct();
-
-    auto& file_menu = menubar->add_menu("&File");
+    auto& file_menu = window->add_menu("&File");
     file_menu.add_action(GUI::Action::create("&Analyze", [&](auto&) {
         analyze(tree, treemapwidget, statusbar);
     }));
@@ -282,20 +278,18 @@ int main(int argc, char* argv[])
         app->quit();
     }));
 
-    auto& help_menu = menubar->add_menu("&Help");
+    auto& help_menu = window->add_menu("&Help");
     help_menu.add_action(GUI::CommonActions::make_about_action(APP_NAME, app_icon, window));
 
-    window->set_menubar(move(menubar));
-
     // Configure the nodes context menu.
-    auto open_folder_action = GUI::Action::create("Open Folder", { Mod_Ctrl, Key_O }, Gfx::Bitmap::load_from_file("/res/icons/16x16/open.png"), [&](auto&) {
+    auto open_folder_action = GUI::Action::create("Open Folder", { Mod_Ctrl, Key_O }, Gfx::Bitmap::try_load_from_file("/res/icons/16x16/open.png"), [&](auto&) {
         Desktop::Launcher::open(URL::create_with_file_protocol(get_absolute_path_to_selected_node(treemapwidget)));
     });
-    auto open_containing_folder_action = GUI::Action::create("Open Containing Folder", { Mod_Ctrl, Key_O }, Gfx::Bitmap::load_from_file("/res/icons/16x16/open.png"), [&](auto&) {
+    auto open_containing_folder_action = GUI::Action::create("Open Containing Folder", { Mod_Ctrl, Key_O }, Gfx::Bitmap::try_load_from_file("/res/icons/16x16/open.png"), [&](auto&) {
         LexicalPath path { get_absolute_path_to_selected_node(treemapwidget) };
         Desktop::Launcher::open(URL::create_with_file_protocol(path.dirname(), path.basename()));
     });
-    auto copy_path_action = GUI::Action::create("Copy Path to Clipboard", { Mod_Ctrl, Key_C }, Gfx::Bitmap::load_from_file("/res/icons/16x16/edit-copy.png"), [&](auto&) {
+    auto copy_path_action = GUI::Action::create("Copy Path to Clipboard", { Mod_Ctrl, Key_C }, Gfx::Bitmap::try_load_from_file("/res/icons/16x16/edit-copy.png"), [&](auto&) {
         GUI::Clipboard::the().set_plain_text(get_absolute_path_to_selected_node(treemapwidget));
     });
     auto delete_action = GUI::CommonActions::make_delete_action([&](auto&) {

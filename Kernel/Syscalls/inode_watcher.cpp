@@ -15,11 +15,13 @@ namespace Kernel {
 
 KResultOr<FlatPtr> Process::sys$create_inode_watcher(u32 flags)
 {
+    VERIFY_PROCESS_BIG_LOCK_ACQUIRED(this)
     REQUIRE_PROMISE(rpath);
 
-    int fd = m_fds.allocate();
-    if (fd < 0)
-        return fd;
+    auto fd_or_error = m_fds.allocate();
+    if (fd_or_error.is_error())
+        return fd_or_error.error();
+    auto inode_watcher_fd = fd_or_error.release_value();
 
     auto watcher_or_error = InodeWatcher::create();
     if (watcher_or_error.is_error())
@@ -29,19 +31,20 @@ KResultOr<FlatPtr> Process::sys$create_inode_watcher(u32 flags)
     if (description_or_error.is_error())
         return description_or_error.error();
 
-    m_fds[fd].set(description_or_error.release_value());
-    m_fds[fd].description()->set_readable(true);
+    m_fds[inode_watcher_fd.fd].set(description_or_error.release_value());
+    m_fds[inode_watcher_fd.fd].description()->set_readable(true);
 
     if (flags & static_cast<unsigned>(InodeWatcherFlags::Nonblock))
-        m_fds[fd].description()->set_blocking(false);
+        m_fds[inode_watcher_fd.fd].description()->set_blocking(false);
     if (flags & static_cast<unsigned>(InodeWatcherFlags::CloseOnExec))
-        m_fds[fd].set_flags(m_fds[fd].flags() | FD_CLOEXEC);
+        m_fds[inode_watcher_fd.fd].set_flags(m_fds[inode_watcher_fd.fd].flags() | FD_CLOEXEC);
 
-    return fd;
+    return inode_watcher_fd.fd;
 }
 
 KResultOr<FlatPtr> Process::sys$inode_watcher_add_watch(Userspace<const Syscall::SC_inode_watcher_add_watch_params*> user_params)
 {
+    VERIFY_PROCESS_BIG_LOCK_ACQUIRED(this)
     REQUIRE_PROMISE(rpath);
 
     Syscall::SC_inode_watcher_add_watch_params params;
@@ -55,7 +58,7 @@ KResultOr<FlatPtr> Process::sys$inode_watcher_add_watch(Userspace<const Syscall:
         return EBADF;
     auto inode_watcher = description->inode_watcher();
 
-    auto path = get_syscall_path_argument(params.user_path.characters, params.user_path.length);
+    auto path = get_syscall_path_argument(params.user_path);
     if (path.is_error())
         return path.error();
 
@@ -75,6 +78,7 @@ KResultOr<FlatPtr> Process::sys$inode_watcher_add_watch(Userspace<const Syscall:
 
 KResultOr<FlatPtr> Process::sys$inode_watcher_remove_watch(int fd, int wd)
 {
+    VERIFY_PROCESS_BIG_LOCK_ACQUIRED(this)
     auto description = fds().file_description(fd);
     if (!description)
         return EBADF;

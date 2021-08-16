@@ -4,22 +4,17 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
-#include <Kernel/Panic.h>
+#include <Kernel/Memory/Region.h>
 #include <Kernel/Process.h>
-#include <Kernel/VM/Region.h>
 
 namespace Kernel {
 
 KResultOr<FlatPtr> Process::sys$get_stack_bounds(Userspace<FlatPtr*> user_stack_base, Userspace<size_t*> user_stack_size)
 {
+    VERIFY_NO_PROCESS_BIG_LOCK(this);
     auto& regs = Thread::current()->get_register_dump_from_stack();
-    FlatPtr stack_pointer;
-#if ARCH(I386)
-    stack_pointer = regs.userspace_esp;
-#else
-    stack_pointer = regs.userspace_rsp;
-#endif
-    auto* stack_region = space().find_region_containing(Range { VirtualAddress(stack_pointer), 1 });
+    FlatPtr stack_pointer = regs.userspace_sp();
+    auto* stack_region = address_space().find_region_containing(Memory::VirtualRange { VirtualAddress(stack_pointer), 1 });
 
     // The syscall handler should have killed us if we had an invalid stack pointer.
     VERIFY(stack_region);

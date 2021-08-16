@@ -61,6 +61,7 @@ set(AK_TEST_SOURCES
     TestTypedTransfer.cpp
     TestUFixedBigInt.cpp
     TestURL.cpp
+    TestUtf16.cpp
     TestUtf8.cpp
     TestVariant.cpp
     TestVector.cpp
@@ -70,6 +71,3 @@ set(AK_TEST_SOURCES
 foreach(source ${AK_TEST_SOURCES})
     serenity_test(${source} AK)
 endforeach()
-
-get_filename_component(TEST_FRM_RESOLVED ./test.frm REALPATH)
-install(FILES ${TEST_FRM_RESOLVED} DESTINATION usr/Tests/AK)

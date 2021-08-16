@@ -29,6 +29,7 @@ namespace Kernel {
 #define REG_CONFIG1 0x52
 #define REG_MSR 0x58
 #define REG_BMCR 0x62
+#define REG_ANLPAR 0x68
 
 #define TX_STATUS_OWN 0x2000
 #define TX_STATUS_THRESHOLD_MAX 0x3F0000
@@ -84,11 +85,15 @@ namespace Kernel {
 #define RXCFG_FTH_NONE 0xE000
 
 #define MSR_LINKB 0x02
+#define MSR_SPEED_10 0x08
 #define MSR_RX_FLOW_CONTROL_ENABLE 0x40
 
 #define BMCR_SPEED 0x2000
 #define BMCR_AUTO_NEGOTIATE 0x1000
 #define BMCR_DUPLEX 0x0100
+
+#define ANLPAR_10FD 0x0040
+#define ANLPAR_TXFD 0x0100
 
 #define RX_MULTICAST 0x8000
 #define RX_PHYSICAL_MATCH 0x4000
@@ -119,8 +124,8 @@ UNMAP_AFTER_INIT RefPtr<RTL8139NetworkAdapter> RTL8139NetworkAdapter::try_to_ini
 UNMAP_AFTER_INIT RTL8139NetworkAdapter::RTL8139NetworkAdapter(PCI::Address address, u8 irq)
     : PCI::Device(address, irq)
     , m_io_base(PCI::get_BAR0(pci_address()) & ~1)
-    , m_rx_buffer(MM.allocate_contiguous_kernel_region(page_round_up(RX_BUFFER_SIZE + PACKET_SIZE_MAX), "RTL8139 RX", Region::Access::Read | Region::Access::Write))
-    , m_packet_buffer(MM.allocate_contiguous_kernel_region(page_round_up(PACKET_SIZE_MAX), "RTL8139 Packet buffer", Region::Access::Read | Region::Access::Write))
+    , m_rx_buffer(MM.allocate_contiguous_kernel_region(Memory::page_round_up(RX_BUFFER_SIZE + PACKET_SIZE_MAX), "RTL8139 RX", Memory::Region::Access::ReadWrite))
+    , m_packet_buffer(MM.allocate_contiguous_kernel_region(Memory::page_round_up(PACKET_SIZE_MAX), "RTL8139 Packet buffer", Memory::Region::Access::ReadWrite))
 {
     m_tx_buffers.ensure_capacity(RTL8139_TX_BUFFER_COUNT);
     set_interface_name(address);
@@ -139,7 +144,7 @@ UNMAP_AFTER_INIT RTL8139NetworkAdapter::RTL8139NetworkAdapter(PCI::Address addre
     dbgln("RTL8139: RX buffer: {}", m_rx_buffer->physical_page(0)->paddr());
 
     for (int i = 0; i < RTL8139_TX_BUFFER_COUNT; i++) {
-        m_tx_buffers.append(MM.allocate_contiguous_kernel_region(page_round_up(TX_BUFFER_SIZE), "RTL8139 TX", Region::Access::Write | Region::Access::Read));
+        m_tx_buffers.append(MM.allocate_contiguous_kernel_region(Memory::page_round_up(TX_BUFFER_SIZE), "RTL8139 TX", Memory::Region::Access::Write | Memory::Region::Access::Read));
         dbgln("RTL8139: TX buffer {}: {}", i, m_tx_buffers[i]->physical_page(0)->paddr());
     }
 
@@ -255,6 +260,9 @@ void RTL8139NetworkAdapter::reset()
     // choose irqs, then clear any pending
     out16(REG_IMR, INT_RXOK | INT_RXERR | INT_TXOK | INT_TXERR | INT_RX_BUFFER_OVERFLOW | INT_LINK_CHANGE | INT_RX_FIFO_OVERFLOW | INT_LENGTH_CHANGE | INT_SYSTEM_ERROR);
     out16(REG_ISR, 0xffff);
+
+    // Set the initial link up status.
+    m_link_up = (in8(REG_MSR) & MSR_LINKB) == 0;
 }
 
 UNMAP_AFTER_INIT void RTL8139NetworkAdapter::read_mac_address()
@@ -364,6 +372,24 @@ u16 RTL8139NetworkAdapter::in16(u16 address)
 u32 RTL8139NetworkAdapter::in32(u16 address)
 {
     return m_io_base.offset(address).in<u32>();
+}
+
+bool RTL8139NetworkAdapter::link_full_duplex()
+{
+    // Note: this code assumes auto-negotiation is enabled (which is now always the case) and
+    // bases the duplex state on the link partner advertisement.
+    // If non-auto-negotiation is ever implemented this should be changed.
+    u16 anlpar = in16(REG_ANLPAR);
+    return !!(anlpar & (ANLPAR_TXFD | ANLPAR_10FD));
+}
+
+i32 RTL8139NetworkAdapter::link_speed()
+{
+    if (!link_up())
+        return NetworkAdapter::LINKSPEED_INVALID;
+
+    u16 msr = in16(REG_MSR);
+    return msr & MSR_SPEED_10 ? 10 : 100;
 }
 
 }

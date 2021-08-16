@@ -8,7 +8,6 @@
 #include <LibGUI/HeaderView.h>
 #include <LibGUI/Model.h>
 #include <LibGUI/Painter.h>
-#include <LibGUI/Scrollbar.h>
 #include <LibGUI/TreeView.h>
 #include <LibGfx/Bitmap.h>
 #include <LibGfx/Palette.h>
@@ -35,12 +34,13 @@ TreeView::MetadataForIndex& TreeView::ensure_metadata_for_index(const ModelIndex
 
 TreeView::TreeView()
 {
+    set_selection_behavior(SelectionBehavior::SelectItems);
     set_fill_with_background_color(true);
     set_background_role(ColorRole::Base);
     set_foreground_role(ColorRole::BaseText);
     set_column_headers_visible(false);
-    m_expand_bitmap = Gfx::Bitmap::load_from_file("/res/icons/serenity/treeview-expand.png");
-    m_collapse_bitmap = Gfx::Bitmap::load_from_file("/res/icons/serenity/treeview-collapse.png");
+    m_expand_bitmap = Gfx::Bitmap::try_load_from_file("/res/icons/serenity/treeview-expand.png");
+    m_collapse_bitmap = Gfx::Bitmap::try_load_from_file("/res/icons/serenity/treeview-collapse.png");
 }
 
 TreeView::~TreeView()
@@ -254,17 +254,13 @@ void TreeView::paint_event(PaintEvent& event)
             text_color = is_focused() ? palette().selection_text() : palette().inactive_selection_text();
 
         Color background_color;
-        Color key_column_background_color;
         if (is_selected_row) {
             background_color = is_focused() ? palette().selection() : palette().inactive_selection();
-            key_column_background_color = is_focused() ? palette().selection() : palette().inactive_selection();
         } else {
             if (alternating_row_colors() && (painted_row_index % 2)) {
                 background_color = Color(220, 220, 220);
-                key_column_background_color = Color(200, 200, 200);
             } else {
                 background_color = palette().color(background_role());
-                key_column_background_color = Color(220, 220, 220);
             }
         }
 
@@ -303,8 +299,10 @@ void TreeView::paint_event(PaintEvent& event)
                     if (data.is_bitmap()) {
                         painter.blit(cell_rect.location(), data.as_bitmap(), data.as_bitmap().rect());
                     } else if (data.is_icon()) {
-                        if (auto bitmap = data.as_icon().bitmap_for_size(16))
-                            painter.blit(cell_rect.location(), *bitmap, bitmap->rect());
+                        if (auto bitmap = data.as_icon().bitmap_for_size(16)) {
+                            auto opacity = cell_index.data(ModelRole::IconOpacity).as_float_or(1.0f);
+                            painter.blit(cell_rect.location(), *bitmap, bitmap->rect(), opacity);
+                        }
                     } else {
                         auto text_alignment = cell_index.data(ModelRole::TextAlignment).to_text_alignment(Gfx::TextAlignment::CenterLeft);
                         draw_item_text(painter, cell_index, is_selected_row, cell_rect, data.to_string(), font_for_index(cell_index), text_alignment, Gfx::TextElision::Right);
@@ -312,28 +310,33 @@ void TreeView::paint_event(PaintEvent& event)
                 }
             } else {
                 // It's the tree column!
-                Gfx::IntRect icon_rect = { rect.x(), rect.y(), icon_size(), icon_size() };
-                Gfx::IntRect text_rect = {
-                    icon_rect.right() + 1 + icon_spacing(), rect.y(),
-                    rect.width() - icon_size() - icon_spacing(), rect.height()
-                };
+                int indent_width = indent_width_in_pixels() * indent_level;
 
-                painter.fill_rect(text_rect, background_color);
+                Gfx::IntRect icon_rect = { rect.x(), rect.y(), icon_size(), icon_size() };
+                Gfx::IntRect background_rect = {
+                    icon_rect.right() + 1 + icon_spacing(), rect.y(),
+                    min(rect.width(), column_width - indent_width) - icon_size() - icon_spacing(), rect.height()
+                };
+                Gfx::IntRect text_rect = background_rect.shrunken(text_padding() * 2, 0);
+
+                painter.fill_rect(background_rect, background_color);
 
                 auto icon = index.data(ModelRole::Icon);
                 if (icon.is_icon()) {
                     if (auto* bitmap = icon.as_icon().bitmap_for_size(icon_size())) {
-                        if (m_hovered_index.is_valid() && m_hovered_index.parent() == index.parent() && m_hovered_index.row() == index.row())
+                        if (m_hovered_index.is_valid() && m_hovered_index.parent() == index.parent() && m_hovered_index.row() == index.row()) {
                             painter.blit_brightened(icon_rect.location(), *bitmap, bitmap->rect());
-                        else
-                            painter.blit(icon_rect.location(), *bitmap, bitmap->rect());
+                        } else {
+                            auto opacity = index.data(ModelRole::IconOpacity).as_float_or(1.0f);
+                            painter.blit(icon_rect.location(), *bitmap, bitmap->rect(), opacity);
+                        }
                     }
                 }
-                draw_item_text(painter, index, is_selected_row, text_rect, index.data().to_string(), font_for_index(index), Gfx::TextAlignment::Center, Gfx::TextElision::None);
+                draw_item_text(painter, index, is_selected_row, text_rect, index.data().to_string(), font_for_index(index), Gfx::TextAlignment::CenterLeft, Gfx::TextElision::Right);
 
-                if (is_focused() && index == cursor_index()) {
-                    painter.draw_rect(text_rect, palette().color(background_role()));
-                    painter.draw_focus_rect(text_rect, palette().focus_outline());
+                if (selection_behavior() == SelectionBehavior::SelectItems && is_focused() && index == cursor_index()) {
+                    painter.draw_rect(background_rect, palette().color(background_role()));
+                    painter.draw_focus_rect(background_rect, palette().focus_outline());
                 }
 
                 auto index_at_indent = index;
@@ -368,6 +371,11 @@ void TreeView::paint_event(PaintEvent& event)
                 }
             }
             x_offset += column_width + horizontal_padding() * 2;
+        }
+
+        if (selection_behavior() == SelectionBehavior::SelectRows && is_focused() && index == cursor_index()) {
+            painter.draw_rect(row_rect, palette().color(background_role()));
+            painter.draw_focus_rect(row_rect, palette().focus_outline());
         }
 
         return IterationDecision::Continue;
@@ -695,7 +703,7 @@ void TreeView::update_column_sizes()
         int cell_width = 0;
         if (cell_data.is_valid()) {
             cell_width = font().width(cell_data.to_string());
-            cell_width += horizontal_padding() * 2 + indent_level * indent_width_in_pixels() + icon_size() / 2;
+            cell_width += horizontal_padding() * 2 + indent_level * indent_width_in_pixels() + icon_size() / 2 + text_padding() * 2;
         }
         tree_column_width = max(tree_column_width, cell_width);
         return IterationDecision::Continue;
@@ -731,6 +739,22 @@ Gfx::IntRect TreeView::content_rect(ModelIndex const& index) const
         return IterationDecision::Continue;
     });
     return found_rect;
+}
+
+int TreeView::minimum_column_width(int column)
+{
+    if (column != model()->tree_column()) {
+        return 2;
+    }
+
+    int maximum_indent_level = 1;
+
+    traverse_in_paint_order([&](ModelIndex const&, Gfx::IntRect const&, Gfx::IntRect const&, int indent_level) {
+        maximum_indent_level = max(maximum_indent_level, indent_level);
+        return IterationDecision::Continue;
+    });
+
+    return indent_width_in_pixels() * maximum_indent_level + icon_size() + icon_spacing() + 2;
 }
 
 }

@@ -15,6 +15,9 @@
 
 namespace Web::CSS {
 
+using SelectorList = NonnullRefPtrVector<class Selector>;
+
+// This is a <complex-selector> in the spec. https://www.w3.org/TR/selectors-4/#complex
 class Selector : public RefCounted<Selector> {
 public:
     struct SimpleSelector {
@@ -30,11 +33,15 @@ public:
         };
         Type type { Type::Invalid };
 
-        struct NthChildPattern {
-            int step_size = 0;
-            int offset = 0;
+        struct ANPlusBPattern {
+            int step_size { 0 }; // "A"
+            int offset = { 0 };  // "B"
 
-            static NthChildPattern parse(StringView const& args);
+            static ANPlusBPattern parse(StringView const& args);
+            String to_string() const
+            {
+                return String::formatted("{}n{:+}", step_size, offset);
+            }
         };
 
         struct PseudoClass {
@@ -63,11 +70,11 @@ public:
 
             // FIXME: We don't need this field on every single SimpleSelector, but it's also annoying to malloc it somewhere.
             // Only used when "pseudo_class" is "NthChild" or "NthLastChild".
-            NthChildPattern nth_child_pattern;
+            ANPlusBPattern nth_child_pattern;
 
-            NonnullRefPtrVector<Selector> not_selector {};
+            SelectorList not_selector {};
         };
-        PseudoClass pseudo_class;
+        PseudoClass pseudo_class {};
 
         enum class PseudoElement {
             None,
@@ -78,7 +85,7 @@ public:
         };
         PseudoElement pseudo_element { PseudoElement::None };
 
-        FlyString value;
+        FlyString value {};
 
         struct Attribute {
             enum class MatchType {
@@ -92,42 +99,43 @@ public:
                 EndsWithString,    // [att$=val]
             };
             MatchType match_type { MatchType::None };
-            FlyString name;
-            String value;
+            FlyString name {};
+            String value {};
         };
-        Attribute attribute;
+        Attribute attribute {};
     };
 
-    struct ComplexSelector {
-        enum class Relation {
-            None,
-            ImmediateChild,
-            Descendant,
-            AdjacentSibling,
-            GeneralSibling,
-            Column,
-        };
-        Relation relation { Relation::None };
-
-        using CompoundSelector = Vector<SimpleSelector>;
-        CompoundSelector compound_selector;
+    enum class Combinator {
+        None,
+        ImmediateChild,    // >
+        Descendant,        // <whitespace>
+        NextSibling,       // +
+        SubsequentSibling, // ~
+        Column,            // ||
     };
 
-    static NonnullRefPtr<Selector> create(Vector<ComplexSelector>&& complex_selectors)
+    struct CompoundSelector {
+        // Spec-wise, the <combinator> is not part of a <compound-selector>,
+        // but it is more understandable to put them together.
+        Combinator combinator { Combinator::None };
+        Vector<SimpleSelector> simple_selectors;
+    };
+
+    static NonnullRefPtr<Selector> create(Vector<CompoundSelector>&& compound_selectors)
     {
-        return adopt_ref(*new Selector(move(complex_selectors)));
+        return adopt_ref(*new Selector(move(compound_selectors)));
     }
 
     ~Selector();
 
-    Vector<ComplexSelector> const& complex_selectors() const { return m_complex_selectors; }
+    Vector<CompoundSelector> const& compound_selectors() const { return m_compound_selectors; }
 
     u32 specificity() const;
 
 private:
-    explicit Selector(Vector<ComplexSelector>&&);
+    explicit Selector(Vector<CompoundSelector>&&);
 
-    Vector<ComplexSelector> m_complex_selectors;
+    Vector<CompoundSelector> m_compound_selectors;
 };
 
 }

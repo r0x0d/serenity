@@ -8,9 +8,9 @@
 #include <AK/OwnPtr.h>
 #include <AK/RefPtr.h>
 #include <AK/Types.h>
+#include <Kernel/Memory/MemoryManager.h>
 #include <Kernel/Storage/AHCIController.h>
 #include <Kernel/Storage/SATADiskDevice.h>
-#include <Kernel/VM/MemoryManager.h>
 
 namespace Kernel {
 
@@ -92,7 +92,7 @@ AHCI::HBADefinedCapabilities AHCIController::capabilities() const
     u32 capabilities = hba().control_regs.cap;
     u32 extended_capabilities = hba().control_regs.cap2;
 
-    dbgln_if(AHCI_DEBUG, "{}: AHCI Controller Capabilities = 0x{:08x}, Extended Capabilities = 0x{:08x}", pci_address(), capabilities, extended_capabilities);
+    dbgln_if(AHCI_DEBUG, "{}: AHCI Controller Capabilities = {:#08x}, Extended Capabilities = {:#08x}", pci_address(), capabilities, extended_capabilities);
 
     return (AHCI::HBADefinedCapabilities) {
         (capabilities & 0b11111) + 1,
@@ -124,9 +124,9 @@ AHCI::HBADefinedCapabilities AHCIController::capabilities() const
     };
 }
 
-NonnullOwnPtr<Region> AHCIController::default_hba_region() const
+NonnullOwnPtr<Memory::Region> AHCIController::default_hba_region() const
 {
-    auto region = MM.allocate_kernel_region(PhysicalAddress(PCI::get_BAR5(pci_address())).page_base(), page_round_up(sizeof(AHCI::HBA)), "AHCI HBA", Region::Access::Read | Region::Access::Write);
+    auto region = MM.allocate_kernel_region(PhysicalAddress(PCI::get_BAR5(pci_address())).page_base(), Memory::page_round_up(sizeof(AHCI::HBA)), "AHCI HBA", Memory::Region::Access::ReadWrite);
     return region.release_nonnull();
 }
 
@@ -144,7 +144,7 @@ void AHCIController::initialize()
     dbgln("{}: AHCI command list entries count - {}", pci_address(), hba_capabilities().max_command_list_entries_count);
 
     u32 version = hba().control_regs.version;
-    dbgln_if(AHCI_DEBUG, "{}: AHCI Controller Version = 0x{:08x}", pci_address(), version);
+    dbgln_if(AHCI_DEBUG, "{}: AHCI Controller Version = {:#08x}", pci_address(), version);
 
     hba().control_regs.ghc = 0x80000000; // Ensure that HBA knows we are AHCI aware.
     PCI::enable_interrupt_line(pci_address());

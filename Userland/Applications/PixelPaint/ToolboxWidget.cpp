@@ -9,6 +9,7 @@
 #include "BucketTool.h"
 #include "EllipseTool.h"
 #include "EraseTool.h"
+#include "GuideTool.h"
 #include "LineTool.h"
 #include "MoveTool.h"
 #include "PenTool.h"
@@ -50,7 +51,7 @@ ToolboxWidget::~ToolboxWidget()
 void ToolboxWidget::setup_tools()
 {
     auto add_tool = [&](String name, StringView const& icon_name, GUI::Shortcut const& shortcut, NonnullOwnPtr<Tool> tool) {
-        auto action = GUI::Action::create_checkable(move(name), shortcut, Gfx::Bitmap::load_from_file(String::formatted("/res/icons/pixelpaint/{}.png", icon_name)),
+        auto action = GUI::Action::create_checkable(move(name), shortcut, Gfx::Bitmap::try_load_from_file(String::formatted("/res/icons/pixelpaint/{}.png", icon_name)),
             [this, tool = tool.ptr()](auto& action) {
                 if (action.is_checked())
                     on_tool_selection(tool);
@@ -79,6 +80,7 @@ void ToolboxWidget::setup_tools()
     add_tool("Ellipse", "circle", { Mod_Ctrl | Mod_Shift, Key_E }, make<EllipseTool>());
     add_tool("Zoom", "zoom", { 0, Key_Z }, make<ZoomTool>());
     add_tool("Rectangle Select", "rectangle-select", { 0, Key_R }, make<RectangleSelectTool>());
+    add_tool("Guides", "guides", { 0, Key_G }, make<GuideTool>());
 }
 
 }

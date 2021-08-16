@@ -22,9 +22,16 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 set(SERENITY_ARCH "i686" CACHE STRING "Target architecture for SerenityOS.")
 
+if("${SERENITY_ARCH}" STREQUAL "i686")
+    set(SERENITY_CLANG_ARCH "i386")
+else()
+    set(SERENITY_CLANG_ARCH ${SERENITY_ARCH})
+endif()
+
 # Central location for all custom options used in the Serenity build.
 option(ENABLE_ADDRESS_SANITIZER "Enable address sanitizer testing in gcc/clang" OFF)
 option(ENABLE_KERNEL_ADDRESS_SANITIZER "Enable kernel address sanitizer testing in gcc/clang" OFF)
+option(ENABLE_KERNEL_COVERAGE_COLLECTION "Enable KCOV and kernel coverage instrumentation in gcc/clang" OFF)
 option(ENABLE_MEMORY_SANITIZER "Enable memory sanitizer testing in gcc/clang" OFF)
 option(ENABLE_UNDEFINED_SANITIZER "Enable undefined behavior sanitizer testing in gcc/clang" OFF)
 option(ENABLE_FUZZER_SANITIZER "Enable fuzzer sanitizer testing in clang" OFF)
@@ -36,6 +43,7 @@ option(ENABLE_PCI_IDS_DOWNLOAD "Enable download of the pci.ids database at build
 option(ENABLE_USB_IDS_DOWNLOAD "Enable download of the usb.ids database at build time" ON)
 option(BUILD_LAGOM "Build parts of the system targeting the host OS for fuzzing/testing" OFF)
 option(ENABLE_KERNEL_LTO "Build the kernel with link-time optimization" OFF)
+option(USE_CLANG_TOOLCHAIN "Build the kernel with the experimental Clang toolchain" OFF)
 
 include(Meta/CMake/wasm_spec_tests.cmake)
 
@@ -59,18 +67,22 @@ add_custom_target(setup-and-run
 add_custom_target(image
     DEPENDS qemu-image
 )
+
+set(GCC_VERSION 11.2.0)
+set(LLVM_VERSION 12.0.1)
+
 add_custom_target(qemu-image
-    COMMAND ${CMAKE_COMMAND} -E env "SERENITY_SOURCE_DIR=${CMAKE_SOURCE_DIR}" "SERENITY_ARCH=${SERENITY_ARCH}" ${CMAKE_SOURCE_DIR}/Meta/build-image-qemu.sh
+    COMMAND ${CMAKE_COMMAND} -E env "SERENITY_SOURCE_DIR=${CMAKE_SOURCE_DIR}" "SERENITY_ARCH=${SERENITY_ARCH}" "USE_CLANG_TOOLCHAIN=$<BOOL:${USE_CLANG_TOOLCHAIN}>" "LLVM_VERSION=${LLVM_VERSION}" ${CMAKE_SOURCE_DIR}/Meta/build-image-qemu.sh
     BYPRODUCTS ${CMAKE_BINARY_DIR}/_disk_image
     USES_TERMINAL
 )
 add_custom_target(grub-image
-    COMMAND ${CMAKE_COMMAND} -E env "SERENITY_SOURCE_DIR=${CMAKE_SOURCE_DIR}" "SERENITY_ARCH=${SERENITY_ARCH}" ${CMAKE_SOURCE_DIR}/Meta/build-image-grub.sh
+    COMMAND ${CMAKE_COMMAND} -E env "SERENITY_SOURCE_DIR=${CMAKE_SOURCE_DIR}" "SERENITY_ARCH=${SERENITY_ARCH}" "USE_CLANG_TOOLCHAIN=$<BOOL:${USE_CLANG_TOOLCHAIN}>" "LLVM_VERSION=${LLVM_VERSION}" ${CMAKE_SOURCE_DIR}/Meta/build-image-grub.sh
     BYPRODUCTS ${CMAKE_BINARY_DIR}/grub_disk_image
     USES_TERMINAL
 )
 add_custom_target(extlinux-image
-    COMMAND ${CMAKE_COMMAND} -E env "SERENITY_SOURCE_DIR=${CMAKE_SOURCE_DIR}" "SERENITY_ARCH=${SERENITY_ARCH}" ${CMAKE_SOURCE_DIR}/Meta/build-image-extlinux.sh
+    COMMAND ${CMAKE_COMMAND} -E env "SERENITY_SOURCE_DIR=${CMAKE_SOURCE_DIR}" "SERENITY_ARCH=${SERENITY_ARCH}" "USE_CLANG_TOOLCHAIN=$<BOOL:${USE_CLANG_TOOLCHAIN}>" "LLVM_VERSION=${LLVM_VERSION}" ${CMAKE_SOURCE_DIR}/Meta/build-image-extlinux.sh
     BYPRODUCTS ${CMAKE_BINARY_DIR}/extlinux_disk_image
     USES_TERMINAL
 )
@@ -99,11 +111,13 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-add_compile_options(-Wno-literal-suffix)
+add_compile_options(-fsized-deallocation)
 if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
     add_compile_options(-Wno-literal-suffix)
 elseif ("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang$")
-    add_compile_options(-Wno-overloaded-virtual -Wno-user-defined-literals)
+    add_compile_options(-Wno-overloaded-virtual)
+    add_compile_options(-Wno-user-defined-literals)
+    add_compile_options(-fconstexpr-steps=16777216)
 endif()
 
 if (ENABLE_ALL_DEBUG_FACILITIES)
@@ -115,6 +129,11 @@ if (ENABLE_ALL_DEBUG_FACILITIES)
     # sure this code continues to build instead of all_debug_macros to avoid
     # people filing bugs.
     set(KMALLOC_VERIFY_NO_SPINLOCK_HELD ON)
+
+    # Enables KCOV API and injects kernel coverage instrumentation via
+    # -fsanitize-coverage=trace-pc. Mostly here to ensure that the CI catches
+    # commits breaking this flag.
+    set(ENABLE_KERNEL_COVERAGE_COLLECTION ON)
 endif()
 
 if (ENABLE_ALL_THE_DEBUG_MACROS)
@@ -128,6 +147,8 @@ include_directories(Userland/Libraries)
 include_directories(.)
 include_directories(${CMAKE_BINARY_DIR})
 
+set(write_if_different ${CMAKE_SOURCE_DIR}/Meta/write-only-on-difference.sh)
+
 add_subdirectory(Meta/Lagom)
 
 if (ENABLE_UNDEFINED_SANITIZER)
@@ -136,10 +157,9 @@ endif()
 
 add_subdirectory(Userland/DevTools/IPCCompiler)
 add_subdirectory(Userland/DevTools/StateMachineGenerator)
+add_subdirectory(Userland/Libraries/LibUnicode/CodeGenerators)
 add_subdirectory(Userland/Libraries/LibWeb/CodeGenerators)
 add_subdirectory(Meta/CMake/ConfigureComponents)
-
-set(write_if_different ${CMAKE_SOURCE_DIR}/Meta/write-only-on-difference.sh)
 
 find_program(CCACHE_PROGRAM ccache)
 if(CCACHE_PROGRAM)
@@ -151,10 +171,23 @@ set(CMAKE_STAGING_PREFIX ${CMAKE_BINARY_DIR}/Root)
 set(CMAKE_INSTALL_PREFIX ${CMAKE_BINARY_DIR}/Root)
 set(CMAKE_INSTALL_DATAROOTDIR ${CMAKE_BINARY_DIR}/Root/res)
 
-set(GCC_VERSION 11.1.0)
 
 if (${CMAKE_HOST_SYSTEM_NAME} MATCHES SerenityOS)
     message("Good job on building cmake!")
+elseif(USE_CLANG_TOOLCHAIN)
+    set(TOOLCHAIN_ROOT ${CMAKE_SOURCE_DIR}/Toolchain/Local/clang/${SERENITY_ARCH}/)
+    set(TOOLCHAIN_PATH ${TOOLCHAIN_ROOT}/bin)
+
+    set(CMAKE_C_COMPILER ${TOOLCHAIN_PATH}/clang)
+    set(CMAKE_CXX_COMPILER ${TOOLCHAIN_PATH}/clang++)
+    set(CMAKE_ASM_COMPILER ${TOOLCHAIN_PATH}/clang)
+    set(CMAKE_LINKER ${TOOLCHAIN_PATH}/ld.lld)
+    set(CMAKE_RANLIB ${TOOLCHAIN_PATH}/llvm-ranlib)
+    set(CMAKE_STRIP ${TOOLCHAIN_PATH}/llvm-strip)
+    set(CMAKE_AR ${TOOLCHAIN_PATH}/llvm-ar)
+    set(CMAKE_CXXFILT ${TOOLCHAIN_PATH}/llvm-cxxfilt)
+    # FIXME: Persuade LLVM maintainers to add `--update-section` to llvm-objcopy, as it's required for the kernel symbol map.
+    set(CMAKE_OBJCOPY ${TOOLCHAIN_ROOT}/binutils/bin/${SERENITY_ARCH}-pc-serenity-objcopy)
 else()
     set(TOOLCHAIN_ROOT ${CMAKE_SOURCE_DIR}/Toolchain/Local/${SERENITY_ARCH}/)
     set(TOOLCHAIN_PATH ${TOOLCHAIN_ROOT}/bin)
@@ -167,6 +200,8 @@ else()
     set(CMAKE_RANLIB ${TOOLCHAIN_PREFIX}gcc-ranlib)
     set(CMAKE_STRIP ${TOOLCHAIN_PREFIX}strip)
     set(CMAKE_AR ${TOOLCHAIN_PREFIX}gcc-ar)
+    set(CMAKE_OBJCOPY ${TOOLCHAIN_PREFIX}objcopy)
+    set(CMAKE_CXXFILT ${TOOLCHAIN_PREFIX}c++filt)
 endif()
 
 foreach(lang ASM C CXX OBJC OBJCXX)
@@ -209,32 +244,65 @@ add_compile_options(-Wextra)
 
 # The following warnings are sorted by the "base" name (the part excluding the initial Wno or W).
 add_compile_options(-Wno-address-of-packed-member)
-add_compile_options(-Wcast-align)
 add_compile_options(-Wcast-qual)
 add_compile_options(-Wno-deprecated-copy)
 add_compile_options(-Wduplicated-cond)
-add_compile_options(-Wdouble-promotion)
 add_compile_options(-Wno-expansion-to-defined)
 add_compile_options(-Wformat=2)
 add_compile_options(-Wimplicit-fallthrough)
 add_compile_options(-Wlogical-op)
 add_compile_options(-Wmisleading-indentation)
 add_compile_options(-Wmissing-declarations)
-add_compile_options(-Wno-nonnull-compare)
 add_compile_options(-Wnon-virtual-dtor)
 add_compile_options(-Wno-unknown-warning-option)
 add_compile_options(-Wundef)
 add_compile_options(-Wunused)
+add_compile_options(-Wno-unused-private-field)
+add_compile_options(-Wno-unused-const-variable)
+add_compile_options(-Wno-unused-command-line-argument)
 add_compile_options(-Wwrite-strings)
 add_compile_options(-Wno-maybe-uninitialized)
 
 add_compile_options(-ffile-prefix-map=${CMAKE_SOURCE_DIR}=.)
 add_compile_options(-fno-exceptions)
+add_compile_options(-ftls-model=initial-exec)
+add_compile_options(-fno-semantic-interposition)
+add_compile_options(-fstack-clash-protection)
 add_compile_options(-fstack-protector-strong)
 add_compile_options(-g1)
 
-if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
-    add_compile_options(-fstack-clash-protection)
+if (USE_CLANG_TOOLCHAIN)
+    add_compile_options(-Wno-atomic-alignment)
+    add_compile_options(-Wno-c99-designator)
+    add_compile_options(-Wno-implicit-const-int-float-conversion)
+    add_compile_options(-Wno-inconsistent-missing-override)
+    add_compile_options(-Wno-tautological-constant-out-of-range-compare)
+    add_compile_options(-Wno-unneeded-internal-declaration)
+    add_compile_options(-Wno-unused-function)
+    add_compile_options(-Wno-user-defined-literals)
+    # Without the 'SHELL' prefix, this would get removed through de-duplication with the flags set for the host compiler.
+    # Then, that would come before '-Wextra', so it would not negate the '-Woverloaded-virtual' set by '-Wextra'.
+    add_compile_options(SHELL:-Wno-overloaded-virtual)
+
+    add_compile_options(--sysroot=${CMAKE_BINARY_DIR}/Root)
+    add_compile_options(--target=${SERENITY_CLANG_ARCH}-pc-serenity)
+    add_compile_options(-fno-aligned-allocation)
+    add_compile_options(-fconstexpr-steps=16777216)
+    add_compile_options(-gdwarf-4)
+
+    # FIXME: Why is Clang not picking up this path?
+    link_directories(${TOOLCHAIN_ROOT}/lib/clang/${LLVM_VERSION}/lib/serenity)
+
+    add_link_options(LINKER:--allow-shlib-undefined)
+else()
+    add_compile_options(-Wcast-align)
+    add_compile_options(-Wdouble-promotion)
+endif()
+
+if("${SERENITY_ARCH}" STREQUAL "i686")
+    add_compile_options(-march=i686)
+else()
+    add_compile_options(-march=x86-64)
 endif()
 
 add_compile_definitions(SANITIZE_PTRS)
@@ -246,6 +314,7 @@ if (ENABLE_COMPILETIME_FORMAT_CHECK)
 endif()
 
 add_link_options(--sysroot ${CMAKE_BINARY_DIR}/Root)
+add_link_options(-Wno-unused-command-line-argument)
 
 include_directories(Userland/Libraries/LibC)
 include_directories(Userland/Libraries/LibCrypt)

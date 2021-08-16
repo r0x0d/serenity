@@ -605,7 +605,6 @@ void WindowManager::notify_rect_changed(Window& window, Gfx::IntRect const& old_
     if (window.type() == WindowType::Applet)
         AppletManager::the().relayout();
 
-    MenuManager::the().refresh();
     reevaluate_hovered_window(&window);
 }
 
@@ -1956,10 +1955,9 @@ bool WindowManager::update_theme(String theme_path, String theme_name)
         return false;
     Gfx::set_system_theme(new_theme);
     m_palette = Gfx::PaletteImpl::create_with_anonymous_buffer(new_theme);
-    auto wm_config = Core::ConfigFile::open("/etc/WindowServer.ini");
-    wm_config->write_entry("Theme", "Name", theme_name);
-    wm_config->remove_entry("Background", "Color");
-    wm_config->sync();
+    m_config->write_entry("Theme", "Name", theme_name);
+    m_config->remove_entry("Background", "Color");
+    m_config->sync();
     invalidate_after_theme_or_font_change();
     return true;
 }

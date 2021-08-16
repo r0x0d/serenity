@@ -17,11 +17,16 @@
 #include <Kernel/FileSystem/InodeIdentifier.h>
 #include <Kernel/FileSystem/InodeMetadata.h>
 #include <Kernel/FileSystem/Mount.h>
+#include <Kernel/FileSystem/UnveilNode.h>
 #include <Kernel/Forward.h>
 #include <Kernel/KResult.h>
-#include <Kernel/UnveilNode.h>
+#include <Kernel/Locking/ProtectedValue.h>
 
 namespace Kernel {
+
+// Kernel internal options.
+#define O_NOFOLLOW_NOERROR (1 << 29)
+#define O_UNLINK_INTERNAL (1 << 30)
 
 struct UidAndGid {
     uid_t uid;
@@ -61,7 +66,6 @@ public:
     KResult mknod(StringView path, mode_t, dev_t, Custody& base);
     KResultOr<NonnullRefPtr<Custody>> open_directory(StringView path, Custody& base);
 
-    size_t mount_count() const { return m_mounts.size(); }
     void for_each_mount(Function<void(const Mount&)>) const;
 
     InodeIdentifier root_inode_id() const;
@@ -86,11 +90,10 @@ private:
     Mount* find_mount_for_host(InodeIdentifier);
     Mount* find_mount_for_guest(InodeIdentifier);
 
-    Lock m_lock { "VFSLock" };
-
     RefPtr<Inode> m_root_inode;
-    Vector<Mount, 16> m_mounts;
     RefPtr<Custody> m_root_custody;
+
+    ProtectedValue<Vector<Mount, 16>> m_mounts;
 };
 
 }

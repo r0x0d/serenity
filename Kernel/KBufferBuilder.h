@@ -16,8 +16,7 @@ class KBufferBuilder {
 public:
     using OutputType = KBuffer;
 
-    explicit KBufferBuilder(bool can_expand = false);
-    explicit KBufferBuilder(RefPtr<KBufferImpl>&, bool can_expand = false);
+    KBufferBuilder();
     KBufferBuilder(KBufferBuilder&&) = default;
     ~KBufferBuilder() = default;
 
@@ -31,8 +30,7 @@ public:
     template<typename... Parameters>
     void appendff(CheckedFormatString<Parameters...>&& fmtstr, const Parameters&... parameters)
     {
-        // FIXME: This is really not the way to go about it, but vformat expects a
-        //        StringBuilder. Why does this class exist anyways?
+        // FIXME: This really not ideal, but vformat expects StringBuilder.
         StringBuilder builder;
         vformat(builder, fmtstr.view(), AK::VariadicFormatParams { parameters... });
         append_bytes(builder.string_view().bytes());
@@ -52,7 +50,6 @@ private:
 
     RefPtr<KBufferImpl> m_buffer;
     size_t m_size { 0 };
-    bool m_can_expand { false };
 };
 
 }

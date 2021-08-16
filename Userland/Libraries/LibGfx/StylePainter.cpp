@@ -18,19 +18,14 @@ BaseStylePainter& StylePainter::current()
     return style;
 }
 
-void StylePainter::paint_tab_button(Painter& painter, const IntRect& rect, const Palette& palette, bool active, bool hovered, bool enabled, bool top)
+void StylePainter::paint_tab_button(Painter& painter, const IntRect& rect, const Palette& palette, bool active, bool hovered, bool enabled, bool top, bool in_active_window)
 {
-    current().paint_tab_button(painter, rect, palette, active, hovered, enabled, top);
+    current().paint_tab_button(painter, rect, palette, active, hovered, enabled, top, in_active_window);
 }
 
 void StylePainter::paint_button(Painter& painter, const IntRect& rect, const Palette& palette, ButtonStyle button_style, bool pressed, bool hovered, bool checked, bool enabled, bool focused)
 {
     current().paint_button(painter, rect, palette, button_style, pressed, hovered, checked, enabled, focused);
-}
-
-void StylePainter::paint_surface(Painter& painter, const IntRect& rect, const Palette& palette, bool paint_vertical_lines, bool paint_top_line)
-{
-    current().paint_surface(painter, rect, palette, paint_vertical_lines, paint_top_line);
 }
 
 void StylePainter::paint_frame(Painter& painter, const IntRect& rect, const Palette& palette, FrameShape shape, FrameShadow shadow, int thickness, bool skip_vertical_lines)

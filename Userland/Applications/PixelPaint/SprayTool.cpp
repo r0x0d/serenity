@@ -7,16 +7,15 @@
 #include "SprayTool.h"
 #include "ImageEditor.h"
 #include "Layer.h"
+#include <AK/Math.h>
 #include <AK/Queue.h>
 #include <LibGUI/Action.h>
 #include <LibGUI/BoxLayout.h>
 #include <LibGUI/Label.h>
 #include <LibGUI/Menu.h>
 #include <LibGUI/Painter.h>
-#include <LibGUI/Slider.h>
+#include <LibGUI/ValueSlider.h>
 #include <LibGfx/Bitmap.h>
-#include <math.h>
-#include <stdio.h>
 
 namespace PixelPaint {
 
@@ -52,8 +51,8 @@ void SprayTool::paint_it()
     for (int i = 0; i < M_PI * base_radius * base_radius * (m_density / 100.0); i++) {
         double radius = base_radius * nrand();
         double angle = 2 * M_PI * nrand();
-        const int xpos = m_last_pos.x() + radius * cos(angle);
-        const int ypos = m_last_pos.y() - radius * sin(angle);
+        const int xpos = m_last_pos.x() + radius * AK::cos(angle);
+        const int ypos = m_last_pos.y() - radius * AK::sin(angle);
         if (xpos < 0 || xpos >= bitmap.width())
             continue;
         if (ypos < 0 || ypos >= bitmap.height())
@@ -89,46 +88,25 @@ void SprayTool::on_mouseup(Layer&, GUI::MouseEvent&, GUI::MouseEvent&)
     }
 }
 
-void SprayTool::on_tool_button_contextmenu(GUI::ContextMenuEvent& event)
-{
-    if (!m_context_menu) {
-        m_context_menu = GUI::Menu::construct();
-        m_thickness_actions.set_exclusive(true);
-        auto insert_action = [&](int size, bool checked = false) {
-            auto action = GUI::Action::create_checkable(String::number(size), [this, size](auto&) {
-                m_thickness = size;
-            });
-            action->set_checked(checked);
-            m_thickness_actions.add_action(*action);
-            m_context_menu->add_action(move(action));
-        };
-        insert_action(1, true);
-        insert_action(2);
-        insert_action(3);
-        insert_action(4);
-    }
-    m_context_menu->popup(event.screen_position());
-}
-
 GUI::Widget* SprayTool::get_properties_widget()
 {
     if (!m_properties_widget) {
         m_properties_widget = GUI::Widget::construct();
         m_properties_widget->set_layout<GUI::VerticalBoxLayout>();
 
-        auto& thickness_container = m_properties_widget->add<GUI::Widget>();
-        thickness_container.set_fixed_height(20);
-        thickness_container.set_layout<GUI::HorizontalBoxLayout>();
+        auto& size_container = m_properties_widget->add<GUI::Widget>();
+        size_container.set_fixed_height(20);
+        size_container.set_layout<GUI::HorizontalBoxLayout>();
 
-        auto& thickness_label = thickness_container.add<GUI::Label>("Thickness:");
-        thickness_label.set_text_alignment(Gfx::TextAlignment::CenterLeft);
-        thickness_label.set_fixed_size(80, 20);
+        auto& size_label = size_container.add<GUI::Label>("Size:");
+        size_label.set_text_alignment(Gfx::TextAlignment::CenterLeft);
+        size_label.set_fixed_size(80, 20);
 
-        auto& thickness_slider = thickness_container.add<GUI::HorizontalSlider>();
-        thickness_slider.set_fixed_height(20);
-        thickness_slider.set_range(1, 20);
-        thickness_slider.set_value(m_thickness);
-        thickness_slider.on_change = [this](int value) {
+        auto& size_slider = size_container.add<GUI::ValueSlider>(Orientation::Horizontal, "px");
+        size_slider.set_range(1, 20);
+        size_slider.set_value(m_thickness);
+
+        size_slider.on_change = [&](int value) {
             m_thickness = value;
         };
 
@@ -140,11 +118,11 @@ GUI::Widget* SprayTool::get_properties_widget()
         density_label.set_text_alignment(Gfx::TextAlignment::CenterLeft);
         density_label.set_fixed_size(80, 20);
 
-        auto& density_slider = density_container.add<GUI::HorizontalSlider>();
-        density_slider.set_fixed_height(30);
+        auto& density_slider = density_container.add<GUI::ValueSlider>(Orientation::Horizontal, "%");
         density_slider.set_range(1, 100);
         density_slider.set_value(m_density);
-        density_slider.on_change = [this](int value) {
+
+        density_slider.on_change = [&](int value) {
             m_density = value;
         };
     }

@@ -11,6 +11,7 @@
 #include <LibJS/Interpreter.h>
 #include <LibJS/Runtime/AbstractOperations.h>
 #include <LibJS/Runtime/Array.h>
+#include <LibJS/Runtime/BoundFunction.h>
 #include <LibJS/Runtime/Error.h>
 #include <LibJS/Runtime/FinalizationRegistry.h>
 #include <LibJS/Runtime/FunctionEnvironment.h>
@@ -119,6 +120,9 @@ void VM::gather_roots(HashTable<Cell*>& roots)
 
     for (auto* job : m_promise_jobs)
         roots.set(job);
+
+    for (auto* finalization_registry : m_finalization_registry_cleanup_jobs)
+        roots.set(finalization_registry);
 }
 
 Symbol* VM::get_global_symbol(const String& description)
@@ -160,7 +164,7 @@ void VM::set_variable(const FlyString& name, Value value, GlobalObject& global_o
         return;
     }
 
-    global_object.set(name, value, true);
+    global_object.set(name, value, Object::ShouldThrowExceptions::Yes);
 }
 
 bool VM::delete_variable(FlyString const& name)
@@ -298,7 +302,7 @@ void VM::assign(const NonnullRefPtr<BindingPattern>& target, Value value, Global
                         continue;
                     if (seen_names.contains(object_property.key.to_display_string()))
                         continue;
-                    rest_object->set(object_property.key, object->get(object_property.key), true);
+                    rest_object->set(object_property.key, object->get(object_property.key), Object::ShouldThrowExceptions::Yes);
                     if (exception())
                         return;
                 }
@@ -414,7 +418,12 @@ Reference VM::get_identifier_reference(Environment* environment, FlyString const
         if (possible_match.has_value())
             return Reference { *environment, name, strict };
     }
-    return Reference { global_object.environment(), name, strict };
+
+    if (global_object.environment().has_binding(name) || !in_strict_mode()) {
+        return Reference { global_object.environment(), name, strict };
+    }
+
+    return Reference { Reference::BaseType::Unresolvable, name, strict };
 }
 
 // 9.4.2 ResolveBinding ( name [ , env ] ), https://tc39.es/ecma262/#sec-resolvebinding
@@ -436,6 +445,18 @@ Reference VM::resolve_binding(FlyString const& name, Environment* environment)
     return get_identifier_reference(environment, name, strict);
 }
 
+static void append_bound_and_passed_arguments(MarkedValueList& arguments, Vector<Value> bound_arguments, Optional<MarkedValueList> passed_arguments)
+{
+    arguments.ensure_capacity(bound_arguments.size());
+    arguments.extend(move(bound_arguments));
+
+    if (passed_arguments.has_value()) {
+        auto arguments_list = move(passed_arguments.release_value().values());
+        arguments.grow_capacity(arguments_list.size());
+        arguments.extend(move(arguments_list));
+    }
+}
+
 Value VM::construct(FunctionObject& function, FunctionObject& new_target, Optional<MarkedValueList> arguments)
 {
     auto& global_object = function.global_object();
@@ -447,7 +468,7 @@ Value VM::construct(FunctionObject& function, FunctionObject& new_target, Option
             return {};
     }
 
-    ExecutionContext callee_context;
+    ExecutionContext callee_context(heap());
     prepare_for_ordinary_call(function, callee_context, &new_target);
     if (exception())
         return {};
@@ -459,14 +480,12 @@ Value VM::construct(FunctionObject& function, FunctionObject& new_target, Option
     if (auto* interpreter = interpreter_if_exists())
         callee_context.current_node = interpreter->current_node();
 
-    callee_context.arguments = function.bound_arguments();
-    if (arguments.has_value())
-        callee_context.arguments.extend(arguments.value().values());
+    append_bound_and_passed_arguments(callee_context.arguments, function.bound_arguments(), move(arguments));
 
     if (auto* environment = callee_context.lexical_environment) {
         auto& function_environment = verify_cast<FunctionEnvironment>(*environment);
         function_environment.set_new_target(&new_target);
-        if (!this_argument.is_empty()) {
+        if (!this_argument.is_empty() && function_environment.this_binding_status() != FunctionEnvironment::ThisBindingStatus::Lexical) {
             function_environment.bind_this_value(global_object, this_argument);
             if (exception())
                 return {};
@@ -589,12 +608,50 @@ void VM::prepare_for_ordinary_call(FunctionObject& function, ExecutionContext& c
     // 15. Return calleeContext. (See NOTE above about how contexts are allocated on the C++ stack.)
 }
 
+// 10.2.1.2 OrdinaryCallBindThis ( F, calleeContext, thisArgument ), https://tc39.es/ecma262/#sec-ordinarycallbindthis
+void VM::ordinary_call_bind_this(FunctionObject& function, ExecutionContext& callee_context, Value this_argument)
+{
+    auto this_mode = function.this_mode();
+    auto* callee_realm = function.realm();
+
+    auto* local_environment = callee_context.lexical_environment;
+    auto& function_environment = verify_cast<FunctionEnvironment>(*local_environment);
+
+    // This almost as the spec describes it however we sometimes don't have callee_realm when dealing
+    // with proxies and arrow functions however this does seemingly achieve spec like behavior.
+    if (!callee_realm || this_mode == FunctionObject::ThisMode::Lexical) {
+        return;
+    }
+
+    Value this_value;
+    if (function.is_strict_mode()) {
+        this_value = this_argument;
+    } else if (this_argument.is_nullish()) {
+        auto& global_environment = callee_realm->environment();
+        this_value = global_environment.global_this_value();
+    } else {
+        this_value = this_argument.to_object(function.global_object());
+    }
+
+    function_environment.bind_this_value(function.global_object(), this_value);
+    callee_context.this_value = this_value;
+}
+
 Value VM::call_internal(FunctionObject& function, Value this_value, Optional<MarkedValueList> arguments)
 {
     VERIFY(!exception());
     VERIFY(!this_value.is_empty());
 
-    ExecutionContext callee_context;
+    if (is<BoundFunction>(function)) {
+        auto& bound_function = static_cast<BoundFunction&>(function);
+
+        MarkedValueList with_bound_arguments { heap() };
+        append_bound_and_passed_arguments(with_bound_arguments, bound_function.bound_arguments(), move(arguments));
+
+        return call_internal(bound_function.target_function(), bound_function.bound_this(), move(with_bound_arguments));
+    }
+
+    ExecutionContext callee_context(heap());
     prepare_for_ordinary_call(function, callee_context, js_undefined());
     if (exception())
         return {};
@@ -607,15 +664,10 @@ Value VM::call_internal(FunctionObject& function, Value this_value, Optional<Mar
         callee_context.current_node = interpreter->current_node();
 
     callee_context.this_value = function.bound_this().value_or(this_value);
-    callee_context.arguments = function.bound_arguments();
-    if (arguments.has_value())
-        callee_context.arguments.extend(arguments.value().values());
+    append_bound_and_passed_arguments(callee_context.arguments, function.bound_arguments(), move(arguments));
 
-    if (auto* environment = callee_context.lexical_environment) {
-        auto& function_environment = verify_cast<FunctionEnvironment>(*environment);
-        VERIFY(function_environment.this_binding_status() == FunctionEnvironment::ThisBindingStatus::Uninitialized);
-        function_environment.bind_this_value(function.global_object(), callee_context.this_value);
-    }
+    if (callee_context.lexical_environment)
+        ordinary_call_bind_this(function, callee_context, this_value);
 
     if (exception())
         return {};

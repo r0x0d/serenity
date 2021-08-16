@@ -6,9 +6,8 @@
 
 #include "ProfileModel.h"
 #include "Profile.h"
-#include <AK/StringBuilder.h>
 #include <LibGUI/FileIconProvider.h>
-#include <ctype.h>
+#include <LibSymbolication/Symbolication.h>
 #include <stdio.h>
 
 namespace Profiler {
@@ -16,8 +15,8 @@ namespace Profiler {
 ProfileModel::ProfileModel(Profile& profile)
     : m_profile(profile)
 {
-    m_user_frame_icon.set_bitmap_for_size(16, Gfx::Bitmap::load_from_file("/res/icons/16x16/inspector-object.png"));
-    m_kernel_frame_icon.set_bitmap_for_size(16, Gfx::Bitmap::load_from_file("/res/icons/16x16/inspector-object-red.png"));
+    m_user_frame_icon.set_bitmap_for_size(16, Gfx::Bitmap::try_load_from_file("/res/icons/16x16/inspector-object.png"));
+    m_kernel_frame_icon.set_bitmap_for_size(16, Gfx::Bitmap::try_load_from_file("/res/icons/16x16/inspector-object-red.png"));
 }
 
 ProfileModel::~ProfileModel()
@@ -87,6 +86,8 @@ String ProfileModel::column_name(int column) const
         return "Object";
     case Column::StackFrame:
         return "Stack Frame";
+    case Column::SymbolAddress:
+        return "Symbol Address";
     default:
         VERIFY_NOT_REACHED();
         return {};
@@ -105,7 +106,8 @@ GUI::Variant ProfileModel::data(const GUI::ModelIndex& index, GUI::ModelRole rol
             if (node->is_root()) {
                 return GUI::FileIconProvider::icon_for_executable(node->process().executable);
             }
-            if (node->address() >= 0xc0000000)
+            auto maybe_kernel_base = Symbolication::kernel_base();
+            if (maybe_kernel_base.has_value() && node->address() >= maybe_kernel_base.value())
                 return m_kernel_frame_icon;
             return m_user_frame_icon;
         }
@@ -130,14 +132,17 @@ GUI::Variant ProfileModel::data(const GUI::ModelIndex& index, GUI::ModelRole rol
             }
             return node->symbol();
         }
+        if (index.column() == Column::SymbolAddress) {
+            if (node->is_root())
+                return "";
+            auto library = node->process().library_metadata.library_containing(node->address());
+            if (!library)
+                return "";
+            return String::formatted("{:p} (offset {:p})", node->address(), node->address() - library->base);
+        }
         return {};
     }
     return {};
-}
-
-void ProfileModel::update()
-{
-    did_update(Model::InvalidateAllIndices);
 }
 
 }

@@ -18,6 +18,7 @@
 #include <LibJS/Forward.h>
 #include <LibJS/Runtime/BigInt.h>
 #include <LibJS/Runtime/PrimitiveString.h>
+#include <LibJS/Runtime/Utf16String.h>
 #include <math.h>
 
 // 2 ** 53 - 1
@@ -72,7 +73,7 @@ public:
     bool is_negative_infinity() const { return is_number() && __builtin_isinf_sign(as_double()) < 0; }
     bool is_positive_zero() const { return is_number() && bit_cast<u64>(as_double()) == 0; }
     bool is_negative_zero() const { return is_number() && bit_cast<u64>(as_double()) == NEGATIVE_ZERO_BITS; }
-    bool is_integral_number() const { return is_finite_number() && static_cast<i64>(as_double()) == as_double(); }
+    bool is_integral_number() const { return is_finite_number() && trunc(as_double()) == as_double(); }
     bool is_finite_number() const
     {
         if (!is_number())
@@ -246,6 +247,7 @@ public:
     u64 encoded() const { return m_value.encoded; }
 
     String to_string(GlobalObject&, bool legacy_null_to_empty_string = false) const;
+    Utf16String to_utf16_string(GlobalObject&) const;
     PrimitiveString* to_primitive_string(GlobalObject&);
     Value to_primitive(GlobalObject&, PreferredType preferred_type = PreferredType::Default) const;
     Object* to_object(GlobalObject&) const;
@@ -289,8 +291,13 @@ public:
 
     bool operator==(Value const&) const;
 
+    template<typename... Args>
+    [[nodiscard]] ALWAYS_INLINE Value invoke(GlobalObject& global_object, PropertyName const& property_name, Args... args);
+
 private:
     Type m_type { Type::Empty };
+
+    [[nodiscard]] Value invoke_internal(GlobalObject& global_object, PropertyName const&, Optional<MarkedValueList> arguments);
 
     i32 to_i32_slow_case(GlobalObject&) const;
 

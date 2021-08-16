@@ -5,12 +5,9 @@
  */
 
 #include "M3UParser.h"
-#include <AK/NonnullOwnPtrVector.h>
 #include <AK/OwnPtr.h>
 #include <AK/RefPtr.h>
 #include <AK/Utf8View.h>
-#include <LibCore/FileStream.h>
-#include <ctype.h>
 
 M3UParser::M3UParser()
 {
@@ -48,21 +45,21 @@ NonnullOwnPtr<Vector<M3UEntry>> M3UParser::parse(bool include_extended_info)
 {
     auto vec = make<Vector<M3UEntry>>();
 
-    bool has_exteded_info_tag = false;
+    bool has_extended_info_tag = false;
     if (!m_use_utf8) {
         auto lines = m_m3u_raw_data.split_view('\n');
 
         if (include_extended_info) {
             if (lines[0] == "#EXTM3U")
-                has_exteded_info_tag = true;
+                has_extended_info_tag = true;
         }
 
         M3UExtendedInfo metadata_for_next_file {};
         for (auto& line : lines) {
             line = line.trim_whitespace();
             M3UEntry entry {};
-            if (line.starts_with('#') && has_exteded_info_tag) {
-                if (line.starts_with("#EXTINF")) {
+            if (line.starts_with('#') && has_extended_info_tag) {
+                if (line.starts_with("#EXTINF:")) {
                     auto data = line.substring_view(8);
                     auto separator = data.find(',');
                     VERIFY(separator.has_value());
@@ -73,23 +70,23 @@ NonnullOwnPtr<Vector<M3UEntry>> M3UParser::parse(bool include_extended_info)
                     VERIFY(!display_name.is_empty() && !display_name.is_null() && !display_name.is_empty());
                     metadata_for_next_file.track_display_title = display_name;
                     //TODO: support the alternative, non-standard #EXTINF value of a key=value dictionary
-                } else if (line.starts_with("#PLAYLIST")) {
+                } else if (line.starts_with("#PLAYLIST:")) {
                     auto name = line.substring_view(10);
                     VERIFY(!name.is_empty());
                     m_parsed_playlist_title = name;
-                } else if (line.starts_with("#EXTGRP")) {
+                } else if (line.starts_with("#EXTGRP:")) {
                     auto name = line.substring_view(8);
                     VERIFY(!name.is_empty());
                     metadata_for_next_file.group_name = name;
-                } else if (line.starts_with("#EXTALB")) {
+                } else if (line.starts_with("#EXTALB:")) {
                     auto name = line.substring_view(8);
                     VERIFY(!name.is_empty());
                     metadata_for_next_file.album_title = name;
-                } else if (line.starts_with("#EXTART")) {
+                } else if (line.starts_with("#EXTART:")) {
                     auto name = line.substring_view(8);
                     VERIFY(!name.is_empty());
                     metadata_for_next_file.album_artist = name;
-                } else if (line.starts_with("#EXTGENRE")) {
+                } else if (line.starts_with("#EXTGENRE:")) {
                     auto name = line.substring_view(10);
                     VERIFY(!name.is_empty());
                     metadata_for_next_file.album_genre = name;
@@ -99,6 +96,7 @@ NonnullOwnPtr<Vector<M3UEntry>> M3UParser::parse(bool include_extended_info)
                 entry.path = line;
                 entry.extended_info = metadata_for_next_file;
                 vec->append(entry);
+                metadata_for_next_file = {};
             }
         }
     } else {

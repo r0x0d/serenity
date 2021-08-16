@@ -15,7 +15,7 @@
 /* Map IRQ0-15 @ ISR 0x50-0x5F */
 #define IRQ_VECTOR_BASE 0x50
 #define GENERIC_INTERRUPT_HANDLERS_COUNT (256 - IRQ_VECTOR_BASE)
-#define PAGE_MASK ((FlatPtr)0xfffff000u)
+#define PAGE_MASK (~(FlatPtr)0xfffu)
 
 namespace Kernel {
 
@@ -33,7 +33,7 @@ inline u32 get_iopl_from_eflags(u32 eflags)
 const DescriptorTablePointer& get_gdtr();
 const DescriptorTablePointer& get_idtr();
 
-[[noreturn]] void handle_crash(RegisterState&, const char* description, int signal, bool out_of_memory = false);
+[[noreturn]] void handle_crash(RegisterState const&, char const* description, int signal, bool out_of_memory = false);
 
 #define LSW(x) ((u32)(x)&0xFFFF)
 #define MSW(x) (((u32)(x) >> 16) & 0xFFFF)

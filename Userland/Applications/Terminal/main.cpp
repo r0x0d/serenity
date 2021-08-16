@@ -11,6 +11,7 @@
 #include <LibCore/ConfigFile.h>
 #include <LibCore/DirIterator.h>
 #include <LibCore/File.h>
+#include <LibCore/Process.h>
 #include <LibDesktop/Launcher.h>
 #include <LibGUI/Action.h>
 #include <LibGUI/ActionGroup.h>
@@ -37,9 +38,7 @@
 #include <errno.h>
 #include <pty.h>
 #include <pwd.h>
-#include <serenity.h>
 #include <signal.h>
-#include <spawn.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -80,7 +79,7 @@ static void utmp_update(const char* tty, pid_t pid, bool create)
     }
 }
 
-static void run_command(String command)
+static void run_command(String command, bool keep_open)
 {
     String shell = "/bin/Shell";
     auto* pw = getpwuid(getuid());
@@ -89,12 +88,15 @@ static void run_command(String command)
     }
     endpwent();
 
-    const char* args[4] = { shell.characters(), nullptr, nullptr, nullptr };
+    const char* args[5] = { shell.characters(), nullptr, nullptr, nullptr, nullptr };
     if (!command.is_empty()) {
-        args[1] = "-c";
-        args[2] = command.characters();
+        int arg_index = 1;
+        if (keep_open)
+            args[arg_index++] = "--keep-open";
+        args[arg_index++] = "-c";
+        args[arg_index++] = command.characters();
     }
-    const char* envs[] = { "TERM=xterm", "PAGER=more", "PATH=/bin:/usr/bin:/usr/local/bin", nullptr };
+    const char* envs[] = { "TERM=xterm", "PAGER=more", "PATH=/usr/local/bin:/usr/bin:/bin", nullptr };
     int rc = execve(shell.characters(), const_cast<char**>(args), const_cast<char**>(envs));
     if (rc < 0) {
         perror("execve");
@@ -205,10 +207,10 @@ static RefPtr<GUI::Window> create_find_window(VT::TerminalWidget& terminal)
     }
     auto& find_backwards = find.add<GUI::Button>();
     find_backwards.set_fixed_width(25);
-    find_backwards.set_icon(Gfx::Bitmap::load_from_file("/res/icons/16x16/upward-triangle.png"));
+    find_backwards.set_icon(Gfx::Bitmap::try_load_from_file("/res/icons/16x16/upward-triangle.png"));
     auto& find_forwards = find.add<GUI::Button>();
     find_forwards.set_fixed_width(25);
-    find_forwards.set_icon(Gfx::Bitmap::load_from_file("/res/icons/16x16/downward-triangle.png"));
+    find_forwards.set_icon(Gfx::Bitmap::try_load_from_file("/res/icons/16x16/downward-triangle.png"));
 
     find_textbox.on_return_pressed = [&]() {
         find_backwards.click();
@@ -276,11 +278,18 @@ int main(int argc, char** argv)
     }
 
     const char* command_to_execute = nullptr;
+    bool keep_open = false;
 
     Core::ArgsParser args_parser;
     args_parser.add_option(command_to_execute, "Execute this command inside the terminal", nullptr, 'e', "command");
+    args_parser.add_option(keep_open, "Keep the terminal open after the command has finished executing", nullptr, 'k');
 
     args_parser.parse(argc, argv);
+
+    if (keep_open && !command_to_execute) {
+        warnln("Option -k can only be used in combination with -e.");
+        return 1;
+    }
 
     RefPtr<Core::ConfigFile> config = Core::ConfigFile::get_for_app("Terminal");
     Core::File::ensure_parent_directories(config->filename());
@@ -294,9 +303,9 @@ int main(int argc, char** argv)
     if (shell_pid == 0) {
         close(ptm_fd);
         if (command_to_execute)
-            run_command(command_to_execute);
+            run_command(command_to_execute, keep_open);
         else
-            run_command(config->read_entry("Startup", "Command", ""));
+            run_command(config->read_entry("Startup", "Command", ""), false);
         VERIFY_NOT_REACHED();
     }
 
@@ -342,16 +351,33 @@ int main(int argc, char** argv)
     auto new_scrollback_size = config->read_num_entry("Terminal", "MaxHistorySize", terminal.max_history_size());
     terminal.set_max_history_size(new_scrollback_size);
 
-    auto open_settings_action = GUI::Action::create("&Settings", Gfx::Bitmap::load_from_file("/res/icons/16x16/settings.png"),
+    auto open_settings_action = GUI::Action::create("&Settings", Gfx::Bitmap::try_load_from_file("/res/icons/16x16/settings.png"),
         [&](const GUI::Action&) {
             if (!settings_window)
                 settings_window = create_settings_window(terminal);
             settings_window->show();
             settings_window->move_to_front();
+            settings_window->on_close = [&]() {
+                config->write_num_entry("Window", "Opacity", terminal.opacity());
+                config->write_num_entry("Terminal", "MaxHistorySize", terminal.max_history_size());
+
+                auto bell = terminal.bell_mode();
+                auto bell_setting = String::empty();
+                if (bell == VT::TerminalWidget::BellMode::AudibleBeep) {
+                    bell_setting = "AudibleBeep";
+                } else if (bell == VT::TerminalWidget::BellMode::Disabled) {
+                    bell_setting = "Disabled";
+                } else {
+                    bell_setting = "Visible";
+                }
+                config->write_entry("Window", "Bell", bell_setting);
+
+                config->sync();
+            };
         });
 
     terminal.context_menu().add_separator();
-    auto pick_font_action = GUI::Action::create("&Terminal Font...", Gfx::Bitmap::load_from_file("/res/icons/16x16/app-font-editor.png"),
+    auto pick_font_action = GUI::Action::create("&Terminal Font...", Gfx::Bitmap::try_load_from_file("/res/icons/16x16/app-font-editor.png"),
         [&](auto&) {
             auto picker = GUI::FontPicker::construct(window, &terminal.font(), true);
             if (picker->exec() == GUI::Dialog::ExecOK) {
@@ -367,18 +393,9 @@ int main(int argc, char** argv)
     terminal.context_menu().add_separator();
     terminal.context_menu().add_action(open_settings_action);
 
-    auto menubar = GUI::Menubar::construct();
-
-    auto& file_menu = menubar->add_menu("&File");
-    file_menu.add_action(GUI::Action::create("Open New &Terminal", { Mod_Ctrl | Mod_Shift, Key_N }, Gfx::Bitmap::load_from_file("/res/icons/16x16/app-terminal.png"), [&](auto&) {
-        pid_t child;
-        const char* argv[] = { "Terminal", nullptr };
-        if ((errno = posix_spawn(&child, "/bin/Terminal", nullptr, nullptr, const_cast<char**>(argv), environ))) {
-            perror("posix_spawn");
-        } else {
-            if (disown(child) < 0)
-                perror("disown");
-        }
+    auto& file_menu = window->add_menu("&File");
+    file_menu.add_action(GUI::Action::create("Open New &Terminal", { Mod_Ctrl | Mod_Shift, Key_N }, Gfx::Bitmap::try_load_from_file("/res/icons/16x16/app-terminal.png"), [&](auto&) {
+        Core::Process::spawn("/bin/Terminal");
     }));
 
     file_menu.add_action(open_settings_action);
@@ -388,11 +405,11 @@ int main(int argc, char** argv)
         GUI::Application::the()->quit();
     }));
 
-    auto& edit_menu = menubar->add_menu("&Edit");
+    auto& edit_menu = window->add_menu("&Edit");
     edit_menu.add_action(terminal.copy_action());
     edit_menu.add_action(terminal.paste_action());
     edit_menu.add_separator();
-    edit_menu.add_action(GUI::Action::create("&Find...", { Mod_Ctrl | Mod_Shift, Key_F }, Gfx::Bitmap::load_from_file("/res/icons/16x16/find.png"),
+    edit_menu.add_action(GUI::Action::create("&Find...", { Mod_Ctrl | Mod_Shift, Key_F }, Gfx::Bitmap::try_load_from_file("/res/icons/16x16/find.png"),
         [&](auto&) {
             if (!find_window)
                 find_window = create_find_window(terminal);
@@ -400,7 +417,7 @@ int main(int argc, char** argv)
             find_window->move_to_front();
         }));
 
-    auto& view_menu = menubar->add_menu("&View");
+    auto& view_menu = window->add_menu("&View");
     view_menu.add_action(GUI::CommonActions::make_fullscreen_action([&](auto&) {
         window->set_fullscreen(!window->is_fullscreen());
     }));
@@ -408,13 +425,11 @@ int main(int argc, char** argv)
     view_menu.add_separator();
     view_menu.add_action(pick_font_action);
 
-    auto& help_menu = menubar->add_menu("&Help");
+    auto& help_menu = window->add_menu("&Help");
     help_menu.add_action(GUI::CommonActions::make_help_action([](auto&) {
         Desktop::Launcher::open(URL::create_with_file_protocol("/usr/share/man/man1/Terminal.md"), "/bin/Help");
     }));
     help_menu.add_action(GUI::CommonActions::make_about_action("Terminal", app_icon, window));
-
-    window->set_menubar(menubar);
 
     window->on_close = [&]() {
         if (find_window)

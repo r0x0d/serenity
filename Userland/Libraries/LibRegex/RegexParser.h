@@ -15,6 +15,7 @@
 #include <AK/StringBuilder.h>
 #include <AK/Types.h>
 #include <AK/Vector.h>
+#include <LibUnicode/Forward.h>
 
 namespace regex {
 
@@ -78,7 +79,7 @@ protected:
     ALWAYS_INLINE bool match_ordinary_characters();
     ALWAYS_INLINE Token consume();
     ALWAYS_INLINE Token consume(TokenType type, Error error);
-    ALWAYS_INLINE bool consume(const String&);
+    ALWAYS_INLINE bool consume(String const&);
     ALWAYS_INLINE bool try_skip(StringView);
     ALWAYS_INLINE bool lookahead_any(StringView);
     ALWAYS_INLINE char skip();
@@ -86,6 +87,11 @@ protected:
     ALWAYS_INLINE void reset();
     ALWAYS_INLINE bool done() const;
     ALWAYS_INLINE bool set_error(Error error);
+
+    struct NamedCaptureGroup {
+        size_t group_index { 0 };
+        size_t minimum_length { 0 };
+    };
 
     struct ParserState {
         Lexer& lexer;
@@ -96,10 +102,10 @@ protected:
         size_t capture_groups_count { 0 };
         size_t named_capture_groups_count { 0 };
         size_t match_length_minimum { 0 };
+        size_t repetition_mark_count { 0 };
         AllOptions regex_options;
         HashMap<int, size_t> capture_group_minimum_lengths;
-        HashMap<FlyString, size_t> named_capture_group_minimum_lengths;
-        HashMap<size_t, FlyString> named_capture_groups;
+        HashMap<FlyString, NamedCaptureGroup> named_capture_groups;
 
         explicit ParserState(Lexer& lexer)
             : lexer(lexer)
@@ -190,12 +196,14 @@ public:
     explicit ECMA262Parser(Lexer& lexer)
         : Parser(lexer)
     {
+        m_capture_groups_in_scope.empend();
     }
 
     ECMA262Parser(Lexer& lexer, Optional<typename ParserTraits<ECMA262Parser>::OptionsType> regex_options)
         : Parser(lexer, regex_options.value_or({}))
     {
         m_should_use_browser_extended_grammar = regex_options.has_value() && regex_options->has_flag_set(ECMAScriptFlags::BrowserExtended);
+        m_capture_groups_in_scope.empend();
     }
 
     ~ECMA262Parser() = default;
@@ -207,9 +215,16 @@ private:
         Allow,
         Disallow,
     };
-    StringView read_digits_as_string(ReadDigitsInitialZeroState initial_zero = ReadDigitsInitialZeroState::Allow, bool hex = false, int max_count = -1);
-    Optional<unsigned> read_digits(ReadDigitsInitialZeroState initial_zero = ReadDigitsInitialZeroState::Allow, bool hex = false, int max_count = -1);
+    StringView read_digits_as_string(ReadDigitsInitialZeroState initial_zero = ReadDigitsInitialZeroState::Allow, bool hex = false, int max_count = -1, int min_count = -1);
+    Optional<unsigned> read_digits(ReadDigitsInitialZeroState initial_zero = ReadDigitsInitialZeroState::Allow, bool hex = false, int max_count = -1, int min_count = -1);
     StringView read_capture_group_specifier(bool take_starting_angle_bracket = false);
+
+    struct Script {
+        Unicode::Script script {};
+        bool is_extension { false };
+    };
+    using PropertyEscape = Variant<Unicode::Property, Unicode::GeneralCategory, Script, Empty>;
+    Optional<PropertyEscape> read_unicode_property_escape();
 
     bool parse_pattern(ByteCode&, size_t&, bool unicode, bool named);
     bool parse_disjunction(ByteCode&, size_t&, bool unicode, bool named);
@@ -218,11 +233,13 @@ private:
     bool parse_assertion(ByteCode&, size_t&, bool unicode, bool named);
     bool parse_atom(ByteCode&, size_t&, bool unicode, bool named);
     bool parse_quantifier(ByteCode&, size_t&, bool unicode, bool named);
+    bool parse_interval_quantifier(Optional<u64>& repeat_min, Optional<u64>& repeat_max);
     bool parse_atom_escape(ByteCode&, size_t&, bool unicode, bool named);
     bool parse_character_class(ByteCode&, size_t&, bool unicode, bool named);
     bool parse_capture_group(ByteCode&, size_t&, bool unicode, bool named);
     Optional<CharClass> parse_character_class_escape(bool& out_inverse, bool expect_backslash = false);
     bool parse_nonempty_class_ranges(Vector<CompareTypeAndValuePair>&, bool unicode);
+    bool parse_unicode_property_escape(PropertyEscape& property, bool& negated);
 
     // Used only by B.1.4, Regular Expression Patterns (Extended for use in browsers)
     bool parse_quantifiable_assertion(ByteCode&, size_t&, bool named);
@@ -242,6 +259,11 @@ private:
 
     // Keep the Annex B. behaviour behind a flag, the users can enable it by passing the `ECMAScriptFlags::BrowserExtended` flag.
     bool m_should_use_browser_extended_grammar { false };
+
+    // ECMA-262 basically requires that we clear the inner captures of a capture group before trying to match it,
+    // by requiring that (...)+ only contain the matches for the last iteration.
+    // To do that, we have to keep track of which capture groups are "in scope", so we can clear them as needed.
+    Vector<Vector<size_t>> m_capture_groups_in_scope;
 };
 
 using PosixExtended = PosixExtendedParser;

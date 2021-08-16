@@ -12,39 +12,42 @@
 #include <AK/NonnullOwnPtr.h>
 #include <Kernel/Bus/PCI/Device.h>
 #include <Kernel/Bus/USB/UHCIDescriptorTypes.h>
-#include <Kernel/Bus/USB/USBDevice.h>
-#include <Kernel/Bus/USB/USBTransfer.h>
+#include <Kernel/Bus/USB/UHCIRootHub.h>
+#include <Kernel/Bus/USB/USBController.h>
 #include <Kernel/IO.h>
+#include <Kernel/Memory/AnonymousVMObject.h>
 #include <Kernel/Process.h>
 #include <Kernel/Time/TimeManagement.h>
-#include <Kernel/VM/ContiguousVMObject.h>
 
 namespace Kernel::USB {
 
-class UHCIController final : public PCI::Device {
+class UHCIController final
+    : public USBController
+    , public PCI::Device {
 
 public:
-    static void detect();
-    static UHCIController& the();
-
+    static constexpr u8 NUMBER_OF_ROOT_PORTS = 2;
+    static KResultOr<NonnullRefPtr<UHCIController>> try_to_initialize(PCI::Address address);
     virtual ~UHCIController() override;
 
     virtual StringView purpose() const override { return "UHCI"; }
 
-    void reset();
-    void stop();
-    void start();
+    virtual KResult initialize() override;
+    virtual KResult reset() override;
+    virtual KResult stop() override;
+    virtual KResult start() override;
     void spawn_port_proc();
 
     void do_debug_transfer();
 
-    KResultOr<size_t> submit_control_transfer(Transfer& transfer);
+    virtual KResultOr<size_t> submit_control_transfer(Transfer& transfer) override;
 
-    RefPtr<USB::Device> const get_device_at_port(USB::Device::PortNumber);
-    RefPtr<USB::Device> const get_device_from_address(u8 device_address);
+    void get_port_status(Badge<UHCIRootHub>, u8, HubStatus&);
+    KResult set_port_feature(Badge<UHCIRootHub>, u8, HubFeatureSelector);
+    KResult clear_port_feature(Badge<UHCIRootHub>, u8, HubFeatureSelector);
 
 private:
-    UHCIController(PCI::Address, PCI::ID);
+    explicit UHCIController(PCI::Address);
 
     u16 read_usbcmd() { return m_io_base.offset(0).in<u16>(); }
     u16 read_usbsts() { return m_io_base.offset(0x2).in<u16>(); }
@@ -66,7 +69,7 @@ private:
 
     virtual bool handle_irq(const RegisterState&) override;
 
-    void create_structures();
+    KResult create_structures();
     void setup_schedule();
     size_t poll_transfer_queue(QueueHead& transfer_queue);
 
@@ -77,8 +80,12 @@ private:
     QueueHead* allocate_queue_head() const;
     TransferDescriptor* allocate_transfer_descriptor() const;
 
+    void reset_port(u8);
+
 private:
     IOAddress m_io_base;
+
+    OwnPtr<UHCIRootHub> m_root_hub;
 
     Vector<QueueHead*> m_free_qh_pool;
     Vector<TransferDescriptor*> m_free_td_pool;
@@ -90,11 +97,15 @@ private:
     QueueHead* m_bulk_qh;
     QueueHead* m_dummy_qh; // Needed for PIIX4 hack
 
-    OwnPtr<Region> m_framelist;
-    OwnPtr<Region> m_qh_pool;
-    OwnPtr<Region> m_td_pool;
+    OwnPtr<Memory::Region> m_framelist;
+    OwnPtr<Memory::Region> m_qh_pool;
+    OwnPtr<Memory::Region> m_td_pool;
 
-    Array<RefPtr<USB::Device>, 2> m_devices; // Devices connected to the root ports (of which there are two)
+    // Bitfield containing whether a given port should signal a change in reset or not.
+    u8 m_port_reset_change_statuses { 0 };
+
+    // Bitfield containing whether a given port should signal a change in suspend or not.
+    u8 m_port_suspend_change_statuses { 0 };
 };
 
 }

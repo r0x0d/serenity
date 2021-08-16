@@ -6,7 +6,6 @@
 
 #include <AK/Atomic.h>
 #include <AK/Checked.h>
-#include <AK/Singleton.h>
 #include <Kernel/Bus/PCI/Access.h>
 #include <Kernel/Bus/PCI/IDs.h>
 #include <Kernel/Debug.h>
@@ -14,8 +13,8 @@
 #include <Kernel/Graphics/Console/ContiguousFramebufferConsole.h>
 #include <Kernel/Graphics/GraphicsManagement.h>
 #include <Kernel/IO.h>
+#include <Kernel/Memory/TypedMapping.h>
 #include <Kernel/Sections.h>
-#include <Kernel/VM/TypedMapping.h>
 
 #define VBE_DISPI_IOPORT_INDEX 0x01CE
 #define VBE_DISPI_IOPORT_DATA 0x01CF
@@ -66,7 +65,7 @@ UNMAP_AFTER_INIT NonnullRefPtr<BochsGraphicsAdapter> BochsGraphicsAdapter::initi
 UNMAP_AFTER_INIT BochsGraphicsAdapter::BochsGraphicsAdapter(PCI::Address pci_address)
     : PCI::DeviceController(pci_address)
     , m_mmio_registers(PCI::get_BAR2(pci_address) & 0xfffffff0)
-    , m_registers(map_typed_writable<BochsDisplayMMIORegisters volatile>(m_mmio_registers))
+    , m_registers(Memory::map_typed_writable<BochsDisplayMMIORegisters volatile>(m_mmio_registers))
 {
     // We assume safe resolutio is 1024x768x32
     m_framebuffer_console = Graphics::ContiguousFramebufferConsole::initialize(PhysicalAddress(PCI::get_BAR0(pci_address) & 0xfffffff0), 1024, 768, 1024 * sizeof(u32));
@@ -78,9 +77,9 @@ UNMAP_AFTER_INIT BochsGraphicsAdapter::BochsGraphicsAdapter(PCI::Address pci_add
     if (id.vendor_id == 0x80ee && id.device_id == 0xbeef)
         m_io_required = true;
 
-    // FIXME: Although this helps with setting the screen to work on some cases,
-    // we need to check we actually can access the VGA MMIO remapped ioports before
-    // doing the unblanking.
+    // Note: According to Gerd Hoffmann - "The linux driver simply does
+    // the unblank unconditionally. With bochs-display this is not needed but
+    // it also has no bad side effect".
     unblank();
     set_safe_resolution();
 }
@@ -89,7 +88,8 @@ UNMAP_AFTER_INIT void BochsGraphicsAdapter::initialize_framebuffer_devices()
 {
     // FIXME: Find a better way to determine default resolution...
     m_framebuffer_device = FramebufferDevice::create(*this, 0, PhysicalAddress(PCI::get_BAR0(pci_address()) & 0xfffffff0), 1024, 768, 1024 * sizeof(u32));
-    m_framebuffer_device->initialize();
+    // FIXME: Would be nice to be able to return a KResult here.
+    VERIFY(!m_framebuffer_device->initialize().is_error());
 }
 
 GraphicsDevice::Type BochsGraphicsAdapter::type() const

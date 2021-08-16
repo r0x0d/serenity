@@ -165,25 +165,26 @@ void AbstractButton::keyup_event(KeyEvent& event)
     m_being_pressed = false;
     if (was_being_pressed && (event.key() == KeyCode::Key_Return || event.key() == KeyCode::Key_Space)) {
         click(event.modifiers());
+        update();
         event.accept();
         return;
     }
     Widget::keyup_event(event);
 }
 
-void AbstractButton::paint_text(Painter& painter, const Gfx::IntRect& rect, const Gfx::Font& font, Gfx::TextAlignment text_alignment)
+void AbstractButton::paint_text(Painter& painter, const Gfx::IntRect& rect, const Gfx::Font& font, Gfx::TextAlignment text_alignment, Gfx::TextWrapping text_wrapping)
 {
     auto clipped_rect = rect.intersected(this->rect());
 
     if (!is_enabled()) {
-        painter.draw_text(clipped_rect.translated(1, 1), text(), font, text_alignment, Color::White, Gfx::TextElision::Right);
-        painter.draw_text(clipped_rect, text(), font, text_alignment, Color::from_rgb(0x808080), Gfx::TextElision::Right);
+        painter.draw_text(clipped_rect.translated(1, 1), text(), font, text_alignment, Color::White, Gfx::TextElision::Right, text_wrapping);
+        painter.draw_text(clipped_rect, text(), font, text_alignment, Color::from_rgb(0x808080), Gfx::TextElision::Right, text_wrapping);
         return;
     }
 
     if (text().is_empty())
         return;
-    painter.draw_text(clipped_rect, text(), font, text_alignment, palette().color(foreground_role()), Gfx::TextElision::Right);
+    painter.draw_text(clipped_rect, text(), font, text_alignment, palette().color(foreground_role()), Gfx::TextElision::Right, text_wrapping);
 }
 
 void AbstractButton::change_event(Event& event)

@@ -25,19 +25,21 @@ DevPtsFS::~DevPtsFS()
 {
 }
 
-static AK::Singleton<HashTable<unsigned>> s_ptys;
+static Singleton<HashTable<unsigned>> s_ptys;
 
-bool DevPtsFS::initialize()
+KResult DevPtsFS::initialize()
 {
-    m_root_inode = adopt_ref(*new DevPtsFSInode(*this, 1, nullptr));
+    m_root_inode = adopt_ref_if_nonnull(new (nothrow) DevPtsFSInode(*this, 1, nullptr));
+    if (!m_root_inode)
+        return ENOMEM;
+
     m_root_inode->m_metadata.inode = { fsid(), 1 };
     m_root_inode->m_metadata.mode = 0040555;
     m_root_inode->m_metadata.uid = 0;
     m_root_inode->m_metadata.gid = 0;
     m_root_inode->m_metadata.size = 0;
     m_root_inode->m_metadata.mtime = mepoch;
-
-    return true;
+    return KSuccess;
 }
 
 static unsigned inode_index_to_pty_index(InodeIndex inode_index)
@@ -51,7 +53,7 @@ static InodeIndex pty_index_to_inode_index(unsigned pty_index)
     return pty_index + 2;
 }
 
-NonnullRefPtr<Inode> DevPtsFS::root_inode() const
+Inode& DevPtsFS::root_inode()
 {
     return *m_root_inode;
 }
@@ -136,28 +138,24 @@ KResult DevPtsFSInode::traverse_as_directory(Function<bool(FileSystem::Directory
     return KSuccess;
 }
 
-KResultOr<size_t> DevPtsFSInode::directory_entry_count() const
-{
-    VERIFY(identifier().index() == 1);
-
-    return 2 + s_ptys->size();
-}
-
-RefPtr<Inode> DevPtsFSInode::lookup(StringView name)
+KResultOr<NonnullRefPtr<Inode>> DevPtsFSInode::lookup(StringView name)
 {
     VERIFY(identifier().index() == 1);
 
     if (name == "." || name == "..")
-        return this;
+        return *this;
 
     auto& fs = static_cast<DevPtsFS&>(this->fs());
 
     auto pty_index = name.to_uint();
     if (pty_index.has_value() && s_ptys->contains(pty_index.value())) {
-        return fs.get_inode({ fsid(), pty_index_to_inode_index(pty_index.value()) });
+        auto inode = fs.get_inode({ fsid(), pty_index_to_inode_index(pty_index.value()) });
+        if (!inode)
+            return ENOENT;
+        return inode.release_nonnull();
     }
 
-    return {};
+    return ENOENT;
 }
 
 void DevPtsFSInode::flush_metadata()
@@ -169,7 +167,7 @@ KResult DevPtsFSInode::add_child(Inode&, const StringView&, mode_t)
     return EROFS;
 }
 
-KResultOr<NonnullRefPtr<Inode>> DevPtsFSInode::create_child(const String&, mode_t, dev_t, uid_t, gid_t)
+KResultOr<NonnullRefPtr<Inode>> DevPtsFSInode::create_child(StringView, mode_t, dev_t, uid_t, gid_t)
 {
     return EROFS;
 }

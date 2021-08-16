@@ -32,23 +32,32 @@ fi
 umask 0022
 
 printf "installing base system... "
-if command -v rsync >/dev/null; then
-    if rsync --chown 2>&1 | grep "missing argument" >/dev/null; then
-        rsync -aH --chown=0:0 --inplace "$SERENITY_SOURCE_DIR"/Base/ mnt/
-        rsync -aH --chown=0:0 --inplace Root/ mnt/
-    else
-        rsync -aH --inplace "$SERENITY_SOURCE_DIR"/Base/ mnt/
-        rsync -aH --inplace Root/ mnt/
-        chown -R 0:0 mnt/
-    fi
+if ! command -v rsync >/dev/null; then
+    die "Please install rsync."
+fi
+
+if rsync --chown 2>&1 | grep "missing argument" >/dev/null; then
+    rsync -aH --chown=0:0 --inplace "$SERENITY_SOURCE_DIR"/Base/ mnt/
+    rsync -aH --chown=0:0 --inplace Root/ mnt/
 else
-    echo "Please install rsync to speed up image creation times, falling back to cp for now"
-    $CP -PdR "$SERENITY_SOURCE_DIR"/Base/* mnt/
-    $CP -PdR Root/* mnt/
+    rsync -aH --inplace "$SERENITY_SOURCE_DIR"/Base/ mnt/
+    rsync -aH --inplace Root/ mnt/
     chown -R 0:0 mnt/
 fi
+
 SERENITY_ARCH="${SERENITY_ARCH:-i686}"
-$CP "$SERENITY_SOURCE_DIR"/Toolchain/Local/"$SERENITY_ARCH"/"$SERENITY_ARCH"-pc-serenity/lib/libgcc_s.so mnt/usr/lib/
+LLVM_VERSION="${LLVM_VERSION:-12.0.1}"
+
+if [ "$USE_CLANG_TOOLCHAIN" = "1" ]; then
+    TOOLCHAIN_DIR="$SERENITY_SOURCE_DIR"/Toolchain/Local/clang/"$SERENITY_ARCH"
+    mkdir -p mnt/usr/lib/clang/"$LLVM_VERSION"/lib/serenity
+    $CP "$TOOLCHAIN_DIR"/lib/clang/"$LLVM_VERSION"/lib/serenity/* mnt/usr/lib/clang/"$LLVM_VERSION"/lib/serenity
+    $CP "$TOOLCHAIN_DIR"/lib/libunwind* mnt/usr/lib
+    $CP "$TOOLCHAIN_DIR"/lib/libc++* mnt/usr/lib
+else
+    $CP "$SERENITY_SOURCE_DIR"/Toolchain/Local/"$SERENITY_ARCH"/"$SERENITY_ARCH"-pc-serenity/lib/libgcc_s.so mnt/usr/lib
+fi
+
 # If umask was 027 or similar when the repo was cloned,
 # file permissions in Base/ are too restrictive. Restore
 # the permissions needed in the image.
@@ -97,6 +106,7 @@ fi
 
 chmod 0400 mnt/res/kernel.map
 chmod 0400 mnt/boot/Kernel
+chmod 0400 mnt/boot/Kernel.debug
 chmod 600 mnt/etc/shadow
 chmod 755 mnt/res/devel/templates/*.postcreate
 echo "done"
@@ -141,7 +151,8 @@ cp "$SERENITY_SOURCE_DIR"/README.md mnt/home/anon/
 cp -r "$SERENITY_SOURCE_DIR"/Userland/Libraries/LibJS/Tests mnt/home/anon/js-tests
 cp -r "$SERENITY_SOURCE_DIR"/Userland/Libraries/LibWeb/Tests mnt/home/anon/web-tests
 cp -r "$SERENITY_SOURCE_DIR"/Userland/DevTools/HackStudio/LanguageServers/Cpp/Tests mnt/home/anon/cpp-tests/comprehension
-cp -r "$SERENITY_SOURCE_DIR"/Userland/Libraries/LibCpp/Tests mnt/home/anon/cpp-tests/parser
+cp -r "$SERENITY_SOURCE_DIR"/Userland/Libraries/LibCpp/Tests/parser mnt/home/anon/cpp-tests/parser
+cp -r "$SERENITY_SOURCE_DIR"/Userland/Libraries/LibCpp/Tests/preprocessor mnt/home/anon/cpp-tests/preprocessor
 cp -r "$SERENITY_SOURCE_DIR"/Userland/Libraries/LibWasm/Tests mnt/home/anon/wasm-tests
 cp -r "$SERENITY_SOURCE_DIR"/Userland/Libraries/LibJS/Tests/test-common.js mnt/home/anon/wasm-tests
 chmod 700 mnt/root

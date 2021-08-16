@@ -16,16 +16,16 @@
 #include <Kernel/Heap/Heap.h>
 #include <Kernel/Heap/kmalloc.h>
 #include <Kernel/KSyms.h>
+#include <Kernel/Locking/SpinLock.h>
+#include <Kernel/Memory/MemoryManager.h>
 #include <Kernel/Panic.h>
 #include <Kernel/PerformanceManager.h>
 #include <Kernel/Sections.h>
-#include <Kernel/SpinLock.h>
 #include <Kernel/StdLib.h>
-#include <Kernel/VM/MemoryManager.h>
 
 #define CHUNK_SIZE 32
 #define POOL_SIZE (2 * MiB)
-#define ETERNAL_RANGE_SIZE (3 * MiB)
+#define ETERNAL_RANGE_SIZE (4 * MiB)
 
 namespace std {
 const nothrow_t nothrow;
@@ -47,7 +47,7 @@ struct KmallocGlobalHeap {
         bool m_adding { false };
         bool add_memory(size_t allocation_request)
         {
-            if (!MemoryManager::is_initialized()) {
+            if (!Memory::MemoryManager::is_initialized()) {
                 if constexpr (KMALLOC_DEBUG) {
                     dmesgln("kmalloc: Cannot expand heap before MM is initialized!");
                 }
@@ -94,12 +94,12 @@ struct KmallocGlobalHeap {
             // was big enough to likely satisfy the request
             if (subheap.free_bytes() < allocation_request) {
                 // Looks like we probably need more
-                size_t memory_size = page_round_up(decltype(m_global_heap.m_heap)::calculate_memory_for_bytes(allocation_request));
+                size_t memory_size = Memory::page_round_up(decltype(m_global_heap.m_heap)::calculate_memory_for_bytes(allocation_request));
                 // Add some more to the new heap. We're already using it for other
                 // allocations not including the original allocation_request
                 // that triggered heap expansion. If we don't allocate
                 memory_size += 1 * MiB;
-                region = MM.allocate_kernel_region(memory_size, "kmalloc subheap", Region::Access::Read | Region::Access::Write, AllocationStrategy::AllocateNow);
+                region = MM.allocate_kernel_region(memory_size, "kmalloc subheap", Memory::Region::Access::ReadWrite, AllocationStrategy::AllocateNow);
                 if (region) {
                     dbgln("kmalloc: Adding even more memory to heap at {}, bytes: {}", region->vaddr(), region->size());
 
@@ -162,8 +162,8 @@ struct KmallocGlobalHeap {
     typedef ExpandableHeap<CHUNK_SIZE, KMALLOC_SCRUB_BYTE, KFREE_SCRUB_BYTE, ExpandGlobalHeap> HeapType;
 
     HeapType m_heap;
-    NonnullOwnPtrVector<Region> m_subheap_memory;
-    OwnPtr<Region> m_backup_memory;
+    NonnullOwnPtrVector<Memory::Region> m_subheap_memory;
+    OwnPtr<Memory::Region> m_backup_memory;
 
     KmallocGlobalHeap(u8* memory, size_t memory_size)
         : m_heap(memory, memory_size, ExpandGlobalHeap(*this))
@@ -173,7 +173,7 @@ struct KmallocGlobalHeap {
     {
         if (m_backup_memory)
             return;
-        m_backup_memory = MM.allocate_kernel_region(1 * MiB, "kmalloc subheap", Region::Access::Read | Region::Access::Write, AllocationStrategy::AllocateNow);
+        m_backup_memory = MM.allocate_kernel_region(1 * MiB, "kmalloc subheap", Memory::Region::Access::ReadWrite, AllocationStrategy::AllocateNow);
     }
 
     size_t backup_memory_bytes() const
@@ -212,7 +212,7 @@ static inline void kmalloc_verify_nospinlock_held()
 {
     // Catch bad callers allocating under spinlock.
     if constexpr (KMALLOC_VERIFY_NO_SPINLOCK_HELD) {
-        VERIFY(!Processor::current().in_critical());
+        VERIFY(!Processor::in_critical());
     }
 }
 
@@ -255,9 +255,6 @@ void* kmalloc(size_t size)
     }
 
     void* ptr = g_kmalloc_global->m_heap.allocate(size);
-    if (!ptr) {
-        PANIC("kmalloc: Out of memory (requested size: {})", size);
-    }
 
     Thread* current_thread = Thread::current();
     if (!current_thread)
@@ -301,6 +298,18 @@ size_t kmalloc_good_size(size_t size)
     return size;
 }
 
+[[gnu::malloc, gnu::alloc_size(1), gnu::alloc_align(2)]] static void* kmalloc_aligned_cxx(size_t size, size_t alignment)
+{
+    VERIFY(alignment <= 4096);
+    void* ptr = kmalloc(size + alignment + sizeof(ptrdiff_t));
+    if (ptr == nullptr)
+        return nullptr;
+    size_t max_addr = (size_t)ptr + alignment;
+    void* aligned_ptr = (void*)(max_addr - (max_addr % alignment));
+    ((ptrdiff_t*)aligned_ptr)[-1] = (ptrdiff_t)((u8*)aligned_ptr - (u8*)ptr);
+    return aligned_ptr;
+}
+
 void* operator new(size_t size)
 {
     void* ptr = kmalloc(size);
@@ -311,6 +320,18 @@ void* operator new(size_t size)
 void* operator new(size_t size, const std::nothrow_t&) noexcept
 {
     return kmalloc(size);
+}
+
+void* operator new(size_t size, std::align_val_t al)
+{
+    void* ptr = kmalloc_aligned_cxx(size, (size_t)al);
+    VERIFY(ptr);
+    return ptr;
+}
+
+void* operator new(size_t size, std::align_val_t al, const std::nothrow_t&) noexcept
+{
+    return kmalloc_aligned_cxx(size, (size_t)al);
 }
 
 void* operator new[](size_t size)
@@ -334,6 +355,11 @@ void operator delete(void*) noexcept
 void operator delete(void* ptr, size_t size) noexcept
 {
     return kfree_sized(ptr, size);
+}
+
+void operator delete(void* ptr, size_t, std::align_val_t) noexcept
+{
+    return kfree_aligned(ptr);
 }
 
 void operator delete[](void*) noexcept

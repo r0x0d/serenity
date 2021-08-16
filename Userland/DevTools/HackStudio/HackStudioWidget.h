@@ -13,6 +13,7 @@
 #include "Debugger/DisassemblyWidget.h"
 #include "EditorWrapper.h"
 #include "FindInFilesWidget.h"
+#include "GMLPreviewWidget.h"
 #include "Git/DiffViewer.h"
 #include "Git/GitWidget.h"
 #include "Locator.h"
@@ -42,7 +43,7 @@ public:
     void set_current_editor_wrapper(RefPtr<EditorWrapper>);
 
     const String& active_file() const { return m_current_editor_wrapper->filename(); }
-    void initialize_menubar(GUI::Menubar&);
+    void initialize_menubar(GUI::Window&);
 
     Locator& locator()
     {
@@ -81,6 +82,7 @@ private:
     NonnullRefPtr<GUI::Action> create_remove_current_editor_action();
     NonnullRefPtr<GUI::Action> create_open_action();
     NonnullRefPtr<GUI::Action> create_save_action();
+    NonnullRefPtr<GUI::Action> create_save_as_action();
     NonnullRefPtr<GUI::Action> create_show_in_file_manager_action();
     NonnullRefPtr<GUI::Action> create_add_editor_action();
     NonnullRefPtr<GUI::Action> create_add_terminal_action();
@@ -97,18 +99,19 @@ private:
     void on_action_tab_change();
     void reveal_action_tab(GUI::Widget&);
     void initialize_debugger();
+    void update_statusbar();
 
     void handle_external_file_deletion(const String& filepath);
 
     void create_open_files_view(GUI::Widget& parent);
     void create_toolbar(GUI::Widget& parent);
     void create_action_tab(GUI::Widget& parent);
-    void create_file_menubar(GUI::Menubar&);
-    void create_project_menubar(GUI::Menubar&);
-    void create_edit_menubar(GUI::Menubar&);
-    void create_build_menubar(GUI::Menubar&);
-    void create_view_menubar(GUI::Menubar&);
-    void create_help_menubar(GUI::Menubar&);
+    void create_file_menu(GUI::Window&);
+    void create_project_menu(GUI::Window&);
+    void create_edit_menu(GUI::Window&);
+    void create_build_menu(GUI::Window&);
+    void create_view_menu(GUI::Window&);
+    void create_help_menu(GUI::Window&);
     void create_project_tab(GUI::Widget& parent);
     void configure_project_tree_view();
 
@@ -117,6 +120,8 @@ private:
 
     void hide_action_tabs();
     bool any_document_is_dirty() const;
+
+    void update_gml_preview();
 
     NonnullRefPtrVector<EditorWrapper> m_all_editor_wrappers;
     RefPtr<EditorWrapper> m_current_editor_wrapper;
@@ -134,8 +139,10 @@ private:
     RefPtr<GUI::Splitter> m_editors_splitter;
     RefPtr<DiffViewer> m_diff_viewer;
     RefPtr<GitWidget> m_git_widget;
+    RefPtr<GMLPreviewWidget> m_gml_preview_widget;
     RefPtr<ClassViewWidget> m_class_view;
     RefPtr<GUI::Menu> m_project_tree_view_context_menu;
+    RefPtr<GUI::Statusbar> m_statusbar;
     RefPtr<GUI::TabWidget> m_action_tab_widget;
     RefPtr<GUI::TabWidget> m_project_tab;
     RefPtr<TerminalWrapper> m_terminal_wrapper;
@@ -158,6 +165,7 @@ private:
     RefPtr<GUI::Action> m_remove_current_editor_action;
     RefPtr<GUI::Action> m_open_action;
     RefPtr<GUI::Action> m_save_action;
+    RefPtr<GUI::Action> m_save_as_action;
     RefPtr<GUI::Action> m_add_editor_action;
     RefPtr<GUI::Action> m_add_terminal_action;
     RefPtr<GUI::Action> m_remove_current_terminal_action;

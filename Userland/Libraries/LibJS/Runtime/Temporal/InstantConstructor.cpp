@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
+#include <AK/TypeCasts.h>
 #include <LibCrypto/BigInt/UnsignedBigInteger.h>
 #include <LibJS/Runtime/GlobalObject.h>
 #include <LibJS/Runtime/Temporal/Instant.h>
@@ -76,8 +77,8 @@ JS_DEFINE_NATIVE_FUNCTION(InstantConstructor::from)
 
     // 1. If Type(item) is Object and item has an [[InitializedTemporalInstant]] internal slot, then
     if (item.is_object() && is<Instant>(item.as_object())) {
-        // a. Return ? CreateTemporalInstant(item.[[Nanoseconds]]).
-        return create_temporal_instant(global_object, *js_bigint(vm.heap(), static_cast<Instant&>(item.as_object()).nanoseconds().big_integer()));
+        // a. Return ! CreateTemporalInstant(item.[[Nanoseconds]]).
+        return create_temporal_instant(global_object, *js_bigint(vm, static_cast<Instant&>(item.as_object()).nanoseconds().big_integer()));
     }
 
     // 2. Return ? ToTemporalInstant(item).
@@ -98,7 +99,7 @@ JS_DEFINE_NATIVE_FUNCTION(InstantConstructor::from_epoch_seconds)
         return {};
 
     // 3. Let epochNanoseconds be epochSeconds × 10^9ℤ.
-    auto* epoch_nanoseconds = js_bigint(vm.heap(), epoch_seconds->big_integer().multiplied_by(Crypto::UnsignedBigInteger { 1'000'000'000 }));
+    auto* epoch_nanoseconds = js_bigint(vm, epoch_seconds->big_integer().multiplied_by(Crypto::UnsignedBigInteger { 1'000'000'000 }));
 
     // 4. If ! IsValidEpochNanoseconds(epochNanoseconds) is false, throw a RangeError exception.
     if (!is_valid_epoch_nanoseconds(*epoch_nanoseconds)) {
@@ -106,7 +107,7 @@ JS_DEFINE_NATIVE_FUNCTION(InstantConstructor::from_epoch_seconds)
         return {};
     }
 
-    // 5. Return ? CreateTemporalInstant(epochNanoseconds).
+    // 5. Return ! CreateTemporalInstant(epochNanoseconds).
     return create_temporal_instant(global_object, *epoch_nanoseconds);
 }
 
@@ -124,7 +125,7 @@ JS_DEFINE_NATIVE_FUNCTION(InstantConstructor::from_epoch_milliseconds)
         return {};
 
     // 3. Let epochNanoseconds be epochMilliseconds × 10^6ℤ.
-    auto* epoch_nanoseconds = js_bigint(vm.heap(), epoch_milliseconds->big_integer().multiplied_by(Crypto::UnsignedBigInteger { 1'000'000 }));
+    auto* epoch_nanoseconds = js_bigint(vm, epoch_milliseconds->big_integer().multiplied_by(Crypto::UnsignedBigInteger { 1'000'000 }));
 
     // 4. If ! IsValidEpochNanoseconds(epochNanoseconds) is false, throw a RangeError exception.
     if (!is_valid_epoch_nanoseconds(*epoch_nanoseconds)) {
@@ -132,7 +133,7 @@ JS_DEFINE_NATIVE_FUNCTION(InstantConstructor::from_epoch_milliseconds)
         return {};
     }
 
-    // 5. Return ? CreateTemporalInstant(epochNanoseconds).
+    // 5. Return ! CreateTemporalInstant(epochNanoseconds).
     return create_temporal_instant(global_object, *epoch_nanoseconds);
 }
 
@@ -145,7 +146,7 @@ JS_DEFINE_NATIVE_FUNCTION(InstantConstructor::from_epoch_microseconds)
         return {};
 
     // 2. Let epochNanoseconds be epochMicroseconds × 1000ℤ.
-    auto* epoch_nanoseconds = js_bigint(vm.heap(), epoch_microseconds->big_integer().multiplied_by(Crypto::UnsignedBigInteger { 1'000 }));
+    auto* epoch_nanoseconds = js_bigint(vm, epoch_microseconds->big_integer().multiplied_by(Crypto::UnsignedBigInteger { 1'000 }));
 
     // 3. If ! IsValidEpochNanoseconds(epochNanoseconds) is false, throw a RangeError exception.
     if (!is_valid_epoch_nanoseconds(*epoch_nanoseconds)) {
@@ -153,7 +154,7 @@ JS_DEFINE_NATIVE_FUNCTION(InstantConstructor::from_epoch_microseconds)
         return {};
     }
 
-    // 4. Return ? CreateTemporalInstant(epochNanoseconds).
+    // 4. Return ! CreateTemporalInstant(epochNanoseconds).
     return create_temporal_instant(global_object, *epoch_nanoseconds);
 }
 
@@ -171,7 +172,7 @@ JS_DEFINE_NATIVE_FUNCTION(InstantConstructor::from_epoch_nanoseconds)
         return {};
     }
 
-    // 3. Return ? CreateTemporalInstant(epochNanoseconds).
+    // 3. Return ! CreateTemporalInstant(epochNanoseconds).
     return create_temporal_instant(global_object, *epoch_nanoseconds);
 }
 

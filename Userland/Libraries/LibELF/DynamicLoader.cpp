@@ -218,7 +218,7 @@ Result<NonnullRefPtr<DynamicObject>, DlErrorMessage> DynamicLoader::load_stage_3
             return DlErrorMessage { String::formatted("mprotect .relro: PROT_READ: {}", strerror(errno)) };
         }
 
-#if __serenity__
+#ifdef __serenity__
         if (set_mmap_name(m_relro_segment_address.as_ptr(), m_relro_segment_size, String::formatted("{}: .relro", m_filename).characters()) < 0) {
             return DlErrorMessage { String::formatted("set_mmap_name .relro: {}", strerror(errno)) };
         }
@@ -321,7 +321,7 @@ void DynamicLoader::load_program_headers()
     for (auto& text_region : text_regions) {
         FlatPtr ph_text_desired_base = text_region.desired_load_address().get();
         FlatPtr ph_text_base = text_region.desired_load_address().page_base().get();
-        FlatPtr ph_text_end = ph_text_base + round_up_to_power_of_two(text_region.size_in_memory() + (size_t)(text_region.desired_load_address().as_ptr() - ph_text_base), PAGE_SIZE);
+        FlatPtr ph_text_end = ph_text_base + round_up_to_power_of_two(text_region.size_in_memory() + text_region.desired_load_address().get() - ph_text_base, PAGE_SIZE);
 
         // Now we can map the text segment at the reserved address.
         auto* text_segment_begin = (u8*)mmap_with_name(
@@ -355,7 +355,7 @@ void DynamicLoader::load_program_headers()
 
     for (auto& data_region : data_regions) {
         FlatPtr ph_data_base = data_region.desired_load_address().page_base().get();
-        FlatPtr ph_data_end = ph_data_base + round_up_to_power_of_two(data_region.size_in_memory() + (size_t)(data_region.desired_load_address().as_ptr() - ph_data_base), PAGE_SIZE);
+        FlatPtr ph_data_end = ph_data_base + round_up_to_power_of_two(data_region.size_in_memory() + data_region.desired_load_address().get() - ph_data_base, PAGE_SIZE);
 
         auto* data_segment_address = (u8*)reservation + ph_data_base - ph_load_base;
         size_t data_segment_size = ph_data_end - ph_data_base;
@@ -468,9 +468,9 @@ DynamicLoader::RelocationResult DynamicLoader::do_relocation(const ELF::DynamicO
         //     We could explicitly do them first using m_number_of_relocations from DT_RELCOUNT
         //     However, our compiler is nice enough to put them at the front of the relocations for us :)
         if (relocation.addend_used())
-            *patch_ptr = (FlatPtr)m_dynamic_object->base_address().as_ptr() + relocation.addend();
+            *patch_ptr = m_dynamic_object->base_address().offset(relocation.addend()).get();
         else
-            *patch_ptr += (FlatPtr)m_dynamic_object->base_address().as_ptr();
+            *patch_ptr += m_dynamic_object->base_address().get();
         break;
     }
 #if ARCH(I386)
@@ -508,10 +508,10 @@ DynamicLoader::RelocationResult DynamicLoader::do_relocation(const ELF::DynamicO
             // The patch method returns the address for the LAZY fixup path, but we don't need it here
             m_dynamic_object->patch_plt_entry(relocation.offset_in_section());
         } else {
-            u8* relocation_address = relocation.address().as_ptr();
+            auto relocation_address = (FlatPtr*)relocation.address().as_ptr();
 
             if (m_elf_image.is_dynamic())
-                *(FlatPtr*)relocation_address += (FlatPtr)m_dynamic_object->base_address().as_ptr();
+                *relocation_address += m_dynamic_object->base_address().get();
         }
         break;
     }

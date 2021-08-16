@@ -13,7 +13,6 @@
 #include <LibGUI/Widget.h>
 #include <LibGUI/Window.h>
 #include <LibGfx/Bitmap.h>
-#include <WindowServer/Screen.h>
 #include <stdio.h>
 #include <time.h>
 #include <unistd.h>
@@ -59,7 +58,7 @@ Starfield::Starfield(int interval)
 
 void Starfield::create_stars(int width, int height, int stars)
 {
-    m_bitmap = Gfx::Bitmap::create(Gfx::BitmapFormat::BGRx8888, { width, height });
+    m_bitmap = Gfx::Bitmap::try_create(Gfx::BitmapFormat::BGRx8888, { width, height });
 
     m_stars.grow_capacity(stars);
     for (int i = 0; i < stars; i++) {
@@ -80,12 +79,12 @@ void Starfield::mousemove_event(GUI::MouseEvent&)
 
 void Starfield::mousedown_event(GUI::MouseEvent&)
 {
-    ::exit(0);
+    GUI::Application::the()->quit();
 }
 
 void Starfield::keydown_event(GUI::KeyEvent&)
 {
-    ::exit(0);
+    GUI::Application::the()->quit();
 }
 
 void Starfield::paint_event(GUI::PaintEvent& event)

@@ -6,6 +6,8 @@
 
 #pragma once
 
+#include <AK/DistinctNumeric.h>
+
 namespace Kernel {
 
 class BlockDevice;
@@ -31,16 +33,11 @@ class InodeWatcher;
 class KBuffer;
 class KResult;
 class LocalSocket;
-class Lock;
-class MappedROM;
+class Mutex;
 class MasterPTY;
 class Mount;
-class PageDirectory;
 class PerformanceEventBuffer;
-class PhysicalPage;
-class PhysicalRegion;
 class ProcFS;
-class ProcFSBusDirectory;
 class ProcFSDirectoryInode;
 class ProcFSExposedComponent;
 class ProcFSExposedDirectory;
@@ -51,16 +48,12 @@ class ProcFSSystemBoolean;
 class ProcFSSystemDirectory;
 class Process;
 class ProcessGroup;
-class Range;
-class RangeAllocator;
 class RecursiveSpinLock;
-class Region;
 class Scheduler;
-class SchedulerPerProcessorData;
-class SharedInodeVMObject;
 class Socket;
-class Space;
 class SysFS;
+class SysFSDirectory;
+class SysFSBusDirectory;
 class SysFSDirectoryInode;
 class SysFSInode;
 class TCPSocket;
@@ -69,10 +62,26 @@ class Thread;
 class ThreadTracer;
 class UDPSocket;
 class UserOrKernelBuffer;
-class VMObject;
 class VirtualFileSystem;
 class WaitQueue;
 class WorkQueue;
+
+namespace Memory {
+class AddressSpace;
+class AnonymousVMObject;
+class InodeVMObject;
+class MappedROM;
+class MemoryManager;
+class PageDirectory;
+class PhysicalPage;
+class PhysicalRegion;
+class PrivateInodeVMObject;
+class Region;
+class SharedInodeVMObject;
+class VMObject;
+class VirtualRange;
+class VirtualRangeAllocator;
+}
 
 template<typename BaseType>
 class SpinLock;
@@ -83,5 +92,10 @@ class KResultOr;
 
 struct InodeMetadata;
 struct TrapFrame;
+
+TYPEDEF_DISTINCT_ORDERED_ID(pid_t, ProcessID);
+TYPEDEF_DISTINCT_ORDERED_ID(pid_t, ThreadID);
+TYPEDEF_DISTINCT_ORDERED_ID(pid_t, SessionID);
+TYPEDEF_DISTINCT_ORDERED_ID(pid_t, ProcessGroupID);
 
 }

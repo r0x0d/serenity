@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2018-2021, Andreas Kling <kling@serenityos.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -8,7 +8,7 @@
 
 #include <AK/Badge.h>
 #include <Kernel/Devices/CharacterDevice.h>
-#include <Kernel/Lock.h>
+#include <Kernel/Locking/Mutex.h>
 
 namespace Kernel {
 
@@ -43,8 +43,8 @@ private:
     // ^CharacterDevice
     virtual StringView class_name() const override { return "PTYMultiplexer"; }
 
-    Lock m_lock { "PTYMultiplexer" };
-    Vector<unsigned> m_freelist;
+    static constexpr size_t max_pty_pairs = 64;
+    ProtectedValue<Vector<unsigned, max_pty_pairs>> m_freelist;
 };
 
 }

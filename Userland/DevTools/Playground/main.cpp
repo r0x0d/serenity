@@ -4,13 +4,13 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
-#include "GMLAutocompleteProvider.h"
 #include <AK/URL.h>
 #include <LibCore/ArgsParser.h>
 #include <LibCore/File.h>
 #include <LibDesktop/Launcher.h>
 #include <LibGUI/Application.h>
 #include <LibGUI/FilePicker.h>
+#include <LibGUI/GMLAutocompleteProvider.h>
 #include <LibGUI/GMLFormatter.h>
 #include <LibGUI/GMLLexer.h>
 #include <LibGUI/GMLSyntaxHighlighter.h>
@@ -19,8 +19,10 @@
 #include <LibGUI/Menubar.h>
 #include <LibGUI/MessageBox.h>
 #include <LibGUI/Painter.h>
+#include <LibGUI/RegularEditingEngine.h>
 #include <LibGUI/Splitter.h>
 #include <LibGUI/TextEditor.h>
+#include <LibGUI/VimEditingEngine.h>
 #include <LibGUI/Window.h>
 #include <string.h>
 #include <unistd.h>
@@ -100,7 +102,7 @@ int main(int argc, char** argv)
     auto& preview = splitter.add<GUI::Frame>();
 
     editor.set_syntax_highlighter(make<GUI::GMLSyntaxHighlighter>());
-    editor.set_autocomplete_provider(make<GMLAutocompleteProvider>());
+    editor.set_autocomplete_provider(make<GUI::GMLAutocompleteProvider>());
     editor.set_should_autocomplete_automatically(true);
     editor.set_automatic_indentation_enabled(true);
 
@@ -156,8 +158,7 @@ int main(int argc, char** argv)
         update_title();
     };
 
-    auto menubar = GUI::Menubar::construct();
-    auto& file_menu = menubar->add_menu("&File");
+    auto& file_menu = window->add_menu("&File");
 
     auto save_as_action = GUI::CommonActions::make_save_as_action([&](auto&) {
         Optional<String> new_save_path = GUI::FilePicker::get_save_filepath(window, "Untitled", "gml");
@@ -223,7 +224,7 @@ int main(int argc, char** argv)
         app->quit();
     }));
 
-    auto& edit_menu = menubar->add_menu("&Edit");
+    auto& edit_menu = window->add_menu("&Edit");
     edit_menu.add_action(GUI::Action::create("&Format GML", { Mod_Ctrl | Mod_Shift, Key_I }, [&](auto&) {
         auto source = editor.text();
         GUI::GMLLexer lexer(source);
@@ -252,13 +253,21 @@ int main(int argc, char** argv)
         }
     }));
 
-    auto& help_menu = menubar->add_menu("&Help");
+    auto vim_emulation_setting_action = GUI::Action::create_checkable("&Vim Emulation", { Mod_Ctrl | Mod_Shift | Mod_Alt, Key_V }, [&](auto& action) {
+        if (action.is_checked())
+            editor.set_editing_engine(make<GUI::VimEditingEngine>());
+        else
+            editor.set_editing_engine(make<GUI::RegularEditingEngine>());
+    });
+    vim_emulation_setting_action->set_checked(false);
+    edit_menu.add_action(vim_emulation_setting_action);
+
+    auto& help_menu = window->add_menu("&Help");
     help_menu.add_action(GUI::CommonActions::make_help_action([](auto&) {
         Desktop::Launcher::open(URL::create_with_file_protocol("/usr/share/man/man1/Playground.md"), "/bin/Help");
     }));
     help_menu.add_action(GUI::CommonActions::make_about_action("GML Playground", app_icon, window));
 
-    window->set_menubar(move(menubar));
     window->on_close_request = [&] {
         if (!window->is_modified())
             return GUI::Window::CloseRequestDecision::Close;

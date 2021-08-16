@@ -12,7 +12,7 @@
 #include <AK/NonnullRefPtrVector.h>
 #include <AK/Types.h>
 #include <Kernel/Bus/PCI/Definitions.h>
-#include <Kernel/VM/Region.h>
+#include <Kernel/Memory/Region.h>
 
 namespace Kernel {
 
@@ -40,7 +40,7 @@ private:
 
     NonnullRefPtrVector<NetworkAdapter> m_adapters;
     RefPtr<NetworkAdapter> m_loopback_adapter;
-    mutable Lock m_lock { "Networking" };
+    mutable Mutex m_lock { "Networking" };
 };
 
 }

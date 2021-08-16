@@ -7,6 +7,7 @@ set(LIBC_SOURCES
     dlfcn.cpp
     fcntl.cpp
     fenv.cpp
+    fnmatch.cpp
     getopt.cpp
     grp.cpp
     inttypes.cpp
@@ -26,6 +27,8 @@ set(LIBC_SOURCES
     pty.cpp
     pwd.cpp
     qsort.cpp
+    regex.cpp
+    resolv.cpp
     scanf.cpp
     sched.cpp
     serenity.cpp
@@ -39,6 +42,7 @@ set(LIBC_SOURCES
     strings.cpp
     stubs.cpp
     syslog.cpp
+    sys/file.cpp
     sys/mman.cpp
     sys/prctl.cpp
     sys/ptrace.cpp
@@ -47,6 +51,7 @@ set(LIBC_SOURCES
     sys/uio.cpp
     sys/wait.cpp
     sys/statvfs.cpp
+    sys/xattr.cpp
     termcap.cpp
     termios.cpp
     time.cpp
@@ -109,7 +114,13 @@ add_custom_command(
 
 set(SOURCES ${LIBC_SOURCES} ${AK_SOURCES} ${ELF_SOURCES} ${ASM_SOURCES})
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -static-libstdc++")
+if (NOT USE_CLANG_TOOLCHAIN)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -static-libstdc++")
+endif()
+
+# Prevent GCC from removing null checks by marking the `FILE*` argument non-null
+set_source_files_properties(stdio.cpp PROPERTIES COMPILE_FLAGS "-fno-builtin-fputc -fno-builtin-fputs -fno-builtin-fwrite")
+
 add_library(LibCStaticWithoutDeps STATIC ${SOURCES})
 target_link_libraries(LibCStaticWithoutDeps ssp)
 add_dependencies(LibCStaticWithoutDeps LibM LibSystem LibUBSanitizer)
@@ -132,7 +143,7 @@ set_property(
         PROPERTY ADDITIONAL_CLEAN_FILES ${TEMP_OBJ_FILES}
 )
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -static-libstdc++")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -nolibc")
 serenity_libc(LibC c)
 add_dependencies(LibC crti crt0 crt0_shared crtn)
 target_link_libraries(LibC ssp system)

@@ -35,7 +35,8 @@ ELFObjectInfo const* Backtrace::object_info_for_region(ELF::Core::MemoryRegionIn
         return nullptr;
 
     auto image = make<ELF::Image>(file_or_error.value()->bytes());
-    auto info = make<ELFObjectInfo>(file_or_error.release_value(), make<Debug::DebugInfo>(move(image)));
+    auto& image_reference = *image;
+    auto info = make<ELFObjectInfo>(file_or_error.release_value(), make<Debug::DebugInfo>(image_reference), move(image));
     auto* info_ptr = info.ptr();
     m_debug_info_cache.set(path, move(info));
     return info_ptr;
@@ -79,14 +80,18 @@ Backtrace::~Backtrace()
 
 void Backtrace::add_entry(const Reader& coredump, FlatPtr ip)
 {
-    auto* region = coredump.region_containing((FlatPtr)ip);
-    if (!region) {
+    auto* ip_region = coredump.region_containing((FlatPtr)ip);
+    if (!ip_region) {
         m_entries.append({ ip, {}, {}, {} });
         return;
     }
-    auto object_name = region->object_name();
+    auto object_name = ip_region->object_name();
     if (object_name == "Loader.so")
         return;
+    // We need to find the first region for the object, just in case
+    // the PT_LOAD header for the .text segment isn't the first one
+    // in the object file.
+    auto region = coredump.first_region_for_object(object_name);
     auto* object_info = object_info_for_region(*region);
     if (!object_info)
         return;

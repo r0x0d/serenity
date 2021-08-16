@@ -25,6 +25,7 @@ namespace Web::Bindings {
 WebAssemblyObject::WebAssemblyObject(JS::GlobalObject& global_object)
     : Object(*global_object.object_prototype())
 {
+    s_abstract_machine.enable_instruction_count_limit();
 }
 
 void WebAssemblyObject::initialize(JS::GlobalObject& global_object)
@@ -347,12 +348,12 @@ JS::Value to_js_value(Wasm::Value& wasm_value, JS::GlobalObject& global_object)
     case Wasm::ValueType::I32:
         return JS::Value(wasm_value.to<i32>().value());
     case Wasm::ValueType::F64:
-        return JS::Value(static_cast<double>(wasm_value.to<float>().value()));
-    case Wasm::ValueType::F32:
         return JS::Value(wasm_value.to<double>().value());
+    case Wasm::ValueType::F32:
+        return JS::Value(static_cast<double>(wasm_value.to<float>().value()));
     case Wasm::ValueType::FunctionReference:
         // FIXME: What's the name of a function reference that isn't exported?
-        return create_native_function(wasm_value.to<Wasm::FunctionAddress>().value(), "FIXME_IHaveNoIdeaWhatThisShouldBeCalled", global_object);
+        return create_native_function(wasm_value.to<Wasm::Reference::Func>().value().address, "FIXME_IHaveNoIdeaWhatThisShouldBeCalled", global_object);
     case Wasm::ValueType::NullFunctionReference:
         return JS::js_null();
     case Wasm::ValueType::ExternReference:
@@ -373,10 +374,11 @@ Optional<Wasm::Value> to_webassembly_value(JS::Value value, const Wasm::ValueTyp
         if (vm.exception())
             return {};
         auto value = bigint->big_integer().divided_by(two_64).remainder;
-        VERIFY(value.trimmed_length() <= 2);
-        BigEndian<i64> integer { 0 };
-        value.export_data({ &integer, 2 });
-        return Wasm::Value { static_cast<i64>(integer) };
+        VERIFY(value.unsigned_value().trimmed_length() <= 2);
+        i64 integer = static_cast<i64>(value.unsigned_value().to_u64());
+        if (value.is_negative())
+            integer = -integer;
+        return Wasm::Value { integer };
     }
     case Wasm::ValueType::I32: {
         auto _i32 = value.to_i32(global_object);

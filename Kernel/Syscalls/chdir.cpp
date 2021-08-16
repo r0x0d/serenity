@@ -5,7 +5,6 @@
  */
 
 #include <Kernel/FileSystem/Custody.h>
-#include <Kernel/FileSystem/FileDescription.h>
 #include <Kernel/FileSystem/VirtualFileSystem.h>
 #include <Kernel/Process.h>
 
@@ -13,6 +12,7 @@ namespace Kernel {
 
 KResultOr<FlatPtr> Process::sys$chdir(Userspace<const char*> user_path, size_t path_length)
 {
+    VERIFY_PROCESS_BIG_LOCK_ACQUIRED(this);
     REQUIRE_PROMISE(rpath);
     auto path = get_syscall_path_argument(user_path, path_length);
     if (path.is_error())
@@ -26,6 +26,7 @@ KResultOr<FlatPtr> Process::sys$chdir(Userspace<const char*> user_path, size_t p
 
 KResultOr<FlatPtr> Process::sys$fchdir(int fd)
 {
+    VERIFY_PROCESS_BIG_LOCK_ACQUIRED(this);
     REQUIRE_PROMISE(stdio);
     auto description = fds().file_description(fd);
     if (!description)
@@ -43,6 +44,7 @@ KResultOr<FlatPtr> Process::sys$fchdir(int fd)
 
 KResultOr<FlatPtr> Process::sys$getcwd(Userspace<char*> buffer, size_t size)
 {
+    VERIFY_PROCESS_BIG_LOCK_ACQUIRED(this);
     REQUIRE_PROMISE(rpath);
 
     if (size > NumericLimits<ssize_t>::max())

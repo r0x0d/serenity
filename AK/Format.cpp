@@ -19,6 +19,7 @@
 #    include <Kernel/Process.h>
 #    include <Kernel/Thread.h>
 #else
+#    include <math.h>
 #    include <stdio.h>
 #    include <string.h>
 #endif
@@ -344,6 +345,22 @@ void FormatBuilder::put_f64(
     StringBuilder string_builder;
     FormatBuilder format_builder { string_builder };
 
+    if (isnan(value) || isinf(value)) [[unlikely]] {
+        if (value < 0.0)
+            string_builder.append('-');
+        else if (sign_mode == SignMode::Always)
+            string_builder.append('+');
+        else
+            string_builder.append(' ');
+
+        if (isnan(value))
+            string_builder.append(upper_case ? "NAN"sv : "nan"sv);
+        else
+            string_builder.append(upper_case ? "INF"sv : "inf"sv);
+        format_builder.put_string(string_builder.string_view(), align, min_width, NumericLimits<size_t>::max(), fill);
+        return;
+    }
+
     bool is_negative = value < 0.0;
     if (is_negative)
         value = -value;
@@ -394,6 +411,22 @@ void FormatBuilder::put_f80(
     StringBuilder string_builder;
     FormatBuilder format_builder { string_builder };
 
+    if (isnan(value) || isinf(value)) [[unlikely]] {
+        if (value < 0.0l)
+            string_builder.append('-');
+        else if (sign_mode == SignMode::Always)
+            string_builder.append('+');
+        else
+            string_builder.append(' ');
+
+        if (isnan(value))
+            string_builder.append(upper_case ? "NAN"sv : "nan"sv);
+        else
+            string_builder.append(upper_case ? "INF"sv : "inf"sv);
+        format_builder.put_string(string_builder.string_view(), align, min_width, NumericLimits<size_t>::max(), fill);
+        return;
+    }
+
     bool is_negative = value < 0.0l;
     if (is_negative)
         value = -value;
@@ -442,7 +475,7 @@ void FormatBuilder::put_hexdump(ReadonlyBytes bytes, size_t width, char fill)
         if (width > 0) {
             if (i % width == 0 && i) {
                 put_char_view(i);
-                put_literal("\n");
+                put_literal("\n"sv);
             }
         }
         put_u64(bytes[i], 16, false, false, true, Align::Right, 2);
@@ -549,8 +582,6 @@ void Formatter<StringView>::format(FormatBuilder& builder, StringView value)
     if (m_zero_pad)
         VERIFY_NOT_REACHED();
     if (m_mode != Mode::Default && m_mode != Mode::String && m_mode != Mode::Character && m_mode != Mode::HexDump)
-        VERIFY_NOT_REACHED();
-    if (m_width.has_value() && m_precision.has_value())
         VERIFY_NOT_REACHED();
 
     m_width = m_width.value_or(0);

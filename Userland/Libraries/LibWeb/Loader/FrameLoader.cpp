@@ -17,15 +17,20 @@
 #include <LibWeb/HTML/Parser/HTMLDocumentParser.h>
 #include <LibWeb/Loader/FrameLoader.h>
 #include <LibWeb/Loader/ResourceLoader.h>
-#include <LibWeb/Namespace.h>
 #include <LibWeb/Page/BrowsingContext.h>
 #include <LibWeb/Page/Page.h>
 
 namespace Web {
 
+static RefPtr<Gfx::Bitmap> s_default_favicon_bitmap;
+
 FrameLoader::FrameLoader(BrowsingContext& browsing_context)
     : m_browsing_context(browsing_context)
 {
+    if (!s_default_favicon_bitmap) {
+        s_default_favicon_bitmap = Gfx::Bitmap::try_load_from_file("/res/icons/16x16/filetype-html.png");
+        VERIFY(s_default_favicon_bitmap);
+    }
 }
 
 FrameLoader::~FrameLoader()
@@ -68,8 +73,11 @@ static bool build_text_document(DOM::Document& document, const ByteBuffer& data)
 
 static bool build_image_document(DOM::Document& document, const ByteBuffer& data)
 {
-    auto image_decoder = Gfx::ImageDecoder::create(data.data(), data.size());
-    auto bitmap = image_decoder->bitmap();
+    auto image_decoder = Gfx::ImageDecoder::try_create(data.bytes());
+    if (!image_decoder)
+        return false;
+    auto frame = image_decoder->frame(0);
+    auto bitmap = frame.image;
     if (!bitmap)
         return false;
 
@@ -163,17 +171,25 @@ bool FrameLoader::load(const LoadRequest& request, Type type)
         ResourceLoader::the().load(
             favicon_url,
             [this, favicon_url](auto data, auto&, auto) {
-                dbgln("Favicon downloaded, {} bytes from {}", data.size(), favicon_url);
-                auto decoder = Gfx::ImageDecoder::create(data.data(), data.size());
-                auto bitmap = decoder->bitmap();
-                if (!bitmap) {
-                    dbgln("Could not decode favicon {}", favicon_url);
-                    return;
+                dbgln_if(SPAM_DEBUG, "Favicon downloaded, {} bytes from {}", data.size(), favicon_url);
+                RefPtr<Gfx::Bitmap> favicon_bitmap;
+                auto decoder = Gfx::ImageDecoder::try_create(data);
+                if (!decoder) {
+                    dbgln("No image decoder plugin for favicon {}", favicon_url);
+                } else {
+                    favicon_bitmap = decoder->frame(0).image;
+                    if (!favicon_bitmap)
+                        dbgln("Could not decode favicon {}", favicon_url);
+                    else
+                        dbgln_if(IMAGE_DECODER_DEBUG, "Decoded favicon, {}", favicon_bitmap->size());
                 }
-                dbgln("Decoded favicon, {}", bitmap->size());
-                if (auto* page = browsing_context().page())
-                    page->client().page_did_change_favicon(*bitmap);
+                load_favicon(favicon_bitmap);
+            },
+            [this](auto&, auto) {
+                load_favicon();
             });
+    } else {
+        load_favicon();
     }
 
     return true;
@@ -181,7 +197,7 @@ bool FrameLoader::load(const LoadRequest& request, Type type)
 
 bool FrameLoader::load(const URL& url, Type type)
 {
-    dbgln("FrameLoader::load: {}", url);
+    dbgln_if(SPAM_DEBUG, "FrameLoader::load: {}", url);
 
     if (!url.is_valid()) {
         load_error_page(url, "Invalid URL");
@@ -225,6 +241,16 @@ void FrameLoader::load_error_page(const URL& failed_url, const String& error)
         });
 }
 
+void FrameLoader::load_favicon(RefPtr<Gfx::Bitmap> bitmap)
+{
+    if (auto* page = browsing_context().page()) {
+        if (bitmap)
+            page->client().page_did_change_favicon(*bitmap);
+        else
+            page->client().page_did_change_favicon(*s_default_favicon_bitmap);
+    }
+}
+
 void FrameLoader::resource_did_load()
 {
     auto url = resource()->url();
@@ -249,9 +275,9 @@ void FrameLoader::resource_did_load()
     }
 
     if (resource()->has_encoding()) {
-        dbgln("This content has MIME type '{}', encoding '{}'", resource()->mime_type(), resource()->encoding().value());
+        dbgln_if(RESOURCE_DEBUG, "This content has MIME type '{}', encoding '{}'", resource()->mime_type(), resource()->encoding().value());
     } else {
-        dbgln("This content has MIME type '{}', encoding unknown", resource()->mime_type());
+        dbgln_if(RESOURCE_DEBUG, "This content has MIME type '{}', encoding unknown", resource()->mime_type());
     }
 
     auto document = DOM::Document::create();

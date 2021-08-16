@@ -8,7 +8,7 @@
 
 #include <Kernel/DoubleBuffer.h>
 #include <Kernel/FileSystem/File.h>
-#include <Kernel/Lock.h>
+#include <Kernel/Locking/Mutex.h>
 #include <Kernel/UnixTypes.h>
 #include <Kernel/WaitQueue.h>
 
@@ -24,7 +24,7 @@ public:
         Writer
     };
 
-    static NonnullRefPtr<FIFO> create(uid_t);
+    static RefPtr<FIFO> try_create(uid_t);
     virtual ~FIFO() override;
 
     uid_t uid() const { return m_uid; }
@@ -49,11 +49,11 @@ private:
     virtual StringView class_name() const override { return "FIFO"; }
     virtual bool is_fifo() const override { return true; }
 
-    explicit FIFO(uid_t);
+    explicit FIFO(uid_t, NonnullOwnPtr<DoubleBuffer> buffer);
 
     unsigned m_writers { 0 };
     unsigned m_readers { 0 };
-    DoubleBuffer m_buffer;
+    NonnullOwnPtr<DoubleBuffer> m_buffer;
 
     uid_t m_uid { 0 };
 
@@ -61,7 +61,7 @@ private:
 
     WaitQueue m_read_open_queue;
     WaitQueue m_write_open_queue;
-    Lock m_open_lock;
+    Mutex m_open_lock;
 };
 
 }

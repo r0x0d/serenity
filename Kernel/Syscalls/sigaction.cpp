@@ -6,13 +6,13 @@
 
 #include <Kernel/Arch/x86/InterruptDisabler.h>
 #include <Kernel/Arch/x86/SmapDisabler.h>
-#include <Kernel/Panic.h>
 #include <Kernel/Process.h>
 
 namespace Kernel {
 
 KResultOr<FlatPtr> Process::sys$sigprocmask(int how, Userspace<const sigset_t*> set, Userspace<sigset_t*> old_set)
 {
+    VERIFY_PROCESS_BIG_LOCK_ACQUIRED(this)
     REQUIRE_PROMISE(sigaction);
     auto current_thread = Thread::current();
     u32 previous_signal_mask;
@@ -43,6 +43,7 @@ KResultOr<FlatPtr> Process::sys$sigprocmask(int how, Userspace<const sigset_t*> 
 
 KResultOr<FlatPtr> Process::sys$sigpending(Userspace<sigset_t*> set)
 {
+    VERIFY_PROCESS_BIG_LOCK_ACQUIRED(this)
     REQUIRE_PROMISE(stdio);
     auto pending_signals = Thread::current()->pending_signals();
     if (!copy_to_user(set, &pending_signals))
@@ -52,6 +53,7 @@ KResultOr<FlatPtr> Process::sys$sigpending(Userspace<sigset_t*> set)
 
 KResultOr<FlatPtr> Process::sys$sigaction(int signum, Userspace<const sigaction*> user_act, Userspace<sigaction*> user_old_act)
 {
+    VERIFY_PROCESS_BIG_LOCK_ACQUIRED(this)
     REQUIRE_PROMISE(sigaction);
     if (signum < 1 || signum >= 32 || signum == SIGKILL || signum == SIGSTOP)
         return EINVAL;
@@ -77,6 +79,7 @@ KResultOr<FlatPtr> Process::sys$sigaction(int signum, Userspace<const sigaction*
 
 KResultOr<FlatPtr> Process::sys$sigreturn([[maybe_unused]] RegisterState& registers)
 {
+    VERIFY_PROCESS_BIG_LOCK_ACQUIRED(this)
     REQUIRE_PROMISE(stdio);
     SmapDisabler disabler;
 

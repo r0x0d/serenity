@@ -6,8 +6,6 @@
 
 #pragma once
 
-#include <AK/HashMap.h>
-#include <AK/Optional.h>
 #include <Kernel/FileSystem/FileSystem.h>
 #include <Kernel/FileSystem/Inode.h>
 #include <Kernel/KBuffer.h>
@@ -22,13 +20,13 @@ class TmpFS final : public FileSystem {
 public:
     virtual ~TmpFS() override;
     static RefPtr<TmpFS> create();
-    virtual bool initialize() override;
+    virtual KResult initialize() override;
 
-    virtual const char* class_name() const override { return "TmpFS"; }
+    virtual StringView class_name() const override { return "TmpFS"sv; }
 
     virtual bool supports_watchers() const override { return true; }
 
-    virtual NonnullRefPtr<Inode> root_inode() const override;
+    virtual Inode& root_inode() override;
 
 private:
     TmpFS();
@@ -57,13 +55,12 @@ public:
     virtual KResultOr<size_t> read_bytes(off_t, size_t, UserOrKernelBuffer& buffer, FileDescription*) const override;
     virtual InodeMetadata metadata() const override;
     virtual KResult traverse_as_directory(Function<bool(FileSystem::DirectoryEntryView const&)>) const override;
-    virtual RefPtr<Inode> lookup(StringView name) override;
+    virtual KResultOr<NonnullRefPtr<Inode>> lookup(StringView name) override;
     virtual void flush_metadata() override;
     virtual KResultOr<size_t> write_bytes(off_t, size_t, const UserOrKernelBuffer& buffer, FileDescription*) override;
-    virtual KResultOr<NonnullRefPtr<Inode>> create_child(const String& name, mode_t, dev_t, uid_t, gid_t) override;
+    virtual KResultOr<NonnullRefPtr<Inode>> create_child(StringView name, mode_t, dev_t, uid_t, gid_t) override;
     virtual KResult add_child(Inode&, const StringView& name, mode_t) override;
     virtual KResult remove_child(const StringView& name) override;
-    virtual KResultOr<size_t> directory_entry_count() const override;
     virtual KResult chmod(mode_t) override;
     virtual KResult chown(uid_t, gid_t) override;
     virtual KResult truncate(u64) override;
@@ -76,18 +73,23 @@ private:
     TmpFSInode(TmpFS& fs, InodeMetadata metadata, InodeIdentifier parent);
     static RefPtr<TmpFSInode> create(TmpFS&, InodeMetadata metadata, InodeIdentifier parent);
     static RefPtr<TmpFSInode> create_root(TmpFS&);
-
     void notify_watchers();
+
+    struct Child {
+        NonnullOwnPtr<KString> name;
+        NonnullRefPtr<TmpFSInode> inode;
+        IntrusiveListNode<Child> list_node {};
+        using List = IntrusiveList<Child, RawPtr<Child>, &Child::list_node>;
+    };
+
+    Child* find_child_by_name(StringView);
 
     InodeMetadata m_metadata;
     InodeIdentifier m_parent;
 
     OwnPtr<KBuffer> m_content;
-    struct Child {
-        String name;
-        NonnullRefPtr<TmpFSInode> inode;
-    };
-    HashMap<String, Child> m_children;
+
+    Child::List m_children;
 };
 
 }

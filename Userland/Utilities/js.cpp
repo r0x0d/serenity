@@ -42,8 +42,13 @@
 #include <LibJS/Runtime/Shape.h>
 #include <LibJS/Runtime/StringObject.h>
 #include <LibJS/Runtime/Temporal/Calendar.h>
+#include <LibJS/Runtime/Temporal/Duration.h>
 #include <LibJS/Runtime/Temporal/Instant.h>
+#include <LibJS/Runtime/Temporal/PlainDate.h>
+#include <LibJS/Runtime/Temporal/PlainDateTime.h>
+#include <LibJS/Runtime/Temporal/PlainTime.h>
 #include <LibJS/Runtime/Temporal/TimeZone.h>
+#include <LibJS/Runtime/Temporal/ZonedDateTime.h>
 #include <LibJS/Runtime/TypedArray.h>
 #include <LibJS/Runtime/Value.h>
 #include <LibLine/Editor.h>
@@ -86,6 +91,7 @@ static bool s_dump_ast = false;
 static bool s_dump_bytecode = false;
 static bool s_run_bytecode = false;
 static bool s_opt_bytecode = false;
+static bool s_as_module = false;
 static bool s_print_last_result = false;
 static RefPtr<Line::Editor> s_editor;
 static String s_history_path = String::formatted("{}/.js-history", Core::StandardPaths::home_directory());
@@ -436,6 +442,13 @@ static void print_temporal_calendar(JS::Object const& object, HashTable<JS::Obje
     print_value(JS::js_string(object.vm(), calendar.identifier()), seen_objects);
 }
 
+static void print_temporal_duration(JS::Object const& object, HashTable<JS::Object*>&)
+{
+    auto& duration = static_cast<JS::Temporal::Duration const&>(object);
+    print_type("Temporal.Duration");
+    out(" \033[34;1m{} y, {} M, {} w, {} d, {} h, {} m, {} s, {} ms, {} us, {} ns\033[0m", duration.years(), duration.months(), duration.weeks(), duration.days(), duration.hours(), duration.minutes(), duration.seconds(), duration.milliseconds(), duration.microseconds(), duration.nanoseconds());
+}
+
 static void print_temporal_instant(JS::Object const& object, HashTable<JS::Object*>& seen_objects)
 {
     auto& instant = static_cast<JS::Temporal::Instant const&>(object);
@@ -443,6 +456,27 @@ static void print_temporal_instant(JS::Object const& object, HashTable<JS::Objec
     out(" ");
     // FIXME: Print human readable date and time, like in print_date() - ideally handling arbitrarily large values since we get a bigint.
     print_value(&instant.nanoseconds(), seen_objects);
+}
+
+static void print_temporal_plain_date(JS::Object const& object, HashTable<JS::Object*>&)
+{
+    auto& plain_date = static_cast<JS::Temporal::PlainDate const&>(object);
+    print_type("Temporal.PlainDate");
+    out(" \033[34;1m{:04}-{:02}-{:02}\033[0m", plain_date.iso_year(), plain_date.iso_month(), plain_date.iso_day());
+}
+
+static void print_temporal_plain_date_time(JS::Object const& object, HashTable<JS::Object*>&)
+{
+    auto& plain_date_time = static_cast<JS::Temporal::PlainDateTime const&>(object);
+    print_type("Temporal.PlainDateTime");
+    out(" \033[34;1m{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:03}{:03}{:03}\033[0m", plain_date_time.iso_year(), plain_date_time.iso_month(), plain_date_time.iso_day(), plain_date_time.iso_hour(), plain_date_time.iso_minute(), plain_date_time.iso_second(), plain_date_time.iso_millisecond(), plain_date_time.iso_microsecond(), plain_date_time.iso_nanosecond());
+}
+
+static void print_temporal_plain_time(JS::Object const& object, HashTable<JS::Object*>&)
+{
+    auto& plain_time = static_cast<JS::Temporal::PlainTime const&>(object);
+    print_type("Temporal.PlainTime");
+    out(" \033[34;1m{:02}:{:02}:{:02}.{:03}{:03}{:03}\033[0m", plain_time.iso_hour(), plain_time.iso_minute(), plain_time.iso_second(), plain_time.iso_millisecond(), plain_time.iso_microsecond(), plain_time.iso_nanosecond());
 }
 
 static void print_temporal_time_zone(JS::Object const& object, HashTable<JS::Object*>& seen_objects)
@@ -455,6 +489,18 @@ static void print_temporal_time_zone(JS::Object const& object, HashTable<JS::Obj
         out("\n  offset (ns): ");
         print_value(JS::Value(*time_zone.offset_nanoseconds()), seen_objects);
     }
+}
+
+static void print_temporal_zoned_date_time(JS::Object const& object, HashTable<JS::Object*>& seen_objects)
+{
+    auto& zoned_date_time = static_cast<JS::Temporal::ZonedDateTime const&>(object);
+    print_type("Temporal.ZonedDateTime");
+    out("\n  epochNanoseconds: ");
+    print_value(&zoned_date_time.nanoseconds(), seen_objects);
+    out("\n  timeZone: ");
+    print_value(&zoned_date_time.time_zone(), seen_objects);
+    out("\n  calendar: ");
+    print_value(&zoned_date_time.calendar(), seen_objects);
 }
 
 static void print_primitive_wrapper_object(FlyString const& name, JS::Object const& object, HashTable<JS::Object*>& seen_objects)
@@ -516,10 +562,20 @@ static void print_value(JS::Value value, HashTable<JS::Object*>& seen_objects)
             return print_primitive_wrapper_object("Boolean", object, seen_objects);
         if (is<JS::Temporal::Calendar>(object))
             return print_temporal_calendar(object, seen_objects);
+        if (is<JS::Temporal::Duration>(object))
+            return print_temporal_duration(object, seen_objects);
         if (is<JS::Temporal::Instant>(object))
             return print_temporal_instant(object, seen_objects);
+        if (is<JS::Temporal::PlainDate>(object))
+            return print_temporal_plain_date(object, seen_objects);
+        if (is<JS::Temporal::PlainDateTime>(object))
+            return print_temporal_plain_date_time(object, seen_objects);
+        if (is<JS::Temporal::PlainTime>(object))
+            return print_temporal_plain_time(object, seen_objects);
         if (is<JS::Temporal::TimeZone>(object))
             return print_temporal_time_zone(object, seen_objects);
+        if (is<JS::Temporal::ZonedDateTime>(object))
+            return print_temporal_zoned_date_time(object, seen_objects);
         return print_object(object, seen_objects);
     }
 
@@ -578,7 +634,8 @@ static bool write_to_file(String const& path)
 
 static bool parse_and_run(JS::Interpreter& interpreter, StringView const& source)
 {
-    auto parser = JS::Parser(JS::Lexer(source));
+    auto program_type = s_as_module ? JS::Program::Type::Module : JS::Program::Type::Script;
+    auto parser = JS::Parser(JS::Lexer(source), program_type);
     auto program = parser.parse_program();
 
     if (s_dump_ast)
@@ -867,6 +924,7 @@ int main(int argc, char** argv)
     args_parser.add_option(s_dump_bytecode, "Dump the bytecode", "dump-bytecode", 'd');
     args_parser.add_option(s_run_bytecode, "Run the bytecode", "run-bytecode", 'b');
     args_parser.add_option(s_opt_bytecode, "Optimize the bytecode", "optimize-bytecode", 'p');
+    args_parser.add_option(s_as_module, "Treat as module", "as-module", 'm');
     args_parser.add_option(s_print_last_result, "Print last result", "print-last-result", 'l');
     args_parser.add_option(gc_on_every_allocation, "GC on every allocation", "gc-on-every-allocation", 'g');
     args_parser.add_option(disable_syntax_highlight, "Disable live syntax highlighting", "no-syntax-highlight", 's');
@@ -1030,7 +1088,7 @@ int main(int argc, char** argv)
                 case CompleteProperty:
                     // something came after the property access, reset to initial
                 case Initial:
-                    if (js_token.is_identifier_name()) {
+                    if (js_token.type() == JS::TokenType::Identifier) {
                         // ...<name>...
                         mode = CompleteVariable;
                         variable_name = js_token.value();

@@ -189,7 +189,7 @@ IntelNativeGraphicsAdapter::IntelNativeGraphicsAdapter(PCI::Address address)
     VERIFY(bar0_space_size == 0x80000);
     dmesgln("Intel Native Graphics Adapter @ {}, MMIO @ {}, space size is {:x} bytes", address, PhysicalAddress(PCI::get_BAR0(address)), bar0_space_size);
     dmesgln("Intel Native Graphics Adapter @ {}, framebuffer @ {}", address, PhysicalAddress(PCI::get_BAR2(address)));
-    m_registers_region = MM.allocate_kernel_region(PhysicalAddress(PCI::get_BAR0(address)).page_base(), bar0_space_size, "Intel Native Graphics Registers", Region::Access::Read | Region::Access::Write);
+    m_registers_region = MM.allocate_kernel_region(PhysicalAddress(PCI::get_BAR0(address)).page_base(), bar0_space_size, "Intel Native Graphics Registers", Memory::Region::Access::ReadWrite);
     PCI::enable_bus_mastering(address);
     {
         ScopedSpinLock control_lock(m_control_lock);
@@ -217,57 +217,57 @@ void IntelNativeGraphicsAdapter::enable_vga_plane()
     VERIFY(m_modeset_lock.is_locked());
 }
 
-[[maybe_unused]] static inline const char* convert_register_index_to_string(IntelGraphics::RegisterIndex index)
+[[maybe_unused]] static StringView convert_register_index_to_string(IntelGraphics::RegisterIndex index)
 {
     switch (index) {
     case IntelGraphics::RegisterIndex::PipeAConf:
-        return "PipeAConf";
+        return "PipeAConf"sv;
     case IntelGraphics::RegisterIndex::PipeBConf:
-        return "PipeBConf";
+        return "PipeBConf"sv;
     case IntelGraphics::RegisterIndex::GMBusData:
-        return "GMBusData";
+        return "GMBusData"sv;
     case IntelGraphics::RegisterIndex::GMBusStatus:
-        return "GMBusStatus";
+        return "GMBusStatus"sv;
     case IntelGraphics::RegisterIndex::GMBusCommand:
-        return "GMBusCommand";
+        return "GMBusCommand"sv;
     case IntelGraphics::RegisterIndex::GMBusClock:
-        return "GMBusClock";
+        return "GMBusClock"sv;
     case IntelGraphics::RegisterIndex::DisplayPlaneAControl:
-        return "DisplayPlaneAControl";
+        return "DisplayPlaneAControl"sv;
     case IntelGraphics::RegisterIndex::DisplayPlaneALinearOffset:
-        return "DisplayPlaneALinearOffset";
+        return "DisplayPlaneALinearOffset"sv;
     case IntelGraphics::RegisterIndex::DisplayPlaneAStride:
-        return "DisplayPlaneAStride";
+        return "DisplayPlaneAStride"sv;
     case IntelGraphics::RegisterIndex::DisplayPlaneASurface:
-        return "DisplayPlaneASurface";
+        return "DisplayPlaneASurface"sv;
     case IntelGraphics::RegisterIndex::DPLLDivisorA0:
-        return "DPLLDivisorA0";
+        return "DPLLDivisorA0"sv;
     case IntelGraphics::RegisterIndex::DPLLDivisorA1:
-        return "DPLLDivisorA1";
+        return "DPLLDivisorA1"sv;
     case IntelGraphics::RegisterIndex::DPLLControlA:
-        return "DPLLControlA";
+        return "DPLLControlA"sv;
     case IntelGraphics::RegisterIndex::DPLLControlB:
-        return "DPLLControlB";
+        return "DPLLControlB"sv;
     case IntelGraphics::RegisterIndex::DPLLMultiplierA:
-        return "DPLLMultiplierA";
+        return "DPLLMultiplierA"sv;
     case IntelGraphics::RegisterIndex::HTotalA:
-        return "HTotalA";
+        return "HTotalA"sv;
     case IntelGraphics::RegisterIndex::HBlankA:
-        return "HBlankA";
+        return "HBlankA"sv;
     case IntelGraphics::RegisterIndex::HSyncA:
-        return "HSyncA";
+        return "HSyncA"sv;
     case IntelGraphics::RegisterIndex::VTotalA:
-        return "VTotalA";
+        return "VTotalA"sv;
     case IntelGraphics::RegisterIndex::VBlankA:
-        return "VBlankA";
+        return "VBlankA"sv;
     case IntelGraphics::RegisterIndex::VSyncA:
-        return "VSyncA";
+        return "VSyncA"sv;
     case IntelGraphics::RegisterIndex::PipeASource:
-        return "PipeASource";
+        return "PipeASource"sv;
     case IntelGraphics::RegisterIndex::AnalogDisplayPort:
-        return "AnalogDisplayPort";
+        return "AnalogDisplayPort"sv;
     case IntelGraphics::RegisterIndex::VGADisplayPlaneControl:
-        return "VGADisplayPlaneControl";
+        return "VGADisplayPlaneControl"sv;
     default:
         VERIFY_NOT_REACHED();
     }
@@ -639,6 +639,7 @@ void IntelNativeGraphicsAdapter::initialize_framebuffer_devices()
     VERIFY(m_framebuffer_height != 0);
     VERIFY(m_framebuffer_width != 0);
     m_framebuffer_device = FramebufferDevice::create(*this, 0, address, m_framebuffer_width, m_framebuffer_height, m_framebuffer_pitch);
-    m_framebuffer_device->initialize();
+    // FIXME: Would be nice to be able to return a KResult here.
+    VERIFY(!m_framebuffer_device->initialize().is_error());
 }
 }

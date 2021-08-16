@@ -11,7 +11,7 @@
 #include <AK/IntrusiveList.h>
 #include <AK/Types.h>
 #include <Kernel/Forward.h>
-#include <Kernel/SpinLock.h>
+#include <Kernel/Locking/SpinLock.h>
 #include <Kernel/Time/TimeManagement.h>
 #include <Kernel/UnixTypes.h>
 
@@ -24,6 +24,11 @@ extern WaitQueue* g_finalizer_wait_queue;
 extern Atomic<bool> g_finalizer_has_work;
 extern RecursiveSpinLock g_scheduler_lock;
 
+struct TotalTimeScheduled {
+    u64 total { 0 };
+    u64 total_kernel { 0 };
+};
+
 class Scheduler {
 public:
     static void initialize();
@@ -33,7 +38,6 @@ public:
     [[noreturn]] static void start();
     static bool pick_next();
     static bool yield();
-    static void yield_from_critical();
     static bool context_switch(Thread*);
     static void enter_current(Thread& prev_thread, bool is_first);
     static void leave_on_first_switch(u32 flags);
@@ -46,9 +50,12 @@ public:
     static Thread& pull_next_runnable_thread();
     static Thread* peek_next_runnable_thread();
     static bool dequeue_runnable_thread(Thread&, bool = false);
-    static void queue_runnable_thread(Thread&);
-    static void dump_scheduler_state();
+    static void enqueue_runnable_thread(Thread&);
+    static void dump_scheduler_state(bool = false);
     static bool is_initialized();
+    static TotalTimeScheduled get_total_time_scheduled();
+    static void add_time_scheduled(u64, bool);
+    static u64 (*current_time)();
 };
 
 }

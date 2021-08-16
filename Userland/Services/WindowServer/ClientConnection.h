@@ -90,12 +90,9 @@ private:
     void set_unresponsive(bool);
     void destroy_window(Window&, Vector<i32>& destroyed_window_ids);
 
-    virtual void create_menubar(i32) override;
-    virtual void destroy_menubar(i32) override;
     virtual void create_menu(i32, String const&) override;
     virtual void destroy_menu(i32) override;
-    virtual void add_menu_to_menubar(i32, i32) override;
-    virtual void set_window_menubar(i32, i32) override;
+    virtual void add_menu(i32, i32) override;
     virtual void add_menu_item(i32, i32, i32, String const&, bool, bool, bool, bool, String const&, Gfx::ShareableBitmap const&, bool) override;
     virtual void add_menu_separator(i32) override;
     virtual void update_menu_item(i32, i32, i32, String const&, bool, bool, bool, bool, String const&) override;
@@ -164,11 +161,15 @@ private:
     virtual Messages::WindowServer::IsWindowModifiedResponse is_window_modified(i32) override;
     virtual Messages::WindowServer::GetDesktopDisplayScaleResponse get_desktop_display_scale(u32) override;
     virtual void set_flash_flush(bool) override;
+    virtual void set_window_parent_from_client(i32, i32, i32) override;
+    virtual Messages::WindowServer::GetWindowRectFromClientResponse get_window_rect_from_client(i32, i32) override;
+    virtual void add_window_stealing_for_client(i32, i32) override;
+    virtual void remove_window_stealing_for_client(i32, i32) override;
+    virtual void remove_window_stealing(i32) override;
 
     Window* window_from_id(i32 window_id);
 
     HashMap<int, NonnullRefPtr<Window>> m_windows;
-    HashMap<int, NonnullRefPtr<Menubar>> m_menubars;
     HashMap<int, NonnullRefPtr<Menu>> m_menus;
 
     RefPtr<Core::Timer> m_ping_timer;

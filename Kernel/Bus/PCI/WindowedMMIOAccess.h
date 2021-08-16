@@ -13,10 +13,10 @@
 #include <Kernel/ACPI/Definitions.h>
 #include <Kernel/Bus/PCI/Access.h>
 #include <Kernel/Bus/PCI/MMIOAccess.h>
-#include <Kernel/VM/AnonymousVMObject.h>
-#include <Kernel/VM/PhysicalRegion.h>
-#include <Kernel/VM/Region.h>
-#include <Kernel/VM/VMObject.h>
+#include <Kernel/Memory/AnonymousVMObject.h>
+#include <Kernel/Memory/PhysicalRegion.h>
+#include <Kernel/Memory/Region.h>
+#include <Kernel/Memory/VMObject.h>
 
 namespace Kernel {
 namespace PCI {
@@ -30,7 +30,7 @@ public:
 
 private:
     Address m_device_address;
-    NonnullOwnPtr<Region> m_mapped_region;
+    NonnullOwnPtr<Memory::Region> m_mapped_region;
 };
 
 class WindowedMMIOAccess final : public MMIOAccess {
@@ -39,7 +39,6 @@ public:
 
 private:
     explicit WindowedMMIOAccess(PhysicalAddress mcfg);
-    virtual const char* access_type() const override { return "WindowedMMIOAccess"; };
     virtual void write8_field(Address address, u32, u8) override;
     virtual void write16_field(Address address, u32, u16) override;
     virtual void write32_field(Address address, u32, u32) override;

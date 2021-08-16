@@ -4,14 +4,16 @@ set -eu
 SCRIPT="$(dirname "${0}")"
 export SERENITY_ARCH="${SERENITY_ARCH:-i686}"
 
-HOST_CC="${CC:=cc}"
-HOST_CXX="${CXX:=c++}"
-HOST_AR="${AR:=ar}"
-HOST_RANLIB="${RANLIB:=ranlib}"
-HOST_PATH="${PATH:=}"
-HOST_PKG_CONFIG_DIR="${PKG_CONFIG_DIR:=}"
-HOST_PKG_CONFIG_SYSROOT_DIR="${PKG_CONFIG_SYSROOT_DIR:=}"
-HOST_PKG_CONFIG_LIBDIR="${PKG_CONFIG_LIBDIR:=}"
+if [ -z "${HOST_CC:=}" ]; then
+    export HOST_CC="${CC:=cc}"
+    export HOST_CXX="${CXX:=c++}"
+    export HOST_AR="${AR:=ar}"
+    export HOST_RANLIB="${RANLIB:=ranlib}"
+    export HOST_PATH="${PATH:=}"
+    export HOST_PKG_CONFIG_DIR="${PKG_CONFIG_DIR:=}"
+    export HOST_PKG_CONFIG_SYSROOT_DIR="${PKG_CONFIG_SYSROOT_DIR:=}"
+    export HOST_PKG_CONFIG_LIBDIR="${PKG_CONFIG_LIBDIR:=}"
+fi
 
 DESTDIR="/"
 
@@ -69,6 +71,7 @@ shift
 : "${launcher_name:=}"
 : "${launcher_category:=}"
 : "${launcher_command:=}"
+: "${launcher_run_in_terminal:=false}"
 : "${icon_file:=}"
 
 run_nocd() {
@@ -98,7 +101,8 @@ ensure_build() {
 
 install_main_icon() {
     if [ -n "$icon_file" ] && [ -n "$launcher_command" ]; then
-        install_icon "$icon_file" "$launcher_command"
+        local launcher_binary="${launcher_command%% *}"
+        install_icon "$icon_file" "${launcher_binary}"
     fi
 }
 
@@ -107,27 +111,29 @@ install_icon() {
         echo "Syntax: install_icon <icon> <launcher>"
         exit 1
     fi
-    icon="$1"
-    launcher="$2"
+    local icon="$1"
+    local launcher="$2"
 
-    command -v convert >/dev/null 2>&1
-    convert_exists=$?
+    command -v convert >/dev/null || true
+    local convert_exists=$?
+    command -v identify >/dev/null || true
+    local identify_exists=$?
 
-    command -v identify >/dev/null 2>&1
-    identify_exists=$?
-
-    if [ "$convert_exists" == "0" ] && [ "$identify_exists" == "0" ]; then
-        for icon_size in "16x16" "32x32"; do
-            index=$(run identify "$icon" | grep "$icon_size" | grep -oE "\[[0-9]+\]" | tr -d "[]" | head -n1)
-            if [ -n "$index" ]; then
-                run convert "${icon}[${index}]" "app-${icon_size}.png"
-            else
-                run convert "$icon" -resize $icon_size "app-${icon_size}.png"
-            fi
-        done
-        run objcopy --add-section serenity_icon_s="app-16x16.png" "${DESTDIR}${launcher}"
-        run objcopy --add-section serenity_icon_m="app-32x32.png" "${DESTDIR}${launcher}"
+    if [ "${convert_exists}" != "0" ] || [ "${identify_exists}" != 0 ]; then
+        echo 'Unable to install icon: missing convert or identify, did you install ImageMagick?'
+        return
     fi
+
+    for icon_size in "16x16" "32x32"; do
+        index=$(run identify "$icon" | grep "$icon_size" | grep -oE "\[[0-9]+\]" | tr -d "[]" | head -n1)
+        if [ -n "$index" ]; then
+            run convert "${icon}[${index}]" "app-${icon_size}.png"
+        else
+            run convert "$icon[0]" -resize $icon_size "app-${icon_size}.png"
+        fi
+    done
+    run objcopy --add-section serenity_icon_s="app-16x16.png" "${DESTDIR}${launcher}"
+    run objcopy --add-section serenity_icon_m="app-32x32.png" "${DESTDIR}${launcher}"
 }
 
 install_main_launcher() {
@@ -141,21 +147,22 @@ install_launcher() {
         echo "Syntax: install_launcher <name> <category> <command>"
         exit 1
     fi
-    launcher_name="$1"
-    launcher_category="$2"
-    launcher_command="$3"
-    launcher_filename="${launcher_name,,}"
+    local launcher_name="$1"
+    local launcher_category="$2"
+    local launcher_command="$3"
+    local launcher_filename="${launcher_name,,}"
     launcher_filename="${launcher_filename// /}"
+    local icon_override=""
     case "$launcher_command" in
         *\ *)
             mkdir -p $DESTDIR/usr/local/libexec
             launcher_executable="/usr/local/libexec/$launcher_filename"
             cat >"$DESTDIR/$launcher_executable" <<SCRIPT
 #!/bin/sh
-set -e
 exec $(printf '%q ' $launcher_command)
 SCRIPT
             chmod +x "$DESTDIR/$launcher_executable"
+            icon_override="IconPath=${launcher_command%% *}"
             ;;
         *)
             launcher_executable="$launcher_command"
@@ -167,18 +174,24 @@ SCRIPT
 Name=$launcher_name
 Executable=$launcher_executable
 Category=$launcher_category
+RunInTerminal=$launcher_run_in_terminal
+${icon_override}
 CONFIG
-    unset launcher_filename
 }
 # Checks if a function is defined. In this case, if the function is not defined in the port's script, then we will use our defaults. This way, ports don't need to include these functions every time, but they can override our defaults if needed.
 func_defined() {
     PATH= command -V "$1"  > /dev/null 2>&1
 }
 
+func_defined pre_fetch || pre_fetch() {
+    :
+}
 func_defined post_fetch || post_fetch() {
     :
 }
 fetch() {
+    pre_fetch
+
     if [ "$auth_type" = "sig" ] && [ ! -z "${auth_import_key}" ]; then
         # import gpg key if not existing locally
         # The default keyserver keys.openpgp.org prints "new key but contains no user ID - skipped"
@@ -373,7 +386,7 @@ addtodb() {
         touch "$packagesdb"
     fi
     if ! grep -E "^(auto|manual) $port $version" "$packagesdb" > /dev/null; then
-        echo "Adding $port $version to database of installed ports!"
+        echo "Adding $port $version to database of installed ports..."
         if [ "${1:-}" = "--auto" ]; then
             echo "auto $port $version" >> "$packagesdb"
         else
@@ -382,6 +395,7 @@ addtodb() {
                 echo "dependency $port$dependlist" >> "$packagesdb"
             fi
         fi
+        echo "Successfully installed $port $version."
     else
         >&2 echo "Warning: $port $version already installed. Not adding to database of installed ports!"
     fi
@@ -420,22 +434,22 @@ uninstall() {
     fi
 }
 do_installdepends() {
-    echo "Installing dependencies of $port!"
+    echo "Installing dependencies of $port..."
     installdepends
 }
 do_fetch() {
-    echo "Fetching $port!"
+    echo "Fetching $port..."
     fetch
 }
 do_patch() {
-    echo "Patching $port!"
+    echo "Patching $port..."
     pre_patch
     patch_internal
 }
 do_configure() {
     ensure_build
     if [ "$useconfigure" = "true" ]; then
-        echo "Configuring $port!"
+        echo "Configuring $port..."
         pre_configure
         configure
         post_configure
@@ -445,12 +459,12 @@ do_configure() {
 }
 do_build() {
     ensure_build
-    echo "Building $port!"
+    echo "Building $port..."
     build
 }
 do_install() {
     ensure_build
-    echo "Installing $port!"
+    echo "Installing $port..."
     install
     install_main_launcher
     install_main_icon
@@ -458,19 +472,19 @@ do_install() {
     addtodb "${1:-}"
 }
 do_clean() {
-    echo "Cleaning workdir and .out files in $port!"
+    echo "Cleaning workdir and .out files in $port..."
     clean
 }
 do_clean_dist() {
-    echo "Cleaning dist in $port!"
+    echo "Cleaning dist in $port..."
     clean_dist
 }
 do_clean_all() {
-    echo "Cleaning all in $port!"
+    echo "Cleaning all in $port..."
     clean_all
 }
 do_uninstall() {
-    echo "Uninstalling $port!"
+    echo "Uninstalling $port..."
     uninstall
 }
 do_showproperty() {

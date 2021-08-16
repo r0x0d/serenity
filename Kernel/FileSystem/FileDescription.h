@@ -51,6 +51,10 @@ public:
     KResultOr<size_t> write(const UserOrKernelBuffer& data, size_t);
     KResult stat(::stat&);
 
+    // NOTE: These ignore the current offset of this file description.
+    KResultOr<size_t> read(UserOrKernelBuffer&, u64 offset, size_t);
+    KResultOr<size_t> write(u64 offset, UserOrKernelBuffer const&, size_t);
+
     KResult chmod(mode_t);
 
     bool can_read() const;
@@ -92,7 +96,7 @@ public:
     Custody* custody() { return m_custody.ptr(); }
     const Custody* custody() const { return m_custody.ptr(); }
 
-    KResultOr<Region*> mmap(Process&, const Range&, u64 offset, int prot, bool shared);
+    KResultOr<Memory::Region*> mmap(Process&, Memory::VirtualRange const&, u64 offset, int prot, bool shared);
 
     bool is_blocking() const { return m_is_blocking; }
     void set_blocking(bool b) { m_is_blocking = b; }
@@ -123,6 +127,9 @@ public:
 
     FileBlockCondition& block_condition();
 
+    KResult apply_flock(Process const&, Userspace<flock const*>);
+    KResult get_flock(Userspace<flock*>) const;
+
 private:
     friend class VirtualFileSystem;
     explicit FileDescription(File&);
@@ -152,7 +159,7 @@ private:
     bool m_direct : 1 { false };
     FIFO::Direction m_fifo_direction { FIFO::Direction::Neither };
 
-    Lock m_lock { "FileDescription" };
+    Mutex m_lock { "FileDescription" };
 };
 
 }

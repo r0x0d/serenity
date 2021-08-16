@@ -25,7 +25,7 @@
 
 namespace Kernel {
 
-static AK::Singleton<TimeManagement> s_the;
+static Singleton<TimeManagement> s_the;
 
 TimeManagement& TimeManagement::the()
 {
@@ -145,6 +145,9 @@ UNMAP_AFTER_INIT void TimeManagement::initialize(u32 cpu)
             dmesgln("Time: Using APIC timer as system timer");
             s_the->set_system_timer(*apic_timer);
         }
+
+        s_the->m_time_page_region = MM.allocate_kernel_region(PAGE_SIZE, "Time page"sv, Memory::Region::Access::ReadWrite, AllocationStrategy::AllocateNow);
+        VERIFY(s_the->m_time_page_region);
     } else {
         VERIFY(s_the.is_initialized());
         if (auto* apic_timer = APIC::the().get_timer()) {
@@ -354,12 +357,15 @@ void TimeManagement::increment_time_since_boot_hpet()
     auto delta_ns = HPET::the().update_time(seconds_since_boot, ticks_this_second, false);
 
     // Now that we have a precise time, go update it as quickly as we can
-    u32 update_iteration = m_update1.fetch_add(1, AK::MemoryOrder::memory_order_acquire);
+    u32 update_iteration = m_update2.fetch_add(1, AK::MemoryOrder::memory_order_acquire);
     m_seconds_since_boot = seconds_since_boot;
     m_ticks_this_second = ticks_this_second;
     // TODO: Apply m_remaining_epoch_time_adjustment
     timespec_add(m_epoch_time, { (time_t)(delta_ns / 1000000000), (long)(delta_ns % 1000000000) }, m_epoch_time);
-    m_update2.store(update_iteration + 1, AK::MemoryOrder::memory_order_release);
+
+    m_update1.store(update_iteration + 1, AK::MemoryOrder::memory_order_release);
+
+    update_time_page();
 }
 
 void TimeManagement::increment_time_since_boot()
@@ -372,7 +378,7 @@ void TimeManagement::increment_time_since_boot()
     long NanosPerTick = 1'000'000'000 / m_time_keeper_timer->frequency();
     time_t MaxSlewNanos = NanosPerTick / 100;
 
-    u32 update_iteration = m_update1.fetch_add(1, AK::MemoryOrder::memory_order_acquire);
+    u32 update_iteration = m_update2.fetch_add(1, AK::MemoryOrder::memory_order_acquire);
 
     // Clamp twice, to make sure intermediate fits into a long.
     long slew_nanos = clamp(clamp(m_remaining_epoch_time_adjustment.tv_sec, (time_t)-1, (time_t)1) * 1'000'000'000 + m_remaining_epoch_time_adjustment.tv_nsec, -MaxSlewNanos, MaxSlewNanos);
@@ -389,7 +395,10 @@ void TimeManagement::increment_time_since_boot()
         ++m_seconds_since_boot;
         m_ticks_this_second = 0;
     }
-    m_update2.store(update_iteration + 1, AK::MemoryOrder::memory_order_release);
+
+    m_update1.store(update_iteration + 1, AK::MemoryOrder::memory_order_release);
+
+    update_time_page();
 }
 
 void TimeManagement::system_timer_tick(const RegisterState& regs)
@@ -417,6 +426,25 @@ bool TimeManagement::disable_profile_timer()
     if (m_profile_enable_count.fetch_sub(1) == 1)
         return m_profile_timer->try_to_set_frequency(m_profile_timer->calculate_nearest_possible_frequency(1));
     return true;
+}
+
+void TimeManagement::update_time_page()
+{
+    auto* page = time_page();
+    u32 update_iteration = AK::atomic_fetch_add(&page->update2, 1u, AK::MemoryOrder::memory_order_acquire);
+    page->clocks[CLOCK_REALTIME_COARSE] = m_epoch_time;
+    page->clocks[CLOCK_MONOTONIC_COARSE] = monotonic_time(TimePrecision::Coarse).to_timespec();
+    AK::atomic_store(&page->update1, update_iteration + 1u, AK::MemoryOrder::memory_order_release);
+}
+
+TimePage* TimeManagement::time_page()
+{
+    return static_cast<TimePage*>((void*)m_time_page_region->vaddr().as_ptr());
+}
+
+Memory::VMObject& TimeManagement::time_page_vmobject()
+{
+    return m_time_page_region->vmobject();
 }
 
 }

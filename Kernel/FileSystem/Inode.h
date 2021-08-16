@@ -19,12 +19,11 @@
 #include <Kernel/FileSystem/InodeMetadata.h>
 #include <Kernel/Forward.h>
 #include <Kernel/KResult.h>
-#include <Kernel/Lock.h>
+#include <Kernel/Locking/Mutex.h>
 
 namespace Kernel {
 
-class Inode : public RefCounted<Inode>
-    , public Weakable<Inode> {
+class Inode : public RefCounted<Inode> {
     friend class VirtualFileSystem;
     friend class FileSystem;
 
@@ -54,12 +53,11 @@ public:
     virtual void did_seek(FileDescription&, off_t) { }
     virtual KResultOr<size_t> read_bytes(off_t, size_t, UserOrKernelBuffer& buffer, FileDescription*) const = 0;
     virtual KResult traverse_as_directory(Function<bool(FileSystem::DirectoryEntryView const&)>) const = 0;
-    virtual RefPtr<Inode> lookup(StringView name) = 0;
+    virtual KResultOr<NonnullRefPtr<Inode>> lookup(StringView name) = 0;
     virtual KResultOr<size_t> write_bytes(off_t, size_t, const UserOrKernelBuffer& data, FileDescription*) = 0;
-    virtual KResultOr<NonnullRefPtr<Inode>> create_child(const String& name, mode_t, dev_t, uid_t, gid_t) = 0;
+    virtual KResultOr<NonnullRefPtr<Inode>> create_child(StringView name, mode_t, dev_t, uid_t, gid_t) = 0;
     virtual KResult add_child(Inode&, const StringView& name, mode_t) = 0;
     virtual KResult remove_child(const StringView& name) = 0;
-    virtual KResultOr<size_t> directory_entry_count() const = 0;
     virtual KResult chmod(mode_t) = 0;
     virtual KResult chown(uid_t, gid_t) = 0;
     virtual KResult truncate(u64) { return KSuccess; }
@@ -86,9 +84,8 @@ public:
 
     void will_be_destroyed();
 
-    void set_shared_vmobject(SharedInodeVMObject&);
-    RefPtr<SharedInodeVMObject> shared_vmobject() const;
-    bool is_shared_vmobject(const SharedInodeVMObject&) const;
+    void set_shared_vmobject(Memory::SharedInodeVMObject&);
+    RefPtr<Memory::SharedInodeVMObject> shared_vmobject() const;
 
     static void sync();
 
@@ -98,6 +95,11 @@ public:
     void unregister_watcher(Badge<InodeWatcher>, InodeWatcher&);
 
     NonnullRefPtr<FIFO> fifo();
+
+    KResult can_apply_flock(FileDescription const&, flock const&) const;
+    KResult apply_flock(Process const&, FileDescription const&, Userspace<flock const*>);
+    KResult get_flock(FileDescription const&, Userspace<flock*>) const;
+    void remove_flocks_for_description(FileDescription const&);
 
 protected:
     Inode(FileSystem&, InodeIndex);
@@ -109,17 +111,27 @@ protected:
     void did_modify_contents();
     void did_delete_self();
 
-    mutable Lock m_lock { "Inode" };
+    mutable Mutex m_inode_lock { "Inode" };
 
 private:
     FileSystem& m_file_system;
     InodeIndex m_index { 0 };
-    WeakPtr<SharedInodeVMObject> m_shared_vmobject;
+    WeakPtr<Memory::SharedInodeVMObject> m_shared_vmobject;
     RefPtr<LocalSocket> m_socket;
     HashTable<InodeWatcher*> m_watchers;
     bool m_metadata_dirty { false };
     RefPtr<FIFO> m_fifo;
     IntrusiveListNode<Inode> m_inode_list_node;
+
+    struct Flock {
+        short type;
+        off_t start;
+        off_t len;
+        FileDescription const* owner;
+        pid_t pid;
+    };
+
+    Vector<Flock> m_flocks;
 
 public:
     using List = IntrusiveList<Inode, RawPtr<Inode>, &Inode::m_inode_list_node>;

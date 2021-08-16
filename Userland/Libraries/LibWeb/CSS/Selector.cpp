@@ -6,13 +6,12 @@
 
 #include "Selector.h"
 #include <AK/StringUtils.h>
-#include <LibWeb/CSS/Selector.h>
 #include <ctype.h>
 
 namespace Web::CSS {
 
-Selector::Selector(Vector<ComplexSelector>&& component_lists)
-    : m_complex_selectors(move(component_lists))
+Selector::Selector(Vector<CompoundSelector>&& compound_selectors)
+    : m_compound_selectors(move(compound_selectors))
 {
 }
 
@@ -26,8 +25,8 @@ u32 Selector::specificity() const
     unsigned tag_names = 0;
     unsigned classes = 0;
 
-    for (auto& list : m_complex_selectors) {
-        for (auto& simple_selector : list.compound_selector) {
+    for (auto& list : m_compound_selectors) {
+        for (auto& simple_selector : list.simple_selectors) {
             switch (simple_selector.type) {
             case SimpleSelector::Type::Id:
                 ++ids;
@@ -47,11 +46,11 @@ u32 Selector::specificity() const
     return ids * 0x10000 + classes * 0x100 + tag_names;
 }
 
-Selector::SimpleSelector::NthChildPattern Selector::SimpleSelector::NthChildPattern::parse(StringView const& args)
+Selector::SimpleSelector::ANPlusBPattern Selector::SimpleSelector::ANPlusBPattern::parse(StringView const& args)
 {
     // FIXME: Remove this when the DeprecatedCSSParser is gone.
     // The new Parser::parse_nth_child_pattern() does the same as this, using Tokens.
-    CSS::Selector::SimpleSelector::NthChildPattern pattern;
+    CSS::Selector::SimpleSelector::ANPlusBPattern pattern;
     if (args.equals_ignoring_case("odd")) {
         pattern.step_size = 2;
         pattern.offset = 1;

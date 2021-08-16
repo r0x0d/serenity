@@ -8,13 +8,13 @@
 #include <AK/Singleton.h>
 #include <AK/StringView.h>
 #include <Kernel/IO.h>
+#include <Kernel/Memory/MemoryManager.h>
 #include <Kernel/Process.h>
 #include <Kernel/Sections.h>
 #include <Kernel/Storage/ATA.h>
 #include <Kernel/Storage/IDEChannel.h>
 #include <Kernel/Storage/IDEController.h>
 #include <Kernel/Storage/PATADiskDevice.h>
-#include <Kernel/VM/MemoryManager.h>
 #include <Kernel/WorkQueue.h>
 
 namespace Kernel {
@@ -107,7 +107,7 @@ UNMAP_AFTER_INIT IDEChannel::~IDEChannel()
 
 void IDEChannel::start_request(AsyncBlockDeviceRequest& request, bool is_slave, u16 capabilities)
 {
-    Locker locker(m_lock);
+    MutexLocker locker(m_lock);
     VERIFY(m_current_request.is_null());
 
     dbgln_if(PATA_DEBUG, "IDEChannel::start_request");
@@ -134,7 +134,7 @@ void IDEChannel::complete_current_request(AsyncDeviceRequest::RequestResult resu
     // before Processor::deferred_call_queue returns!
     g_io_work->queue([this, result]() {
         dbgln_if(PATA_DEBUG, "IDEChannel::complete_current_request result: {}", (int)result);
-        Locker locker(m_lock);
+        MutexLocker locker(m_lock);
         VERIFY(m_current_request);
         auto current_request = m_current_request;
         m_current_request.clear();
@@ -222,7 +222,7 @@ bool IDEChannel::handle_irq(const RegisterState&)
     // This is important so that we can safely access the buffers, which could
     // trigger page faults
     g_io_work->queue([this]() {
-        Locker locker(m_lock);
+        MutexLocker locker(m_lock);
         ScopedSpinLock lock(m_request_lock);
         if (m_current_request->request_type() == AsyncBlockDeviceRequest::Read) {
             dbgln_if(PATA_DEBUG, "IDEChannel: Read block {}/{}", m_current_request_block_index, m_current_request->block_count());
@@ -408,7 +408,7 @@ UNMAP_AFTER_INIT void IDEChannel::detect_disks()
         if (identify_block.commands_and_feature_sets_supported[1] & (1 << 10))
             max_addressable_block = identify_block.user_addressable_logical_sectors_count;
 
-        dbgln("IDEChannel: {} {} {} device found: Name={}, Capacity={}, Capabilities=0x{:04x}", channel_type_string(), channel_string(i), interface_type == PATADiskDevice::InterfaceType::ATA ? "ATA" : "ATAPI", ((char*)bbuf.data() + 54), max_addressable_block * 512, capabilities);
+        dbgln("IDEChannel: {} {} {} device found: Name={}, Capacity={}, Capabilities={:#04x}", channel_type_string(), channel_string(i), interface_type == PATADiskDevice::InterfaceType::ATA ? "ATA" : "ATAPI", ((char*)bbuf.data() + 54), max_addressable_block * 512, capabilities);
         if (i == 0) {
             m_master = PATADiskDevice::create(m_parent_controller, *this, PATADiskDevice::DriveType::Master, interface_type, capabilities, max_addressable_block);
         } else {

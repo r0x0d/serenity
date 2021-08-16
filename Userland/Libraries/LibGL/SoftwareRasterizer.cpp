@@ -265,7 +265,9 @@ static void rasterize_triangle(const RasterizerOptions& options, Gfx::Bitmap& re
                             continue;
                         }
 
-                        *depth = z;
+                        if (options.enable_depth_write)
+                            *depth = z;
+
                         z_pass_count++;
                     }
                 }
@@ -381,7 +383,7 @@ static void rasterize_triangle(const RasterizerOptions& options, Gfx::Bitmap& re
                             + float_dst * dst_factor_dst_color
                             + FloatVector4(float_dst.w(), float_dst.w(), float_dst.w(), float_dst.w()) * dst_factor_dst_alpha;
 
-                        *dst = to_rgba32(*src * src_factor + float_dst * dst_factor);
+                        *dst = (*dst & ~options.color_mask) | (to_rgba32(*src * src_factor + float_dst * dst_factor) & options.color_mask);
                     }
                 }
             } else {
@@ -393,7 +395,7 @@ static void rasterize_triangle(const RasterizerOptions& options, Gfx::Bitmap& re
                         if (~pixel_mask[y] & (1 << x))
                             continue;
 
-                        *dst = to_rgba32(*src);
+                        *dst = (*dst & ~options.color_mask) | (to_rgba32(*src) & options.color_mask);
                     }
                 }
             }
@@ -409,7 +411,7 @@ static Gfx::IntSize closest_multiple(const Gfx::IntSize& min_size, size_t step)
 }
 
 SoftwareRasterizer::SoftwareRasterizer(const Gfx::IntSize& min_size)
-    : m_render_target { Gfx::Bitmap::create(Gfx::BitmapFormat::BGRA8888, closest_multiple(min_size, RASTERIZER_BLOCK_SIZE)) }
+    : m_render_target { Gfx::Bitmap::try_create(Gfx::BitmapFormat::BGRA8888, closest_multiple(min_size, RASTERIZER_BLOCK_SIZE)) }
     , m_depth_buffer { adopt_own(*new DepthBuffer(closest_multiple(min_size, RASTERIZER_BLOCK_SIZE))) }
 {
 }
@@ -435,7 +437,7 @@ void SoftwareRasterizer::submit_triangle(const GLTriangle& triangle, const Array
                 continue;
 
             // FIXME: Don't assume Texture2D, _and_ work out how we blend/do multitexturing properly.....
-            texel = texel * static_ptr_cast<Texture2D>(texture_unit.bound_texture())->sample_texel(uv);
+            texel = texel * static_ptr_cast<Texture2D>(texture_unit.bound_texture())->sampler().sample(uv);
         }
 
         return texel;
@@ -446,7 +448,7 @@ void SoftwareRasterizer::resize(const Gfx::IntSize& min_size)
 {
     wait_for_all_threads();
 
-    m_render_target = Gfx::Bitmap::create(Gfx::BitmapFormat::BGRA8888, closest_multiple(min_size, RASTERIZER_BLOCK_SIZE));
+    m_render_target = Gfx::Bitmap::try_create(Gfx::BitmapFormat::BGRA8888, closest_multiple(min_size, RASTERIZER_BLOCK_SIZE));
     m_depth_buffer = adopt_own(*new DepthBuffer(m_render_target->size()));
 }
 

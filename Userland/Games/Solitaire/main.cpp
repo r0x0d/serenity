@@ -150,6 +150,24 @@ int main(int argc, char** argv)
         statusbar.set_text(2, "Timer starts after your first move");
     };
 
+    window->on_close_request = [&]() {
+        auto game_in_progress = timer->is_active();
+        if (game_in_progress) {
+            auto result = GUI::MessageBox::show(window,
+                "A game is still in progress, are you sure you would like to quit?",
+                "Game in progress",
+                GUI::MessageBox::Type::Warning,
+                GUI::MessageBox::InputType::YesNo);
+
+            if (result == GUI::MessageBox::ExecYes)
+                return GUI::Window::CloseRequestDecision::Close;
+            else
+                return GUI::Window::CloseRequestDecision::StayOpen;
+        }
+
+        return GUI::Window::CloseRequestDecision::Close;
+    };
+
     GUI::ActionGroup draw_setting_actions;
     draw_setting_actions.set_exclusive(true);
 
@@ -171,8 +189,7 @@ int main(int argc, char** argv)
     three_card_draw_action->set_status_tip("Draw three cards at a time");
     draw_setting_actions.add_action(three_card_draw_action);
 
-    auto menubar = GUI::Menubar::construct();
-    auto& game_menu = menubar->add_menu("&Game");
+    auto& game_menu = window->add_menu("&Game");
 
     game_menu.add_action(GUI::Action::create("&New Game", { Mod_None, Key_F2 }, [&](auto&) {
         game.setup(mode);
@@ -189,12 +206,11 @@ int main(int argc, char** argv)
     game_menu.add_separator();
     game_menu.add_action(GUI::CommonActions::make_quit_action([&](auto&) { app->quit(); }));
 
-    auto& help_menu = menubar->add_menu("&Help");
+    auto& help_menu = window->add_menu("&Help");
     help_menu.add_action(GUI::CommonActions::make_about_action("Solitaire", app_icon, window));
 
     window->set_resizable(false);
     window->resize(Solitaire::Game::width, Solitaire::Game::height + statusbar.max_height());
-    window->set_menubar(move(menubar));
     window->set_icon(app_icon.bitmap_for_size(16));
     window->show();
 

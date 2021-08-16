@@ -132,6 +132,8 @@ public:
 
     virtual void die() { }
 
+    bool is_open() const { return m_socket->is_open(); }
+
 protected:
     Core::LocalSocket& socket() { return *m_socket; }
 
@@ -194,9 +196,10 @@ protected:
             }
             if (nread == 0) {
                 if (bytes.is_empty()) {
-                    deferred_invoke([this](auto&) { die(); });
+                    deferred_invoke([this](auto&) { shutdown(); });
+                    return false;
                 }
-                return false;
+                break;
             }
             bytes.append(buffer, nread);
         }
@@ -213,7 +216,7 @@ protected:
             if (message_size == 0 || bytes.size() - index - sizeof(uint32_t) < message_size)
                 break;
             index += sizeof(message_size);
-            auto remaining_bytes = ReadonlyBytes { bytes.data() + index, bytes.size() - index };
+            auto remaining_bytes = ReadonlyBytes { bytes.data() + index, message_size };
             if (auto message = LocalEndpoint::decode_message(remaining_bytes, m_socket->fd())) {
                 m_unprocessed_messages.append(message.release_nonnull());
             } else if (auto message = PeerEndpoint::decode_message(remaining_bytes, m_socket->fd())) {

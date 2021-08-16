@@ -59,6 +59,15 @@
 #endif
 #define NAKED __attribute__((naked))
 
+#ifdef DISALLOW
+#    undef DISALLOW
+#endif
+#ifdef __clang__
+#    define DISALLOW(message) __attribute__((diagnose_if(1, message, "error")))
+#else
+#    define DISALLOW(message) __attribute__((error(message)))
+#endif
+
 // GCC doesn't have __has_feature but clang does
 #ifndef __has_feature
 #    define __has_feature(...) 0
@@ -79,7 +88,7 @@
 #    define PAGE_SIZE sysconf(_SC_PAGESIZE)
 #endif
 
-#ifndef _BOOTLOADER
+#ifdef __cplusplus
 ALWAYS_INLINE int count_trailing_zeroes_32(unsigned int val)
 {
 #    if defined(__GNUC__) || defined(__clang__)

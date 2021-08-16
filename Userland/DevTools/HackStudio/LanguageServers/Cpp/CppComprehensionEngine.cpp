@@ -163,9 +163,9 @@ Vector<GUI::AutocompleteProvider::Entry> CppComprehensionEngine::autocomplete_na
     }
 
     if (reference_scope.is_empty()) {
-        for (auto& preprocessor_name : document.parser().preprocessor_definitions().keys()) {
+        for (auto& preprocessor_name : document.preprocessor().definitions().keys()) {
             if (preprocessor_name.starts_with(partial_text)) {
-                suggestions.append({ preprocessor_name.to_string(), partial_text.length(), GUI::AutocompleteProvider::CompletionKind::PreprocessorDefinition });
+                suggestions.append({ preprocessor_name, partial_text.length(), GUI::AutocompleteProvider::CompletionKind::PreprocessorDefinition });
             }
         }
     }
@@ -359,7 +359,7 @@ String CppComprehensionEngine::document_path_from_include_path(const StringView&
         if (!library_include.search(include_path, result))
             return {};
 
-        auto path = result.capture_group_matches.at(0).at(0).view.u8view();
+        auto path = result.capture_group_matches.at(0).at(0).view.string_view();
         return String::formatted("/usr/include/{}", path);
     };
 
@@ -368,7 +368,7 @@ String CppComprehensionEngine::document_path_from_include_path(const StringView&
         if (!user_defined_include.search(include_path, result))
             return {};
 
-        return result.capture_group_matches.at(0).at(0).view.u8view();
+        return result.capture_group_matches.at(0).at(0).view.string_view();
     };
 
     auto result = document_path_for_library_include(include_path);
@@ -412,13 +412,13 @@ Optional<GUI::AutocompleteProvider::ProjectLocation> CppComprehensionEngine::fin
     Position cpp_position { text_position.line(), text_position.column() };
 
     // Search for a replaced preprocessor token that intersects with text_position
-    for (auto& replaced_token : document.parser().replaced_preprocessor_tokens()) {
-        if (replaced_token.token.start() > cpp_position)
+    for (auto& substitution : document.preprocessor().substitutions()) {
+        if (substitution.original_tokens.first().start() > cpp_position)
             continue;
-        if (replaced_token.token.end() < cpp_position)
+        if (substitution.original_tokens.first().end() < cpp_position)
             continue;
 
-        return GUI::AutocompleteProvider::ProjectLocation { replaced_token.preprocessor_value.filename, replaced_token.preprocessor_value.line, replaced_token.preprocessor_value.column };
+        return GUI::AutocompleteProvider::ProjectLocation { substitution.defined_value.filename, substitution.defined_value.line, substitution.defined_value.column };
     }
     return {};
 }
@@ -569,11 +569,16 @@ OwnPtr<CppComprehensionEngine::DocumentData> CppComprehensionEngine::create_docu
     document_data->m_preprocessor = make<Preprocessor>(document_data->m_filename, document_data->text());
     document_data->preprocessor().set_ignore_unsupported_keywords(true);
     document_data->preprocessor().set_keep_include_statements(true);
-    document_data->preprocessor().process();
 
-    Preprocessor::Definitions preprocessor_definitions;
-    for (auto item : document_data->preprocessor().definitions())
-        preprocessor_definitions.set(move(item.key), move(item.value));
+    document_data->preprocessor().definitions_in_header_callback = [this](StringView include_path) -> Preprocessor::Definitions {
+        auto included_document = get_or_create_document_data(document_path_from_include_path(include_path));
+        if (!included_document)
+            return {};
+
+        return included_document->preprocessor().definitions();
+    };
+
+    auto tokens = document_data->preprocessor().process_and_lex();
 
     for (auto include_path : document_data->preprocessor().included_paths()) {
         auto include_fullpath = document_path_from_include_path(include_path);
@@ -585,12 +590,9 @@ OwnPtr<CppComprehensionEngine::DocumentData> CppComprehensionEngine::create_docu
 
         for (auto& header : included_document->m_available_headers)
             document_data->m_available_headers.set(header);
-
-        for (auto item : included_document->parser().preprocessor_definitions())
-            preprocessor_definitions.set(move(item.key), move(item.value));
     }
 
-    document_data->m_parser = make<Parser>(document_data->preprocessor().processed_text(), filename, move(preprocessor_definitions));
+    document_data->m_parser = make<Parser>(move(tokens), filename);
 
     auto root = document_data->parser().parse();
 

@@ -21,12 +21,14 @@ namespace GL {
 struct RasterizerOptions {
     bool shade_smooth { true };
     bool enable_depth_test { false };
+    bool enable_depth_write { true };
     bool enable_alpha_test { false };
     GLenum alpha_test_func { GL_ALWAYS };
     float alpha_test_ref_value { 0 };
     bool enable_blending { false };
     GLenum blend_source_factor { GL_ONE };
     GLenum blend_destination_factor { GL_ONE };
+    u32 color_mask { 0xffffffff };
 };
 
 class SoftwareRasterizer final {

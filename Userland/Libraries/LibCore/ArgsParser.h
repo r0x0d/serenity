@@ -58,6 +58,7 @@ public:
     void set_general_help(const char* help_string) { m_general_help = help_string; };
     void set_stop_on_first_non_option(bool stop_on_first_non_option) { m_stop_on_first_non_option = stop_on_first_non_option; }
     void print_usage(FILE*, const char* argv0);
+    void print_version(FILE*);
 
     void add_option(Option&&);
     void add_option(bool& value, const char* help_string, const char* long_name, char short_name);
@@ -83,6 +84,7 @@ private:
     Vector<Arg> m_positional_args;
 
     bool m_show_help { false };
+    bool m_show_version { false };
     const char* m_general_help { nullptr };
     bool m_stop_on_first_non_option { false };
 };

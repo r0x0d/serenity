@@ -10,13 +10,13 @@
 #include <Kernel/Arch/x86/InterruptDisabler.h>
 #include <Kernel/FileSystem/FileSystem.h>
 #include <Kernel/FileSystem/Inode.h>
+#include <Kernel/Memory/MemoryManager.h>
 #include <Kernel/Net/LocalSocket.h>
-#include <Kernel/VM/MemoryManager.h>
 
 namespace Kernel {
 
 static u32 s_lastFileSystemID;
-static AK::Singleton<HashMap<u32, FileSystem*>> s_file_system_map;
+static Singleton<HashMap<u32, FileSystem*>> s_file_system_map;
 
 static HashMap<u32, FileSystem*>& all_file_systems()
 {

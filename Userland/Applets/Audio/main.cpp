@@ -14,7 +14,6 @@
 #include <LibGUI/Widget.h>
 #include <LibGUI/Window.h>
 #include <LibGfx/Bitmap.h>
-#include <LibGfx/Font.h>
 #include <LibGfx/FontDatabase.h>
 #include <LibGfx/Palette.h>
 
@@ -39,11 +38,11 @@ public:
                 update();
         };
 
-        m_volume_level_bitmaps.append({ 66, Gfx::Bitmap::load_from_file("/res/icons/16x16/audio-volume-high.png") });
-        m_volume_level_bitmaps.append({ 33, Gfx::Bitmap::load_from_file("/res/icons/16x16/audio-volume-medium.png") });
-        m_volume_level_bitmaps.append({ 1, Gfx::Bitmap::load_from_file("/res/icons/16x16/audio-volume-low.png") });
-        m_volume_level_bitmaps.append({ 0, Gfx::Bitmap::load_from_file("/res/icons/16x16/audio-volume-zero.png") });
-        m_volume_level_bitmaps.append({ 0, Gfx::Bitmap::load_from_file("/res/icons/16x16/audio-volume-muted.png") });
+        m_volume_level_bitmaps.append({ 66, Gfx::Bitmap::try_load_from_file("/res/icons/16x16/audio-volume-high.png") });
+        m_volume_level_bitmaps.append({ 33, Gfx::Bitmap::try_load_from_file("/res/icons/16x16/audio-volume-medium.png") });
+        m_volume_level_bitmaps.append({ 1, Gfx::Bitmap::try_load_from_file("/res/icons/16x16/audio-volume-low.png") });
+        m_volume_level_bitmaps.append({ 0, Gfx::Bitmap::try_load_from_file("/res/icons/16x16/audio-volume-zero.png") });
+        m_volume_level_bitmaps.append({ 0, Gfx::Bitmap::try_load_from_file("/res/icons/16x16/audio-volume-muted.png") });
 
         m_slider_window = add<GUI::Window>(window());
         m_slider_window->set_frameless(true);
@@ -124,10 +123,8 @@ private:
     {
         if (m_audio_muted)
             return;
-        int volume = clamp(m_audio_volume - event.wheel_delta() * 5, 0, 100);
-        float volume_log = ((volume / 100.0f) * (volume / 100.0f)) * 100.0f;
-        m_audio_client->set_main_mix_volume(volume_log);
-        m_slider->set_value(20 - (volume / 5));
+        int new_slider_value = m_slider->value() + event.wheel_delta() / 4;
+        m_slider->set_value(new_slider_value);
         update();
     }
 

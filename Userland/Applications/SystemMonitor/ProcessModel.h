@@ -60,8 +60,8 @@ public:
     virtual int column_count(const GUI::ModelIndex&) const override;
     virtual String column_name(int column) const override;
     virtual GUI::Variant data(const GUI::ModelIndex&, GUI::ModelRole) const override;
-    virtual void update() override;
     virtual bool is_column_sortable(int column_index) const override { return column_index != Column::Icon; }
+    void update();
 
     struct CpuInfo {
         u32 id;
@@ -88,8 +88,8 @@ private:
         pid_t ppid;
         pid_t pgid;
         pid_t sid;
-        unsigned ticks_user;
-        unsigned ticks_kernel;
+        u64 time_user;
+        u64 time_kernel;
         bool kernel;
         String executable;
         String name;
@@ -129,4 +129,7 @@ private:
     Vector<int> m_tids;
     RefPtr<Core::File> m_proc_all;
     GUI::Icon m_kernel_process_icon;
+    u64 m_total_time_scheduled { 0 };
+    u64 m_total_time_scheduled_kernel { 0 };
+    bool m_has_total_scheduled_time { false };
 };

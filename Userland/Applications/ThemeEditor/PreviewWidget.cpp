@@ -49,6 +49,11 @@ private:
         m_statusbar->set_text("Status bar");
         m_editor = add<GUI::TextEditor>();
         m_editor->set_text("Text editor\nwith multiple\nlines.");
+
+        for_each_child_widget([](auto& child) {
+            child.set_focus_policy(GUI::FocusPolicy::NoFocus);
+            return IterationDecision::Continue;
+        });
     }
 
     virtual void resize_event(GUI::ResizeEvent&) override
@@ -70,12 +75,12 @@ private:
 PreviewWidget::PreviewWidget(const Gfx::Palette& preview_palette)
     : m_preview_palette(preview_palette)
 {
-    m_active_window_icon = Gfx::Bitmap::load_from_file("/res/icons/16x16/window.png");
-    m_inactive_window_icon = Gfx::Bitmap::load_from_file("/res/icons/16x16/window.png");
+    m_active_window_icon = Gfx::Bitmap::try_load_from_file("/res/icons/16x16/window.png");
+    m_inactive_window_icon = Gfx::Bitmap::try_load_from_file("/res/icons/16x16/window.png");
 
-    m_close_bitmap = Gfx::Bitmap::load_from_file("/res/icons/16x16/window-close.png");
-    m_maximize_bitmap = Gfx::Bitmap::load_from_file("/res/icons/16x16/upward-triangle.png");
-    m_minimize_bitmap = Gfx::Bitmap::load_from_file("/res/icons/16x16/downward-triangle.png");
+    m_close_bitmap = Gfx::Bitmap::try_load_from_file("/res/icons/16x16/window-close.png");
+    m_maximize_bitmap = Gfx::Bitmap::try_load_from_file("/res/icons/16x16/upward-triangle.png");
+    m_minimize_bitmap = Gfx::Bitmap::try_load_from_file("/res/icons/16x16/downward-triangle.png");
 
     m_gallery = add<MiniWidgetGallery>();
     set_greedy_for_hits(true);

@@ -58,6 +58,8 @@ static const char* object_machine_type_to_string(ElfW(Half) type)
         return "Intel 80860";
     case EM_MIPS:
         return "MIPS R3000 Big-Endian only";
+    case EM_X86_64:
+        return "Advanced Micro Devices X86-64";
     default:
         return "(?)";
     }
@@ -224,6 +226,7 @@ static const char* object_symbol_binding_to_string(ElfW(Word) type)
 static const char* object_relocation_type_to_string(ElfW(Word) type)
 {
     switch (type) {
+#if ARCH(I386)
     case R_386_NONE:
         return "R_386_NONE";
     case R_386_32:
@@ -246,6 +249,20 @@ static const char* object_relocation_type_to_string(ElfW(Word) type)
         return "R_386_TLS_TPOFF";
     case R_386_TLS_TPOFF32:
         return "R_386_TLS_TPOFF32";
+#else
+    case R_X86_64_NONE:
+        return "R_X86_64_NONE";
+    case R_X86_64_64:
+        return "R_X86_64";
+    case R_X86_64_GLOB_DAT:
+        return "R_x86_64_GLOB_DAT";
+    case R_X86_64_JUMP_SLOT:
+        return "R_X86_64_JUMP_SLOT";
+    case R_X86_64_RELATIVE:
+        return "R_X86_64_RELATIVE";
+    case R_X86_64_TPOFF64:
+        return "R_X86_64_TPOFF64";
+#endif
     default:
         return "(?)";
     }
@@ -503,6 +520,12 @@ int main(int argc, char** argv)
         outln();
     }
 
+#if ARCH(I386)
+    auto addr_padding = "";
+#else
+    auto addr_padding = "        ";
+#endif
+
     if (display_section_headers) {
         if (!display_all) {
             outln("There are {} section headers, starting at offset {:#x}:", header.e_shnum, header.e_shoff);
@@ -513,14 +536,14 @@ int main(int argc, char** argv)
             outln("There are no sections in this file.");
         } else {
             outln("Section Headers:");
-            outln("  Name                Type            Address  Offset   Size     Flags");
+            outln("  Name                Type            Address{}    Offset{}     Size{}       Flags", addr_padding, addr_padding, addr_padding);
 
             elf_image.for_each_section([](const ELF::Image::Section& section) {
                 out("  {:19} ", section.name());
                 out("{:15} ", object_section_header_type_to_string(section.type()));
-                out("{:08x} ", section.address());
-                out("{:08x} ", section.offset());
-                out("{:08x} ", section.size());
+                out("{:p} ", section.address());
+                out("{:p} ", section.offset());
+                out("{:p} ", section.size());
                 out("{}", section.flags());
                 outln();
             });
@@ -540,18 +563,19 @@ int main(int argc, char** argv)
             outln("There are no program headers in this file.");
         } else {
             outln("Program Headers:");
-            outln("  Type           Offset     VirtAddr   PhysAddr   FileSiz    MemSiz     Flg  Align");
+            outln("  Type           Offset{}     VirtAddr{}   PhysAddr{}   FileSiz{}    MemSiz{}     Flg  Align",
+                addr_padding, addr_padding, addr_padding, addr_padding, addr_padding);
 
             elf_image.for_each_program_header([](const ELF::Image::ProgramHeader& program_header) {
                 out("  ");
                 out("{:14} ", object_program_header_type_to_string(program_header.type()));
-                out("{:#08x} ", program_header.offset());
+                out("{:p} ", program_header.offset());
                 out("{:p} ", program_header.vaddr().as_ptr());
                 out("{:p} ", program_header.vaddr().as_ptr()); // FIXME: assumes PhysAddr = VirtAddr
-                out("{:#08x} ", program_header.size_in_image());
-                out("{:#08x} ", program_header.size_in_memory());
+                out("{:p} ", program_header.size_in_image());
+                out("{:p} ", program_header.size_in_memory());
                 out("{:04x} ", program_header.flags());
-                out("{:#08x}", program_header.alignment());
+                out("{:p}", program_header.alignment());
                 outln();
 
                 if (program_header.type() == PT_INTERP)
@@ -619,11 +643,11 @@ int main(int argc, char** argv)
                 outln("Relocation section '{}' at offset {:#08x} contains zero entries:", object->relocation_section().name(), object->relocation_section().offset());
             } else {
                 outln("Relocation section '{}' at offset {:#08x} contains {} entries:", object->relocation_section().name(), object->relocation_section().offset(), object->relocation_section().entry_count());
-                outln("  Offset      Type               Sym Value   Sym Name");
+                outln("  Offset{}      Type                Sym Value{}   Sym Name", addr_padding, addr_padding);
                 object->relocation_section().for_each_relocation([](const ELF::DynamicObject::Relocation& reloc) {
-                    out("  {:#08x} ", reloc.offset());
-                    out(" {:17} ", object_relocation_type_to_string(reloc.type()));
-                    out(" {:#08x} ", reloc.symbol().value());
+                    out("  {:p} ", reloc.offset());
+                    out(" {:18} ", object_relocation_type_to_string(reloc.type()));
+                    out(" {:p} ", reloc.symbol().value());
                     out(" {}", reloc.symbol().name());
                     outln();
                 });
@@ -634,11 +658,11 @@ int main(int argc, char** argv)
                 outln("Relocation section '{}' at offset {:#08x} contains zero entries:", object->plt_relocation_section().name(), object->plt_relocation_section().offset());
             } else {
                 outln("Relocation section '{}' at offset {:#08x} contains {} entries:", object->plt_relocation_section().name(), object->plt_relocation_section().offset(), object->plt_relocation_section().entry_count());
-                outln("  Offset      Type               Sym Value   Sym Name");
+                outln("  Offset{}      Type                Sym Value{}   Sym Name", addr_padding, addr_padding);
                 object->plt_relocation_section().for_each_relocation([](const ELF::DynamicObject::Relocation& reloc) {
-                    out("  {:#08x} ", reloc.offset());
-                    out(" {:17} ", object_relocation_type_to_string(reloc.type()));
-                    out(" {:#08x} ", reloc.symbol().value());
+                    out("  {:p} ", reloc.offset());
+                    out(" {:18} ", object_relocation_type_to_string(reloc.type()));
+                    out(" {:p} ", reloc.symbol().value());
                     out(" {}", reloc.symbol().name());
                     outln();
                 });
@@ -697,11 +721,11 @@ int main(int argc, char** argv)
 
             if (object->symbol_count()) {
                 // FIXME: Add support for init/fini/start/main sections
-                outln("   Num: Value    Size     Type     Bind     Name");
+                outln("   Num: Value{}      Size{}       Type     Bind     Name", addr_padding, addr_padding);
                 object->for_each_symbol([](const ELF::DynamicObject::Symbol& sym) {
                     out("  {:>4}: ", sym.index());
-                    out("{:08x} ", sym.value());
-                    out("{:08x} ", sym.size());
+                    out("{:p} ", sym.value());
+                    out("{:p} ", sym.size());
                     out("{:8} ", object_symbol_type_to_string(sym.type()));
                     out("{:8} ", object_symbol_binding_to_string(sym.bind()));
                     out("{}", sym.name());
@@ -719,12 +743,12 @@ int main(int argc, char** argv)
     if (display_symbol_table) {
         if (elf_image.symbol_count()) {
             outln("Symbol table '{}' contains {} entries:", ELF_SYMTAB, elf_image.symbol_count());
-            outln("   Num: Value    Size     Type     Bind     Name");
+            outln("   Num: Value{}      Size{}       Type     Bind     Name", addr_padding, addr_padding);
 
             elf_image.for_each_symbol([](const ELF::Image::Symbol& sym) {
                 out("  {:>4}: ", sym.index());
-                out("{:08x} ", sym.value());
-                out("{:08x} ", sym.size());
+                out("{:p} ", sym.value());
+                out("{:p} ", sym.size());
                 out("{:8} ", object_symbol_type_to_string(sym.type()));
                 out("{:8} ", object_symbol_binding_to_string(sym.bind()));
                 out("{}", sym.name());

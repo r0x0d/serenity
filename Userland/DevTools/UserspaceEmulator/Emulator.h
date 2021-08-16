@@ -12,6 +12,7 @@
 #include "Report.h"
 #include "SoftCPU.h"
 #include "SoftMMU.h"
+#include <AK/FileStream.h>
 #include <AK/MappedFile.h>
 #include <AK/Types.h>
 #include <LibDebug/DebugInfo.h>
@@ -32,6 +33,24 @@ public:
 
     Emulator(String const& executable_path, Vector<String> const& arguments, Vector<String> const& environment);
 
+    void set_profiling_details(bool should_dump_profile, size_t instruction_interval, OutputFileStream* profile_stream)
+    {
+        m_is_profiling = should_dump_profile;
+        m_profile_instruction_interval = instruction_interval;
+        m_profile_stream = profile_stream;
+    }
+
+    void set_in_region_of_interest(bool value)
+    {
+        m_is_in_region_of_interest = value;
+    }
+
+    OutputFileStream& profile_stream() { return *m_profile_stream; }
+    bool is_profiling() const { return m_is_profiling; }
+    bool is_in_region_of_interest() const { return m_is_in_region_of_interest; }
+    size_t profile_instruction_interval() const { return m_profile_instruction_interval; }
+    bool is_memory_auditing_suppressed() const { return m_is_memory_auditing_suppressed; }
+
     bool load_elf();
     void dump_backtrace();
     void dump_backtrace(Vector<FlatPtr> const&);
@@ -45,10 +64,8 @@ public:
 
     MallocTracer* malloc_tracer() { return m_malloc_tracer; }
 
-    bool is_in_malloc_or_free() const;
     bool is_in_loader_code() const;
     bool is_in_libsystem() const;
-    bool is_in_libc() const;
 
     void pause()
     {
@@ -79,6 +96,14 @@ public:
             pause();
     }
 
+    struct SymbolInfo {
+        String lib_name;
+        String symbol;
+        Optional<Debug::DebugInfo::SourcePosition> source_position;
+    };
+
+    Optional<SymbolInfo> symbol_at(FlatPtr address);
+
     void dump_regions() const;
 
 private:
@@ -95,6 +120,9 @@ private:
     Vector<ELF::AuxiliaryValue> generate_auxiliary_vector(FlatPtr load_base, FlatPtr entry_eip, String executable_path, int executable_fd) const;
     void register_signal_handlers();
     void setup_signal_trampoline();
+
+    void emit_profile_sample(AK::OutputStream&);
+    void emit_profile_event(AK::OutputStream&, StringView event_name, String contents);
 
     int virt$emuctl(FlatPtr, FlatPtr, FlatPtr);
     int virt$fork();
@@ -141,7 +169,6 @@ private:
     int virt$get_process_name(FlatPtr buffer, int size);
     int virt$set_process_name(FlatPtr buffer, int size);
     int virt$set_mmap_name(FlatPtr);
-    int virt$gettimeofday(FlatPtr);
     int virt$clock_gettime(int, FlatPtr);
     int virt$clock_nanosleep(FlatPtr);
     int virt$dbgputstr(FlatPtr characters, int length);
@@ -203,12 +230,10 @@ private:
     int virt$msyscall(FlatPtr);
     int virt$futex(FlatPtr);
 
-    bool find_malloc_symbols(MmapRegion const& libc_text);
-
     void dispatch_one_pending_signal();
     MmapRegion const* find_text_region(FlatPtr address);
-    MmapRegion const* load_library_from_adress(FlatPtr address);
-    String symbol_at(FlatPtr address);
+    MmapRegion const* load_library_from_address(FlatPtr address);
+    MmapRegion const* first_region_for_object(StringView name);
     String create_backtrace_line(FlatPtr address);
     String create_instruction_line(FlatPtr address, X86::Instruction insn);
 
@@ -221,19 +246,6 @@ private:
     FlatPtr m_watched_addr { 0 };
     RefPtr<Line::Editor> m_editor;
 
-    FlatPtr m_malloc_symbol_start { 0 };
-    FlatPtr m_malloc_symbol_end { 0 };
-    FlatPtr m_realloc_symbol_start { 0 };
-    FlatPtr m_realloc_symbol_end { 0 };
-    FlatPtr m_calloc_symbol_start { 0 };
-    FlatPtr m_calloc_symbol_end { 0 };
-    FlatPtr m_free_symbol_start { 0 };
-    FlatPtr m_free_symbol_end { 0 };
-    FlatPtr m_malloc_size_symbol_start { 0 };
-    FlatPtr m_malloc_size_symbol_end { 0 };
-
-    FlatPtr m_libc_start { 0 };
-    FlatPtr m_libc_end { 0 };
     FlatPtr m_libsystem_start { 0 };
     FlatPtr m_libsystem_end { 0 };
 
@@ -254,32 +266,23 @@ private:
     struct CachedELF {
         NonnullRefPtr<MappedFile> mapped_file;
         NonnullOwnPtr<Debug::DebugInfo> debug_info;
+        NonnullOwnPtr<ELF::Image> image;
     };
 
     HashMap<String, CachedELF> m_dynamic_library_cache;
 
     RangeAllocator m_range_allocator;
-};
 
-ALWAYS_INLINE bool Emulator::is_in_libc() const
-{
-    return m_cpu.base_eip() >= m_libc_start && m_cpu.base_eip() < m_libc_end;
-}
+    OutputFileStream* m_profile_stream { nullptr };
+    bool m_is_profiling { false };
+    size_t m_profile_instruction_interval { 0 };
+    bool m_is_in_region_of_interest { false };
+    bool m_is_memory_auditing_suppressed { false };
+};
 
 ALWAYS_INLINE bool Emulator::is_in_libsystem() const
 {
     return m_cpu.base_eip() >= m_libsystem_start && m_cpu.base_eip() < m_libsystem_end;
-}
-
-ALWAYS_INLINE bool Emulator::is_in_malloc_or_free() const
-{
-    if (!is_in_libc())
-        return false;
-    return (m_cpu.base_eip() >= m_malloc_symbol_start && m_cpu.base_eip() < m_malloc_symbol_end)
-        || (m_cpu.base_eip() >= m_free_symbol_start && m_cpu.base_eip() < m_free_symbol_end)
-        || (m_cpu.base_eip() >= m_realloc_symbol_start && m_cpu.base_eip() < m_realloc_symbol_end)
-        || (m_cpu.base_eip() >= m_calloc_symbol_start && m_cpu.base_eip() < m_calloc_symbol_end)
-        || (m_cpu.base_eip() >= m_malloc_size_symbol_start && m_cpu.base_eip() < m_malloc_size_symbol_end);
 }
 
 ALWAYS_INLINE bool Emulator::is_in_loader_code() const

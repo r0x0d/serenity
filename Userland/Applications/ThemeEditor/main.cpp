@@ -10,6 +10,8 @@
 #include <LibGUI/ColorInput.h>
 #include <LibGUI/ComboBox.h>
 #include <LibGUI/Icon.h>
+#include <LibGUI/Menu.h>
+#include <LibGUI/Menubar.h>
 #include <LibGUI/Model.h>
 #include <LibGUI/Window.h>
 #include <unistd.h>
@@ -24,7 +26,6 @@ public:
             return Gfx::to_string(m_color_roles[(size_t)index.row()]);
         return {};
     }
-    virtual void update() { did_update(); }
 
     explicit ColorRoleModel(const Vector<Gfx::ColorRole>& color_roles)
         : m_color_roles(color_roles)
@@ -74,6 +75,13 @@ int main(int argc, char** argv)
     Gfx::Palette preview_palette = app->palette();
 
     auto window = GUI::Window::construct();
+
+    auto& file_menu = window->add_menu("&File");
+    file_menu.add_action(GUI::CommonActions::make_quit_action([&](auto&) { app->quit(); }));
+
+    auto& help_menu = window->add_menu("&Help");
+    help_menu.add_action(GUI::CommonActions::make_about_action("Theme Editor", app_icon, window));
+
     auto& main_widget = window->set_main_widget<GUI::Widget>();
     main_widget.set_fill_with_background_color(true);
     main_widget.set_layout<GUI::VerticalBoxLayout>();
@@ -107,8 +115,10 @@ int main(int argc, char** argv)
         preview_palette.set_color(role, color_input.color());
         preview_widget.set_preview_palette(preview_palette);
     };
+    color_input.set_color(preview_palette.color(Gfx::ColorRole::Window));
 
-    window->resize(480, 500);
+    window->resize(480, 385);
+    window->set_resizable(false);
     window->show();
     window->set_title("Theme Editor");
     window->set_icon(app_icon.bitmap_for_size(16));

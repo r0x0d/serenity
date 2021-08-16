@@ -65,3 +65,18 @@ test("regex split", () => {
         "",
     ]);
 });
+
+test("UTF-16", () => {
+    var s = "😀";
+    expect(s.split()).toEqual(["😀"]);
+    expect(s.split("😀")).toEqual(["", ""]);
+    expect(s.split("\ud83d")).toEqual(["", "\ude00"]);
+    expect(s.split("\ude00")).toEqual(["\ud83d", ""]);
+
+    expect(s.split(/\ud83d/)).toEqual(["", "\ude00"]);
+    expect(s.split(/\ude00/)).toEqual(["\ud83d", ""]);
+
+    s = "😀😀😀";
+    expect(s.split(/\ud83d/)).toEqual(["", "\ude00", "\ude00", "\ude00"]);
+    expect(s.split(/\ude00/)).toEqual(["\ud83d", "\ud83d", "\ud83d", ""]);
+});

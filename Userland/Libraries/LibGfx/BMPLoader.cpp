@@ -1185,7 +1185,7 @@ static bool decode_bmp_pixel_data(BMPLoadingContext& context)
 
     const u32 width = abs(context.dib.core.width);
     const u32 height = abs(context.dib.core.height);
-    context.bitmap = Bitmap::create_purgeable(format, { static_cast<int>(width), static_cast<int>(height) });
+    context.bitmap = Bitmap::try_create(format, { static_cast<int>(width), static_cast<int>(height) });
     if (!context.bitmap) {
         dbgln("BMP appears to have overly large dimensions");
         return false;
@@ -1367,11 +1367,11 @@ void BMPImageDecoderPlugin::set_volatile()
         m_context->bitmap->set_volatile();
 }
 
-bool BMPImageDecoderPlugin::set_nonvolatile()
+bool BMPImageDecoderPlugin::set_nonvolatile(bool& was_purged)
 {
     if (!m_context->bitmap)
         return false;
-    return m_context->bitmap->set_nonvolatile();
+    return m_context->bitmap->set_nonvolatile(was_purged);
 }
 
 bool BMPImageDecoderPlugin::sniff()
@@ -1397,7 +1397,8 @@ size_t BMPImageDecoderPlugin::frame_count()
 ImageFrameDescriptor BMPImageDecoderPlugin::frame(size_t i)
 {
     if (i > 0)
-        return { bitmap(), 0 };
-    return {};
+        return {};
+    return { bitmap(), 0 };
 }
+
 }

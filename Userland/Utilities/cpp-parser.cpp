@@ -4,8 +4,6 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
-#include "AK/Forward.h"
-#include "LibCpp/AST.h"
 #include <LibCore/ArgsParser.h>
 #include <LibCore/File.h>
 #include <LibCpp/Parser.h>
@@ -28,7 +26,11 @@ int main(int argc, char** argv)
     }
     auto content = file->read_all();
     StringView content_view(content);
-    ::Cpp::Parser parser(content_view, path);
+
+    ::Cpp::Preprocessor processor(path, content_view);
+    auto tokens = processor.process_and_lex();
+
+    ::Cpp::Parser parser(tokens, path);
     if (tokens_mode) {
         parser.print_tokens();
         return 0;

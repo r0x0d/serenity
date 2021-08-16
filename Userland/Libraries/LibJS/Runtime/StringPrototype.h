@@ -10,6 +10,14 @@
 
 namespace JS {
 
+struct CodePoint {
+    u32 code_point { 0 };
+    size_t code_unit_count { 0 };
+    bool is_unpaired_surrogate { false };
+};
+
+CodePoint code_point_at(Utf16View const& string, size_t position);
+
 class StringPrototype final : public StringObject {
     JS_OBJECT(StringPrototype, StringObject);
 
@@ -26,6 +34,8 @@ private:
     JS_DECLARE_NATIVE_FUNCTION(starts_with);
     JS_DECLARE_NATIVE_FUNCTION(ends_with);
     JS_DECLARE_NATIVE_FUNCTION(index_of);
+    JS_DECLARE_NATIVE_FUNCTION(to_locale_lowercase);
+    JS_DECLARE_NATIVE_FUNCTION(to_locale_uppercase);
     JS_DECLARE_NATIVE_FUNCTION(to_lowercase);
     JS_DECLARE_NATIVE_FUNCTION(to_uppercase);
     JS_DECLARE_NATIVE_FUNCTION(to_string);
@@ -61,6 +71,7 @@ private:
     JS_DECLARE_NATIVE_FUNCTION(strike);
     JS_DECLARE_NATIVE_FUNCTION(sub);
     JS_DECLARE_NATIVE_FUNCTION(sup);
+    JS_DECLARE_NATIVE_FUNCTION(locale_compare);
 
     JS_DECLARE_NATIVE_FUNCTION(symbol_iterator);
 };

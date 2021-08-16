@@ -17,6 +17,7 @@
 #include <Kernel/Random.h>
 #include <Kernel/Sections.h>
 #include <Kernel/Thread.h>
+#include <Kernel/ThreadTracer.h>
 
 #include <LibC/mallocdefs.h>
 
@@ -24,11 +25,14 @@
 #include <Kernel/Arch/x86/Processor.h>
 #include <Kernel/Arch/x86/RegisterState.h>
 #include <Kernel/Arch/x86/TrapFrame.h>
+#include <Kernel/KSyms.h>
 
 extern FlatPtr start_of_unmap_after_init;
 extern FlatPtr end_of_unmap_after_init;
 extern FlatPtr start_of_ro_after_init;
 extern FlatPtr end_of_ro_after_init;
+extern FlatPtr start_of_kernel_ksyms;
+extern FlatPtr end_of_kernel_ksyms;
 
 namespace Kernel {
 
@@ -190,25 +194,25 @@ static void dump(const RegisterState& regs)
 
     dbgln("Exception code: {:04x} (isr: {:04x})", regs.exception_code, regs.isr_number);
 #if ARCH(I386)
-    dbgln("    pc={:04x}:{:08x} eflags={:08x}", (u16)regs.cs, regs.eip, regs.eflags);
-    dbgln(" stack={:04x}:{:08x}", ss, esp);
-    dbgln("    ds={:04x} es={:04x} fs={:04x} gs={:04x}", (u16)regs.ds, (u16)regs.es, (u16)regs.fs, (u16)regs.gs);
-    dbgln("   eax={:08x} ebx={:08x} ecx={:08x} edx={:08x}", regs.eax, regs.ebx, regs.ecx, regs.edx);
-    dbgln("   ebp={:08x} esp={:08x} esi={:08x} edi={:08x}", regs.ebp, regs.esp, regs.esi, regs.edi);
-    dbgln("   cr0={:08x} cr2={:08x} cr3={:08x} cr4={:08x}", read_cr0(), read_cr2(), read_cr3(), read_cr4());
+    dbgln("    pc={:#04x}:{:p} eflags={:p}", (u16)regs.cs, regs.eip, regs.eflags);
+    dbgln(" stack={:#04x}:{:p}", ss, esp);
+    dbgln("    ds={:#04x} es={:#04x} fs={:#04x} gs={:#04x}", (u16)regs.ds, (u16)regs.es, (u16)regs.fs, (u16)regs.gs);
+    dbgln("   eax={:p} ebx={:p} ecx={:p} edx={:p}", regs.eax, regs.ebx, regs.ecx, regs.edx);
+    dbgln("   ebp={:p} esp={:p} esi={:p} edi={:p}", regs.ebp, regs.esp, regs.esi, regs.edi);
+    dbgln("   cr0={:p} cr2={:p} cr3={:p} cr4={:p}", read_cr0(), read_cr2(), read_cr3(), read_cr4());
 #else
-    dbgln("    pc={:04x}:{:16x} rflags={:16x}", (u16)regs.cs, regs.rip, regs.rflags);
-    dbgln(" stack={:16x}", rsp);
+    dbgln("    pc={:#04x}:{:p} rflags={:p}", (u16)regs.cs, regs.rip, regs.rflags);
+    dbgln(" stack={:p}", rsp);
     // FIXME: Add fs_base and gs_base here
-    dbgln("   rax={:16x} rbx={:16x} rcx={:16x} rdx={:16x}", regs.rax, regs.rbx, regs.rcx, regs.rdx);
-    dbgln("   rbp={:16x} rsp={:16x} rsi={:16x} rdi={:16x}", regs.rbp, regs.rsp, regs.rsi, regs.rdi);
-    dbgln("    r8={:16x}  r9={:16x} r10={:16x} r11={:16x}", regs.r8, regs.r9, regs.r10, regs.r11);
-    dbgln("   r12={:16x} r13={:16x} r14={:16x} r15={:16x}", regs.r12, regs.r13, regs.r14, regs.r15);
-    dbgln("   cr0={:16x} cr2={:16x} cr3={:16x} cr4={:16x}", read_cr0(), read_cr2(), read_cr3(), read_cr4());
+    dbgln("   rax={:p} rbx={:p} rcx={:p} rdx={:p}", regs.rax, regs.rbx, regs.rcx, regs.rdx);
+    dbgln("   rbp={:p} rsp={:p} rsi={:p} rdi={:p}", regs.rbp, regs.rsp, regs.rsi, regs.rdi);
+    dbgln("    r8={:p}  r9={:p} r10={:p} r11={:p}", regs.r8, regs.r9, regs.r10, regs.r11);
+    dbgln("   r12={:p} r13={:p} r14={:p} r15={:p}", regs.r12, regs.r13, regs.r14, regs.r15);
+    dbgln("   cr0={:p} cr2={:p} cr3={:p} cr4={:p}", read_cr0(), read_cr2(), read_cr3(), read_cr4());
 #endif
 }
 
-void handle_crash(RegisterState& regs, const char* description, int signal, bool out_of_memory)
+void handle_crash(RegisterState const& regs, char const* description, int signal, bool out_of_memory)
 {
     auto process = Process::current();
     if (!process) {
@@ -226,13 +230,7 @@ void handle_crash(RegisterState& regs, const char* description, int signal, bool
         PANIC("Crash in ring 0");
     }
 
-    FlatPtr ip;
-#if ARCH(I386)
-    ip = regs.eip;
-#else
-    ip = regs.rip;
-#endif
-    process->crash(signal, ip, out_of_memory);
+    process->crash(signal, regs.ip(), out_of_memory);
 }
 
 EH_ENTRY_NO_CODE(6, illegal_instruction);
@@ -314,13 +312,8 @@ void page_fault_handler(TrapFrame* trap)
             current_thread->set_handling_page_fault(false);
     };
 
-    VirtualAddress userspace_sp;
-#if ARCH(I386)
-    userspace_sp = VirtualAddress { regs.userspace_esp };
-#else
-    userspace_sp = VirtualAddress { regs.userspace_rsp };
-#endif
-    if (!faulted_in_kernel && !MM.validate_user_stack(current_thread->process(), userspace_sp)) {
+    VirtualAddress userspace_sp = VirtualAddress { regs.userspace_sp() };
+    if (!faulted_in_kernel && !MM.validate_user_stack(current_thread->process().address_space(), userspace_sp)) {
         dbgln("Invalid stack pointer: {}", userspace_sp);
         handle_crash(regs, "Bad stack on page fault", SIGSTKFLT);
     }
@@ -332,7 +325,13 @@ void page_fault_handler(TrapFrame* trap)
 
     if (fault_address >= (FlatPtr)&start_of_unmap_after_init && fault_address < (FlatPtr)&end_of_unmap_after_init) {
         dump(regs);
-        PANIC("Attempt to access UNMAP_AFTER_INIT section");
+        auto sym = symbolicate_kernel_address(fault_address);
+        PANIC("Attempt to access UNMAP_AFTER_INIT section ({:p}: {})", fault_address, sym ? sym->name : "(Unknown)");
+    }
+
+    if (fault_address >= (FlatPtr)&start_of_kernel_ksyms && fault_address < (FlatPtr)&end_of_kernel_ksyms) {
+        dump(regs);
+        PANIC("Attempt to access KSYMS section");
     }
 
     PageFault fault { regs.exception_code, VirtualAddress { fault_address } };
@@ -383,14 +382,14 @@ void page_fault_handler(TrapFrame* trap)
         if (current_thread) {
             auto& current_process = current_thread->process();
             if (current_process.is_user_process()) {
-                current_process.set_coredump_metadata("fault_address", String::formatted("{:p}", fault_address));
-                current_process.set_coredump_metadata("fault_type", fault.type() == PageFault::Type::PageNotPresent ? "NotPresent" : "ProtectionViolation");
+                (void)current_process.try_set_coredump_property("fault_address", String::formatted("{:p}", fault_address));
+                (void)current_process.try_set_coredump_property("fault_type", fault.type() == PageFault::Type::PageNotPresent ? "NotPresent" : "ProtectionViolation");
                 String fault_access;
                 if (fault.is_instruction_fetch())
                     fault_access = "Execute";
                 else
                     fault_access = fault.access() == PageFault::Access::Read ? "Read" : "Write";
-                current_process.set_coredump_metadata("fault_access", fault_access);
+                (void)current_process.try_set_coredump_property("fault_access", fault_access);
             }
         }
 

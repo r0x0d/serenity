@@ -33,7 +33,7 @@ IRCAppWindow::IRCAppWindow(String server, int port)
     VERIFY(!s_the);
     s_the = this;
 
-    set_icon(Gfx::Bitmap::load_from_file("/res/icons/16x16/app-irc-client.png"));
+    set_icon(Gfx::Bitmap::try_load_from_file("/res/icons/16x16/app-irc-client.png"));
 
     update_title();
     resize(600, 400);
@@ -62,7 +62,7 @@ void IRCAppWindow::setup_client()
         return static_cast<IRCWindow*>(m_container->active_widget());
     };
     m_client->aid_update_window_list = [this] {
-        m_window_list->model()->update();
+        m_window_list->model()->invalidate();
     };
     m_client->on_nickname_changed = [this](const String&) {
         update_title();
@@ -73,8 +73,10 @@ void IRCAppWindow::setup_client()
 
     if (m_client->hostname().is_empty()) {
         String value;
-        if (GUI::InputBox::show(this, value, "Enter server:", "Connect to server") == GUI::InputBox::ExecCancel)
-            ::exit(0);
+        if (GUI::InputBox::show(this, value, "Enter server:", "Connect to server") == GUI::InputBox::ExecCancel) {
+            GUI::Application::the()->quit();
+            return;
+        }
 
         m_client->set_server(value, 6667);
     }
@@ -85,17 +87,17 @@ void IRCAppWindow::setup_client()
 
 void IRCAppWindow::setup_actions()
 {
-    m_join_action = GUI::Action::create("&Join Channel...", { Mod_Ctrl, Key_J }, Gfx::Bitmap::load_from_file("/res/icons/16x16/irc-join.png"), [&](auto&) {
+    m_join_action = GUI::Action::create("&Join Channel...", { Mod_Ctrl, Key_J }, Gfx::Bitmap::try_load_from_file("/res/icons/16x16/irc-join.png"), [&](auto&) {
         String value;
         if (GUI::InputBox::show(this, value, "Enter channel name:", "Join Channel") == GUI::InputBox::ExecOK && !value.is_empty())
             m_client->handle_join_action(value);
     });
 
-    m_list_channels_action = GUI::Action::create("&List Channels", Gfx::Bitmap::load_from_file("/res/icons/16x16/irc-list.png"), [&](auto&) {
+    m_list_channels_action = GUI::Action::create("&List Channels", Gfx::Bitmap::try_load_from_file("/res/icons/16x16/irc-list.png"), [&](auto&) {
         m_client->handle_list_channels_action();
     });
 
-    m_part_action = GUI::Action::create("&Part from Channel", { Mod_Ctrl, Key_P }, Gfx::Bitmap::load_from_file("/res/icons/16x16/irc-part.png"), [this](auto&) {
+    m_part_action = GUI::Action::create("&Part from Channel", { Mod_Ctrl, Key_P }, Gfx::Bitmap::try_load_from_file("/res/icons/16x16/irc-part.png"), [this](auto&) {
         auto* window = m_client->current_window();
         if (!window || window->type() != IRCWindow::Type::Channel) {
             return;
@@ -103,29 +105,29 @@ void IRCAppWindow::setup_actions()
         m_client->handle_part_action(window->channel().name());
     });
 
-    m_whois_action = GUI::Action::create("&Whois User...", Gfx::Bitmap::load_from_file("/res/icons/16x16/irc-whois.png"), [&](auto&) {
+    m_whois_action = GUI::Action::create("&Whois User...", Gfx::Bitmap::try_load_from_file("/res/icons/16x16/irc-whois.png"), [&](auto&) {
         String value;
         if (GUI::InputBox::show(this, value, "Enter nickname:", "Whois User") == GUI::InputBox::ExecOK && !value.is_empty())
             m_client->handle_whois_action(value);
     });
 
-    m_open_query_action = GUI::Action::create("Open &Query...", { Mod_Ctrl, Key_O }, Gfx::Bitmap::load_from_file("/res/icons/16x16/irc-open-query.png"), [&](auto&) {
+    m_open_query_action = GUI::Action::create("Open &Query...", { Mod_Ctrl, Key_O }, Gfx::Bitmap::try_load_from_file("/res/icons/16x16/irc-open-query.png"), [&](auto&) {
         String value;
         if (GUI::InputBox::show(this, value, "Enter nickname:", "Open Query") == GUI::InputBox::ExecOK && !value.is_empty())
             m_client->handle_open_query_action(value);
     });
 
-    m_close_query_action = GUI::Action::create("&Close Query", { Mod_Ctrl, Key_D }, Gfx::Bitmap::load_from_file("/res/icons/16x16/irc-close-query.png"), [](auto&) {
+    m_close_query_action = GUI::Action::create("&Close Query", { Mod_Ctrl, Key_D }, Gfx::Bitmap::try_load_from_file("/res/icons/16x16/irc-close-query.png"), [](auto&) {
         outln("FIXME: Implement close-query action");
     });
 
-    m_change_nick_action = GUI::Action::create("Change &Nickname...", Gfx::Bitmap::load_from_file("/res/icons/16x16/irc-nick.png"), [this](auto&) {
+    m_change_nick_action = GUI::Action::create("Change &Nickname...", Gfx::Bitmap::try_load_from_file("/res/icons/16x16/irc-nick.png"), [this](auto&) {
         String value;
         if (GUI::InputBox::show(this, value, "Enter nickname:", "Change Nickname") == GUI::InputBox::ExecOK && !value.is_empty())
             m_client->handle_change_nick_action(value);
     });
 
-    m_change_topic_action = GUI::Action::create("Change &Topic...", Gfx::Bitmap::load_from_file("/res/icons/16x16/irc-topic.png"), [this](auto&) {
+    m_change_topic_action = GUI::Action::create("Change &Topic...", Gfx::Bitmap::try_load_from_file("/res/icons/16x16/irc-topic.png"), [this](auto&) {
         auto* window = m_client->current_window();
         if (!window || window->type() != IRCWindow::Type::Channel) {
             return;
@@ -135,7 +137,7 @@ void IRCAppWindow::setup_actions()
             m_client->handle_change_topic_action(window->channel().name(), value);
     });
 
-    m_invite_user_action = GUI::Action::create("&Invite User...", Gfx::Bitmap::load_from_file("/res/icons/16x16/irc-invite.png"), [this](auto&) {
+    m_invite_user_action = GUI::Action::create("&Invite User...", Gfx::Bitmap::try_load_from_file("/res/icons/16x16/irc-invite.png"), [this](auto&) {
         auto* window = m_client->current_window();
         if (!window || window->type() != IRCWindow::Type::Channel) {
             return;
@@ -237,13 +239,12 @@ void IRCAppWindow::setup_actions()
 
 void IRCAppWindow::setup_menus()
 {
-    auto menubar = GUI::Menubar::construct();
-    auto& file_menu = menubar->add_menu("&File");
+    auto& file_menu = add_menu("&File");
     file_menu.add_action(GUI::CommonActions::make_quit_action([](auto&) {
         GUI::Application::the()->quit();
     }));
 
-    auto& server_menu = menubar->add_menu("&Server");
+    auto& server_menu = add_menu("&Server");
     server_menu.add_action(*m_change_nick_action);
     server_menu.add_separator();
     server_menu.add_action(*m_join_action);
@@ -253,7 +254,7 @@ void IRCAppWindow::setup_menus()
     server_menu.add_action(*m_open_query_action);
     server_menu.add_action(*m_close_query_action);
 
-    auto& channel_menu = menubar->add_menu("&Channel");
+    auto& channel_menu = add_menu("&Channel");
     channel_menu.add_action(*m_change_topic_action);
     channel_menu.add_action(*m_invite_user_action);
     channel_menu.add_action(*m_banlist_action);
@@ -272,10 +273,8 @@ void IRCAppWindow::setup_menus()
     channel_menu.add_action(*m_cycle_channel_action);
     channel_menu.add_action(*m_part_action);
 
-    auto& help_menu = menubar->add_menu("&Help");
+    auto& help_menu = add_menu("&Help");
     help_menu.add_action(GUI::CommonActions::make_about_action("IRC Client", GUI::Icon::default_icon("app-irc-client"), this));
-
-    set_menubar(move(menubar));
 }
 
 void IRCAppWindow::setup_widgets()

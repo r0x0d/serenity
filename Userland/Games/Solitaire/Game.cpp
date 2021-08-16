@@ -7,9 +7,9 @@
 
 #include "Game.h"
 #include <AK/Debug.h>
+#include <AK/Random.h>
 #include <LibGUI/Painter.h>
 #include <LibGfx/Palette.h>
-#include <time.h>
 
 REGISTER_WIDGET(Solitaire, Game);
 
@@ -20,8 +20,6 @@ static constexpr int s_timer_interval_ms = 1000 / 60;
 
 Game::Game()
 {
-    srand(time(nullptr));
-
     m_stacks.append(adopt_ref(*new CardStack({ 10, 10 }, CardStack::Type::Stock)));
     m_stacks.append(adopt_ref(*new CardStack({ 10 + Card::width + 10, 10 }, CardStack::Type::Waste)));
     m_stacks.append(adopt_ref(*new CardStack({ 10 + Card::width + 10, 10 }, CardStack::Type::Play, m_stacks.ptr_at(Waste))));
@@ -44,7 +42,7 @@ Game::~Game()
 
 static float rand_float()
 {
-    return rand() / static_cast<float>(RAND_MAX);
+    return get_random_uniform(RAND_MAX) / static_cast<float>(RAND_MAX);
 }
 
 void Game::timer_event(Core::TimerEvent&)
@@ -61,17 +59,45 @@ void Game::timer_event(Core::TimerEvent&)
         if (m_animation.tick())
             update(m_animation.card()->rect());
     } else if (m_new_game_animation) {
-        update();
+        if (m_new_game_animation_delay < new_game_animation_delay) {
+            ++m_new_game_animation_delay;
+        } else {
+            m_new_game_animation_delay = 0;
+            auto& current_pile = stack(piles.at(m_new_game_animation_pile));
+
+            if (current_pile.count() < m_new_game_animation_pile) {
+                auto card = m_new_deck.take_last();
+                card->set_upside_down(true);
+                current_pile.push(card);
+            } else {
+                current_pile.push(m_new_deck.take_last());
+                ++m_new_game_animation_pile;
+            }
+
+            update(current_pile.bounding_box());
+
+            if (m_new_game_animation_pile == piles.size()) {
+                auto& stock_pile = stack(Stock);
+                while (!m_new_deck.is_empty())
+                    stock_pile.push(m_new_deck.take_last());
+
+                update(stock_pile.bounding_box());
+
+                m_new_game_animation = false;
+                m_waiting_for_new_game = true;
+                stop_timer();
+            }
+        }
     }
 }
 
 void Game::create_new_animation_card()
 {
-    auto card = Card::construct(static_cast<Card::Type>(rand() % Card::Type::__Count), rand() % Card::card_count);
-    card->set_position({ rand() % (Game::width - Card::width), rand() % (Game::height / 8) });
+    auto card = Card::construct(static_cast<Card::Type>(get_random_uniform(Card::Type::__Count)), get_random_uniform(Card::card_count));
+    card->set_position({ get_random_uniform(Game::width - Card::width), get_random_uniform(Game::height / 8) });
 
     int x_sgn = card->position().x() > (Game::width / 2) ? -1 : 1;
-    m_animation = Animation(card, rand_float() + .4f, x_sgn * ((rand() % 3) + 2), .6f + rand_float() * .4f);
+    m_animation = Animation(card, rand_float() + .4f, x_sgn * (get_random_uniform(3) + 2), .6f + rand_float() * .4f);
 }
 
 void Game::set_background_fill_enabled(bool enabled)
@@ -147,7 +173,10 @@ void Game::setup(Mode mode)
     }
 
     for (uint8_t i = 0; i < 200; ++i)
-        m_new_deck.append(m_new_deck.take(rand() % m_new_deck.size()));
+        m_new_deck.append(m_new_deck.take(get_random_uniform(m_new_deck.size())));
+
+    m_focused_stack = nullptr;
+    m_focused_cards.clear();
 
     m_new_game_animation = true;
     start_timer(s_timer_interval_ms);
@@ -197,7 +226,7 @@ void Game::keydown_event(GUI::KeyEvent& event)
         start_game_over_animation();
     } else if (event.key() == KeyCode::Key_Tab) {
         auto_move_eligible_cards_to_foundations();
-    } else if (event.key() == KeyCode::Key_Space) {
+    } else if (event.key() == KeyCode::Key_Space && m_mouse_down != true) {
         draw_cards();
     } else if (event.shift() && event.key() == KeyCode::Key_F11) {
         dump_layout();
@@ -521,32 +550,6 @@ void Game::paint_event(GUI::PaintEvent& event)
     if (m_game_over_animation) {
         m_animation.draw(painter);
         return;
-    }
-
-    if (m_new_game_animation) {
-        if (m_new_game_animation_delay < new_game_animation_delay) {
-            ++m_new_game_animation_delay;
-        } else {
-            m_new_game_animation_delay = 0;
-            auto& current_pile = stack(piles.at(m_new_game_animation_pile));
-
-            if (current_pile.count() < m_new_game_animation_pile) {
-                auto card = m_new_deck.take_last();
-                card->set_upside_down(true);
-                current_pile.push(card);
-            } else {
-                current_pile.push(m_new_deck.take_last());
-                ++m_new_game_animation_pile;
-            }
-
-            if (m_new_game_animation_pile == piles.size()) {
-                while (!m_new_deck.is_empty())
-                    stack(Stock).push(m_new_deck.take_last());
-                m_new_game_animation = false;
-                m_waiting_for_new_game = true;
-                stop_timer();
-            }
-        }
     }
 
     if (!m_focused_cards.is_empty()) {

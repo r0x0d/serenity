@@ -7,6 +7,7 @@
 #include "Providers.h"
 #include <AK/QuickSort.h>
 #include <AK/String.h>
+#include <LibCore/LockFile.h>
 #include <LibGUI/Application.h>
 #include <LibGUI/BoxLayout.h>
 #include <LibGUI/Event.h>
@@ -17,6 +18,7 @@
 #include <LibGUI/TextBox.h>
 #include <LibGfx/Palette.h>
 #include <LibThreading/Mutex.h>
+#include <string.h>
 #include <unistd.h>
 
 namespace Assistant {
@@ -191,9 +193,21 @@ static constexpr size_t MAX_SEARCH_RESULTS = 6;
 
 int main(int argc, char** argv)
 {
-    if (pledge("stdio recvfd sendfd rpath unix proc exec thread", nullptr) < 0) {
+    if (pledge("stdio recvfd sendfd rpath cpath unix proc exec thread", nullptr) < 0) {
         perror("pledge");
         return 1;
+    }
+
+    Core::LockFile lockfile("/tmp/lock/assistant.lock");
+
+    if (!lockfile.is_held()) {
+        if (lockfile.error_code()) {
+            warnln("Core::LockFile: {}", strerror(lockfile.error_code()));
+            return 1;
+        }
+
+        // Another assistant is open, so exit silently.
+        return 0;
     }
 
     auto app = GUI::Application::construct(argc, argv);
@@ -236,7 +250,7 @@ int main(int argc, char** argv)
         if (!app_state.selected_index.has_value())
             return;
         app_state.results[app_state.selected_index.value()].activate();
-        exit(0);
+        GUI::Application::the()->quit();
     };
     text_box.on_up_pressed = [&]() {
         if (!app_state.visible_result_count)
@@ -264,16 +278,14 @@ int main(int argc, char** argv)
         mark_selected_item();
     };
     text_box.on_escape_pressed = []() {
-        exit(0);
+        GUI::Application::the()->quit();
+    };
+    window->on_active_window_change = [](bool is_active_window) {
+        if (!is_active_window)
+            GUI::Application::the()->quit();
     };
 
-    db.on_new_results = [&](auto results) {
-        if (results.is_empty())
-            app_state.selected_index = {};
-        else
-            app_state.selected_index = 0;
-        app_state.results = results;
-        app_state.visible_result_count = min(results.size(), MAX_SEARCH_RESULTS);
+    auto update_ui_timer = Core::Timer::create_single_shot(10, [&] {
         results_container.remove_all_children();
 
         for (size_t i = 0; i < app_state.visible_result_count; ++i) {
@@ -284,7 +296,7 @@ int main(int argc, char** argv)
             match.set_subtitle(result.subtitle());
             match.on_selected = [&result]() {
                 result.activate();
-                exit(0);
+                GUI::Application::the()->quit();
             };
         }
 
@@ -292,6 +304,17 @@ int main(int argc, char** argv)
 
         auto window_height = app_state.visible_result_count * 40 + text_box.height() + 28;
         window->resize(GUI::Desktop::the().rect().width() / 3, window_height);
+    });
+
+    db.on_new_results = [&](auto results) {
+        if (results.is_empty())
+            app_state.selected_index = {};
+        else
+            app_state.selected_index = 0;
+        app_state.results = results;
+        app_state.visible_result_count = min(results.size(), MAX_SEARCH_RESULTS);
+
+        update_ui_timer->restart();
     };
 
     window->set_frameless(true);

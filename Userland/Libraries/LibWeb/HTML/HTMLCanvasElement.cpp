@@ -47,7 +47,8 @@ RefPtr<Layout::Node> HTMLCanvasElement::create_layout_node()
 
 CanvasRenderingContext2D* HTMLCanvasElement::get_context(String type)
 {
-    VERIFY(type == "2d");
+    if (type != "2d")
+        return nullptr;
     if (!m_context)
         m_context = CanvasRenderingContext2D::create(*this);
     return m_context;
@@ -80,7 +81,7 @@ bool HTMLCanvasElement::create_bitmap()
         return false;
     }
     if (!m_bitmap || m_bitmap->size() != size)
-        m_bitmap = Gfx::Bitmap::create(Gfx::BitmapFormat::BGRA8888, size);
+        m_bitmap = Gfx::Bitmap::try_create(Gfx::BitmapFormat::BGRA8888, size);
     return m_bitmap;
 }
 

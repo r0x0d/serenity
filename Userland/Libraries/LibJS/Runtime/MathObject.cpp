@@ -71,7 +71,7 @@ void MathObject::initialize(GlobalObject& global_object)
     define_direct_property(vm.names.SQRT2, Value(M_SQRT2), 0);
 
     // 21.3.1.9 Math [ @@toStringTag ], https://tc39.es/ecma262/#sec-math-@@tostringtag
-    define_direct_property(*vm.well_known_symbol_to_string_tag(), js_string(vm.heap(), vm.names.Math.as_string()), Attribute::Configurable);
+    define_direct_property(*vm.well_known_symbol_to_string_tag(), js_string(vm, vm.names.Math.as_string()), Attribute::Configurable);
 }
 
 MathObject::~MathObject()
@@ -341,12 +341,12 @@ JS_DEFINE_NATIVE_FUNCTION(MathObject::sign)
 // 21.3.2.11 Math.clz32 ( x ), https://tc39.es/ecma262/#sec-math.clz32
 JS_DEFINE_NATIVE_FUNCTION(MathObject::clz32)
 {
-    auto number = vm.argument(0).to_number(global_object);
+    auto number = vm.argument(0).to_u32(global_object);
     if (vm.exception())
         return {};
-    if (!number.is_finite_number() || (unsigned)number.as_double() == 0)
+    if (number == 0)
         return Value(32);
-    return Value(__builtin_clz((unsigned)number.as_double()));
+    return Value(__builtin_clz(number));
 }
 
 // 21.3.2.2 Math.acos ( x ), https://tc39.es/ecma262/#sec-math.acos

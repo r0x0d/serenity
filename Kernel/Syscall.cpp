@@ -7,11 +7,12 @@
 #include <Kernel/API/Syscall.h>
 #include <Kernel/Arch/x86/Interrupts.h>
 #include <Kernel/Arch/x86/TrapFrame.h>
+#include <Kernel/Memory/MemoryManager.h>
 #include <Kernel/Panic.h>
+#include <Kernel/PerformanceManager.h>
 #include <Kernel/Process.h>
 #include <Kernel/Sections.h>
 #include <Kernel/ThreadTracer.h>
-#include <Kernel/VM/MemoryManager.h>
 
 namespace Kernel {
 
@@ -80,7 +81,7 @@ NEVER_INLINE NAKED void syscall_asm_entry()
 
 namespace Syscall {
 
-static KResultOr<FlatPtr> handle(RegisterState&, FlatPtr function, FlatPtr arg1, FlatPtr arg2, FlatPtr arg3);
+static KResultOr<FlatPtr> handle(RegisterState&, FlatPtr function, FlatPtr arg1, FlatPtr arg2, FlatPtr arg3, FlatPtr arg4);
 
 UNMAP_AFTER_INIT void initialize()
 {
@@ -88,30 +89,51 @@ UNMAP_AFTER_INIT void initialize()
 }
 
 #pragma GCC diagnostic ignored "-Wcast-function-type"
-typedef KResultOr<FlatPtr> (Process::*Handler)(FlatPtr, FlatPtr, FlatPtr);
+typedef KResultOr<FlatPtr> (Process::*Handler)(FlatPtr, FlatPtr, FlatPtr, FlatPtr);
 typedef KResultOr<FlatPtr> (Process::*HandlerWithRegisterState)(RegisterState&);
-#define __ENUMERATE_SYSCALL(x) reinterpret_cast<Handler>(&Process::sys$##x),
-static const Handler s_syscall_table[] = {
+struct HandlerMetadata {
+    Handler handler;
+    NeedsBigProcessLock needs_lock;
+};
+
+#define __ENUMERATE_SYSCALL(sys_call, needs_lock) { reinterpret_cast<Handler>(&Process::sys$##sys_call), needs_lock },
+static const HandlerMetadata s_syscall_table[] = {
     ENUMERATE_SYSCALLS(__ENUMERATE_SYSCALL)
 };
 #undef __ENUMERATE_SYSCALL
 
-KResultOr<FlatPtr> handle(RegisterState& regs, FlatPtr function, FlatPtr arg1, FlatPtr arg2, FlatPtr arg3)
+KResultOr<FlatPtr> handle(RegisterState& regs, FlatPtr function, FlatPtr arg1, FlatPtr arg2, FlatPtr arg3, FlatPtr arg4)
 {
     VERIFY_INTERRUPTS_ENABLED();
     auto current_thread = Thread::current();
     auto& process = current_thread->process();
     current_thread->did_syscall();
 
+    PerformanceManager::add_syscall_event(*current_thread, regs);
+
+    if (function >= Function::__Count) {
+        dbgln("Unknown syscall {} requested ({:p}, {:p}, {:p}, {:p})", function, arg1, arg2, arg3, arg4);
+        return ENOSYS;
+    }
+
+    const auto syscall_metadata = s_syscall_table[function];
+    if (syscall_metadata.handler == nullptr) {
+        dbgln("Null syscall {} requested, you probably need to rebuild this program!", function);
+        return ENOSYS;
+    }
+
+    MutexLocker mutex_locker;
+    const auto needs_big_lock = syscall_metadata.needs_lock == NeedsBigProcessLock::Yes;
+    if (needs_big_lock) {
+        mutex_locker.attach_and_lock(process.big_lock());
+    };
+
     if (function == SC_exit || function == SC_exit_thread) {
         // These syscalls need special handling since they never return to the caller.
+        // In these cases the process big lock will get released on the exit of the thread.
 
         if (auto* tracer = process.tracer(); tracer && tracer->is_tracing_syscalls()) {
-#if ARCH(I386)
-            regs.eax = 0;
-#else
-            regs.rax = 0;
-#endif
+            regs.set_return_reg(0);
             tracer->set_trace_syscalls(false);
             process.tracer_trap(*current_thread, regs); // this triggers SIGTRAP and stops the thread!
         }
@@ -128,23 +150,16 @@ KResultOr<FlatPtr> handle(RegisterState& regs, FlatPtr function, FlatPtr arg1, F
         }
     }
 
+    KResultOr<FlatPtr> result { FlatPtr(nullptr) };
     if (function == SC_fork || function == SC_sigreturn) {
         // These syscalls want the RegisterState& rather than individual parameters.
-        auto handler = (HandlerWithRegisterState)s_syscall_table[function];
-        return (process.*(handler))(regs);
+        auto handler = (HandlerWithRegisterState)syscall_metadata.handler;
+        result = (process.*(handler))(regs);
+    } else {
+        result = (process.*(syscall_metadata.handler))(arg1, arg2, arg3, arg4);
     }
 
-    if (function >= Function::__Count) {
-        dbgln("Unknown syscall {} requested ({:08x}, {:08x}, {:08x})", function, arg1, arg2, arg3);
-        return ENOSYS;
-    }
-
-    if (s_syscall_table[function] == nullptr) {
-        dbgln("Null syscall {} requested, you probably need to rebuild this program!", function);
-        return ENOSYS;
-    }
-
-    return (process.*(s_syscall_table[function]))(arg1, arg2, arg3);
+    return result;
 }
 
 }
@@ -184,82 +199,27 @@ NEVER_INLINE void syscall_handler(TrapFrame* trap)
 
     static constexpr FlatPtr iopl_mask = 3u << 12;
 
-    FlatPtr flags;
-#if ARCH(I386)
-    flags = regs.eflags;
-#else
-    flags = regs.rflags;
-#endif
-
+    FlatPtr flags = regs.flags();
     if ((flags & (iopl_mask)) != 0) {
         PANIC("Syscall from process with IOPL != 0");
     }
 
-    // NOTE: We take the big process lock before inspecting memory regions.
-    process.big_lock().lock();
+    MM.validate_syscall_preconditions(process.address_space(), regs);
 
-    VirtualAddress userspace_sp;
-#if ARCH(I386)
-    userspace_sp = VirtualAddress { regs.userspace_esp };
-#else
-    userspace_sp = VirtualAddress { regs.userspace_rsp };
-#endif
-    if (!MM.validate_user_stack(process, userspace_sp)) {
-        dbgln("Invalid stack pointer: {:p}", userspace_sp);
-        handle_crash(regs, "Bad stack on syscall entry", SIGSTKFLT);
-    }
+    FlatPtr function;
+    FlatPtr arg1;
+    FlatPtr arg2;
+    FlatPtr arg3;
+    FlatPtr arg4;
+    regs.capture_syscall_params(function, arg1, arg2, arg3, arg4);
 
-    VirtualAddress ip;
-#if ARCH(I386)
-    ip = VirtualAddress { regs.eip };
-#else
-    ip = VirtualAddress { regs.rip };
-#endif
+    auto result = Syscall::handle(regs, function, arg1, arg2, arg3, arg4);
 
-    auto* calling_region = MM.find_user_region_from_vaddr(process.space(), ip);
-    if (!calling_region) {
-        dbgln("Syscall from {:p} which has no associated region", ip);
-        handle_crash(regs, "Syscall from unknown region", SIGSEGV);
-    }
-
-    if (calling_region->is_writable()) {
-        dbgln("Syscall from writable memory at {:p}", ip);
-        handle_crash(regs, "Syscall from writable memory", SIGSEGV);
-    }
-
-    if (process.space().enforces_syscall_regions() && !calling_region->is_syscall_region()) {
-        dbgln("Syscall from non-syscall region");
-        handle_crash(regs, "Syscall from non-syscall region", SIGSEGV);
-    }
-
-#if ARCH(I386)
-    auto function = regs.eax;
-    auto arg1 = regs.edx;
-    auto arg2 = regs.ecx;
-    auto arg3 = regs.ebx;
-#else
-    auto function = regs.rax;
-    auto arg1 = regs.rdx;
-    auto arg2 = regs.rcx;
-    auto arg3 = regs.rbx;
-#endif
-
-    auto result = Syscall::handle(regs, function, arg1, arg2, arg3);
     if (result.is_error()) {
-#if ARCH(I386)
-        regs.eax = result.error();
-#else
-        regs.rax = result.error();
-#endif
+        regs.set_return_reg(result.error().error());
     } else {
-#if ARCH(I386)
-        regs.eax = result.value();
-#else
-        regs.rax = result.value();
-#endif
+        regs.set_return_reg(result.value());
     }
-
-    process.big_lock().unlock();
 
     if (auto tracer = process.tracer(); tracer && tracer->is_tracing_syscalls()) {
         tracer->set_trace_syscalls(false);

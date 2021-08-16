@@ -8,6 +8,7 @@
 
 #define _STDIO_H // Make GMP believe we exist.
 
+#include <Kernel/API/POSIX/stdio.h>
 #include <bits/FILE.h>
 #include <limits.h>
 #include <stdarg.h>
@@ -20,10 +21,6 @@ __BEGIN_DECLS
 #ifndef EOF
 #    define EOF (-1)
 #endif
-
-#define SEEK_SET 0
-#define SEEK_CUR 1
-#define SEEK_END 2
 
 #define _IOFBF 0
 #define _IOLBF 1

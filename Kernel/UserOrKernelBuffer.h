@@ -9,9 +9,9 @@
 #include <AK/String.h>
 #include <AK/Types.h>
 #include <AK/Userspace.h>
+#include <Kernel/Memory/MemoryManager.h>
 #include <Kernel/StdLib.h>
 #include <Kernel/UnixTypes.h>
-#include <Kernel/VM/MemoryManager.h>
 #include <LibC/errno_numbers.h>
 
 namespace Kernel {
@@ -22,13 +22,13 @@ public:
 
     static UserOrKernelBuffer for_kernel_buffer(u8* kernel_buffer)
     {
-        VERIFY(!kernel_buffer || !is_user_address(VirtualAddress(kernel_buffer)));
+        VERIFY(!kernel_buffer || !Memory::is_user_address(VirtualAddress(kernel_buffer)));
         return UserOrKernelBuffer(kernel_buffer);
     }
 
     static Optional<UserOrKernelBuffer> for_user_buffer(u8* user_buffer, size_t size)
     {
-        if (user_buffer && !is_user_range(VirtualAddress(user_buffer), size))
+        if (user_buffer && !Memory::is_user_range(VirtualAddress(user_buffer), size))
             return {};
         return UserOrKernelBuffer(user_buffer);
     }
@@ -36,7 +36,7 @@ public:
     template<typename UserspaceType>
     static Optional<UserOrKernelBuffer> for_user_buffer(UserspaceType userspace, size_t size)
     {
-        if (!is_user_range(VirtualAddress(userspace.unsafe_userspace_ptr()), size))
+        if (!Memory::is_user_range(VirtualAddress(userspace.unsafe_userspace_ptr()), size))
             return {};
         return UserOrKernelBuffer(const_cast<u8*>((const u8*)userspace.unsafe_userspace_ptr()));
     }
@@ -55,6 +55,7 @@ public:
     }
 
     [[nodiscard]] String copy_into_string(size_t size) const;
+    [[nodiscard]] KResultOr<NonnullOwnPtr<KString>> try_copy_into_kstring(size_t) const;
     [[nodiscard]] bool write(const void* src, size_t offset, size_t len);
     [[nodiscard]] bool write(const void* src, size_t len)
     {

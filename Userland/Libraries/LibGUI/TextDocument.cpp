@@ -11,7 +11,6 @@
 #include <AK/Utf8View.h>
 #include <LibCore/Timer.h>
 #include <LibGUI/TextDocument.h>
-#include <LibGUI/TextEditor.h>
 #include <LibRegex/Regex.h>
 
 namespace GUI {
@@ -350,7 +349,14 @@ String TextDocument::text_in_range(const TextRange& a_range) const
         auto& line = this->line(i);
         size_t selection_start_column_on_line = range.start().line() == i ? range.start().column() : 0;
         size_t selection_end_column_on_line = range.end().line() == i ? range.end().column() : line.length();
-        builder.append(Utf32View(line.code_points() + selection_start_column_on_line, selection_end_column_on_line - selection_start_column_on_line));
+
+        if (!line.is_empty()) {
+            builder.append(
+                Utf32View(
+                    line.code_points() + selection_start_column_on_line,
+                    selection_end_column_on_line - selection_start_column_on_line));
+        }
+
         if (i != range.end().line())
             builder.append('\n');
     }
@@ -674,6 +680,39 @@ TextPosition TextDocument::first_word_break_after(const TextPosition& position) 
     return target;
 }
 
+TextPosition TextDocument::first_word_before(const TextPosition& position, bool start_at_column_before) const
+{
+    if (position.column() == 0) {
+        if (position.line() == 0) {
+            return TextPosition(0, 0);
+        }
+        auto previous_line = this->line(position.line() - 1);
+        return TextPosition(position.line() - 1, previous_line.length());
+    }
+
+    auto target = position;
+    auto line = this->line(target.line());
+    if (target.column() == line.length())
+        start_at_column_before = 1;
+
+    auto nonblank_passed = !is_ascii_blank(line.code_points()[target.column() - start_at_column_before]);
+    while (target.column() > 0) {
+        auto prev_code_point = line.code_points()[target.column() - 1];
+        nonblank_passed |= !is_ascii_blank(prev_code_point);
+
+        if (nonblank_passed && is_ascii_blank(prev_code_point)) {
+            break;
+        } else if (is_ascii_punctuation(prev_code_point)) {
+            target.set_column(target.column() - 1);
+            break;
+        }
+
+        target.set_column(target.column() - 1);
+    }
+
+    return target;
+}
+
 void TextDocument::undo()
 {
     if (!can_undo())
@@ -746,6 +785,10 @@ void InsertTextCommand::perform_formatting(const TextDocument::Client& client)
 
     for (auto input_char : m_text) {
         if (input_char == '\n') {
+            size_t spaces_at_end = 0;
+            if (column < line_indentation)
+                spaces_at_end = line_indentation - column;
+            line_indentation -= spaces_at_end;
             builder.append('\n');
             column = 0;
             if (should_auto_indent) {
@@ -892,12 +935,16 @@ void TextDocument::remove(const TextRange& unnormalized_range)
     } else {
         // Delete across a newline, merging lines.
         VERIFY(range.start().line() == range.end().line() - 1);
+
         auto& first_line = line(range.start().line());
         auto& second_line = line(range.end().line());
+
         Vector<u32> code_points;
         code_points.append(first_line.code_points(), range.start().column());
-        code_points.append(second_line.code_points() + range.end().column(), second_line.length() - range.end().column());
+        if (!second_line.is_empty())
+            code_points.append(second_line.code_points() + range.end().column(), second_line.length() - range.end().column());
         first_line.set_text(*this, move(code_points));
+
         remove_line(range.end().line());
     }
 

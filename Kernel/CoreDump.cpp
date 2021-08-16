@@ -14,10 +14,10 @@
 #include <Kernel/FileSystem/FileDescription.h>
 #include <Kernel/FileSystem/VirtualFileSystem.h>
 #include <Kernel/KLexicalPath.h>
+#include <Kernel/Locking/SpinLock.h>
+#include <Kernel/Memory/ProcessPagingScope.h>
 #include <Kernel/Process.h>
 #include <Kernel/RTC.h>
-#include <Kernel/SpinLock.h>
-#include <Kernel/VM/ProcessPagingScope.h>
 #include <LibC/elf.h>
 #include <LibELF/CoreDump.h>
 
@@ -39,7 +39,7 @@ OwnPtr<CoreDump> CoreDump::create(NonnullRefPtr<Process> process, const String& 
 CoreDump::CoreDump(NonnullRefPtr<Process> process, NonnullRefPtr<FileDescription>&& fd)
     : m_process(move(process))
     , m_fd(move(fd))
-    , m_num_program_headers(m_process->space().region_count() + 1) // +1 for NOTE segment
+    , m_num_program_headers(m_process->address_space().region_count() + 1) // +1 for NOTE segment
 {
 }
 
@@ -120,7 +120,7 @@ KResult CoreDump::write_elf_header()
 KResult CoreDump::write_program_headers(size_t notes_size)
 {
     size_t offset = sizeof(ElfW(Ehdr)) + m_num_program_headers * sizeof(ElfW(Phdr));
-    for (auto& region : m_process->space().regions()) {
+    for (auto& region : m_process->address_space().regions()) {
         ElfW(Phdr) phdr {};
 
         phdr.p_type = PT_LOAD;
@@ -161,7 +161,7 @@ KResult CoreDump::write_program_headers(size_t notes_size)
 
 KResult CoreDump::write_regions()
 {
-    for (auto& region : m_process->space().regions()) {
+    for (auto& region : m_process->address_space().regions()) {
         if (region->is_kernel())
             continue;
 
@@ -242,7 +242,9 @@ ByteBuffer CoreDump::create_notes_threads_data() const
         ELF::Core::ThreadInfo info {};
         info.header.type = ELF::Core::NotesEntryHeader::Type::ThreadInfo;
         info.tid = thread.tid().value();
-        copy_kernel_registers_into_ptrace_registers(info.regs, thread.get_register_dump_from_stack());
+
+        if (thread.current_trap())
+            copy_kernel_registers_into_ptrace_registers(info.regs, thread.get_register_dump_from_stack());
 
         entry_buff.append((void*)&info, sizeof(info));
 
@@ -255,7 +257,7 @@ ByteBuffer CoreDump::create_notes_regions_data() const
 {
     ByteBuffer regions_data;
     size_t region_index = 0;
-    for (auto& region : m_process->space().regions()) {
+    for (auto& region : m_process->address_space().regions()) {
 
         ByteBuffer memory_region_info_buffer;
         ELF::Core::MemoryRegionInfo info {};
@@ -291,8 +293,9 @@ ByteBuffer CoreDump::create_notes_metadata_data() const
     StringBuilder builder;
     {
         JsonObjectSerializer metadata_obj { builder };
-        for (auto& it : m_process->coredump_metadata())
-            metadata_obj.add(it.key, it.value);
+        m_process->for_each_coredump_property([&](auto& key, auto& value) {
+            metadata_obj.add(key.view(), value.view());
+        });
     }
     builder.append(0);
     metadata_data.append(builder.string_view().characters_without_null_termination(), builder.length());
@@ -318,7 +321,7 @@ ByteBuffer CoreDump::create_notes_segment_data() const
 
 KResult CoreDump::write()
 {
-    ScopedSpinLock lock(m_process->space().get_lock());
+    ScopedSpinLock lock(m_process->address_space().get_lock());
     ProcessPagingScope scope(m_process);
 
     ByteBuffer notes_segment = create_notes_segment_data();

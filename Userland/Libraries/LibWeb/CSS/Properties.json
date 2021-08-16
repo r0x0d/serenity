@@ -175,6 +175,10 @@
     "inherited": false,
     "initial": "auto"
   },
+  "box-shadow":{
+    "inherited": false,
+    "initial": "none"
+  },
   "caption-side": {
     "inherited": true,
     "initial": "top"
@@ -212,7 +216,7 @@
   },
   "flex-basis": {
     "inherited": false,
-    "initial": "content"
+    "initial": "auto"
   },
   "flex-direction": {
     "inherited": false,
@@ -230,7 +234,7 @@
   },
   "flex-shrink": {
     "inherited": false,
-    "initial": 0
+    "initial": 1
   },
   "flex-wrap": {
     "inherited": false,
@@ -272,6 +276,10 @@
     "inherited": false,
     "initial": "auto"
   },
+  "justify-content": {
+    "inherited": false,
+    "initial": "flex-start"
+  },
   "left": {
     "inherited": false,
     "initial": "auto"
@@ -285,6 +293,7 @@
     "initial": "normal"
   },
   "list-style": {
+    "inherited": true,
     "longhands": [
       "list-style-type",
       "list-style-position",
@@ -342,6 +351,10 @@
   "min-width": {
     "inherited": false,
     "initial": "0"
+  },
+  "opacity": {
+    "inherited": false,
+    "initial": 1
   },
   "overflow": {
     "longhands": [
@@ -410,7 +423,8 @@
     "initial": "none"
   },
   "text-decoration-line": {
-    "inherited": false,
+    "__comment": "FIXME: This property is not supposed to be inherited, but we currently rely on inheritance to propagate decorations into line boxes.",
+    "inherited": true,
     "initial": "none"
   },
   "text-decoration-style": {

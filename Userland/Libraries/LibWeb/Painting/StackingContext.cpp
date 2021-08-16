@@ -6,7 +6,7 @@
 
 #include <AK/QuickSort.h>
 #include <AK/StringBuilder.h>
-#include <LibWeb/DOM/Node.h>
+#include <LibGfx/Painter.h>
 #include <LibWeb/Layout/Box.h>
 #include <LibWeb/Layout/InitialContainingBlockBox.h>
 #include <LibWeb/Painting/StackingContext.h>
@@ -31,7 +31,12 @@ StackingContext::StackingContext(Box& box, StackingContext* parent)
 
 void StackingContext::paint_descendants(PaintContext& context, Node& box, StackingContextPaintPhase phase)
 {
+    if (phase == StackingContextPaintPhase::Foreground)
+        box.before_children_paint(context, PaintPhase::Foreground);
+
     box.for_each_child([&](auto& child) {
+        if (child.establishes_stacking_context())
+            return;
         switch (phase) {
         case StackingContextPaintPhase::BackgroundAndBorders:
             if (!child.is_floating() && !child.is_positioned()) {
@@ -53,9 +58,7 @@ void StackingContext::paint_descendants(PaintContext& context, Node& box, Stacki
         case StackingContextPaintPhase::Foreground:
             if (!child.is_positioned()) {
                 child.paint(context, PaintPhase::Foreground);
-                child.before_children_paint(context, PaintPhase::Foreground);
                 paint_descendants(context, child, phase);
-                child.after_children_paint(context, PaintPhase::Foreground);
             }
             break;
         case StackingContextPaintPhase::FocusAndOverlay:
@@ -67,9 +70,12 @@ void StackingContext::paint_descendants(PaintContext& context, Node& box, Stacki
             break;
         }
     });
+
+    if (phase == StackingContextPaintPhase::Foreground)
+        box.after_children_paint(context, PaintPhase::Foreground);
 }
 
-void StackingContext::paint(PaintContext& context)
+void StackingContext::paint_internal(PaintContext& context)
 {
     // For a more elaborate description of the algorithm, see CSS 2.1 Appendix E
     // Draw the background and borders for the context root (steps 1, 2)
@@ -97,6 +103,26 @@ void StackingContext::paint(PaintContext& context)
     m_box.paint(context, PaintPhase::FocusOutline);
     m_box.paint(context, PaintPhase::Overlay);
     paint_descendants(context, m_box, StackingContextPaintPhase::FocusAndOverlay);
+}
+
+void StackingContext::paint(PaintContext& context)
+{
+    auto opacity = m_box.computed_values().opacity();
+    if (opacity.has_value() && opacity.value() == 0.0f)
+        return;
+
+    if (opacity.has_value() && opacity.value() != 1.0f) {
+        auto bitmap = context.painter().target();
+        auto new_bitmap = Gfx::Bitmap::try_create(Gfx::BitmapFormat::BGRA8888, bitmap->size());
+        if (!new_bitmap)
+            return;
+        Gfx::Painter painter(*new_bitmap);
+        PaintContext paint_context(painter, context.palette(), context.scroll_offset());
+        paint_internal(paint_context);
+        context.painter().blit(Gfx::IntPoint(m_box.absolute_position()), *new_bitmap, Gfx::IntRect(m_box.absolute_rect()), opacity.value());
+    } else {
+        paint_internal(context);
+    }
 }
 
 HitTestResult StackingContext::hit_test(const Gfx::IntPoint& position, HitTestType type) const

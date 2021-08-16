@@ -232,3 +232,17 @@ test("override exec with non-function", () => {
     re.exec = 3;
     expect("test".replace(re, "x")).toBe("x");
 });
+
+test("UTF-16", () => {
+    expect("😀".replace("😀", "")).toBe("");
+    expect("😀".replace("\ud83d", "")).toBe("\ude00");
+    expect("😀".replace("\ude00", "")).toBe("\ud83d");
+
+    expect("😀".replace(/\ud83d/, "")).toBe("\ude00");
+    expect("😀".replace(/\ude00/, "")).toBe("\ud83d");
+    expect("😀".replace(/\ud83d\ude00/, "")).toBe("");
+
+    expect("😀".replace(/\ud83d/u, "")).toBe("😀");
+    expect("😀".replace(/\ude00/u, "")).toBe("😀");
+    expect("😀".replace(/\ud83d\ude00/u, "")).toBe("");
+});

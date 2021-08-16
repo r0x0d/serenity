@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include <AK/StringView.h>
 #include <AK/Types.h>
 #include <AK/Userspace.h>
 
@@ -28,183 +29,197 @@ typedef u32 socklen_t;
 
 namespace Kernel {
 
-#define ENUMERATE_SYSCALLS(S)     \
-    S(yield)                      \
-    S(open)                       \
-    S(close)                      \
-    S(read)                       \
-    S(lseek)                      \
-    S(kill)                       \
-    S(getuid)                     \
-    S(exit)                       \
-    S(geteuid)                    \
-    S(getegid)                    \
-    S(getgid)                     \
-    S(getpid)                     \
-    S(getppid)                    \
-    S(getresuid)                  \
-    S(getresgid)                  \
-    S(waitid)                     \
-    S(mmap)                       \
-    S(munmap)                     \
-    S(get_dir_entries)            \
-    S(getcwd)                     \
-    S(gettimeofday)               \
-    S(gethostname)                \
-    S(sethostname)                \
-    S(chdir)                      \
-    S(uname)                      \
-    S(set_mmap_name)              \
-    S(readlink)                   \
-    S(write)                      \
-    S(ttyname)                    \
-    S(stat)                       \
-    S(getsid)                     \
-    S(setsid)                     \
-    S(getpgid)                    \
-    S(setpgid)                    \
-    S(getpgrp)                    \
-    S(fork)                       \
-    S(execve)                     \
-    S(dup2)                       \
-    S(sigaction)                  \
-    S(umask)                      \
-    S(getgroups)                  \
-    S(setgroups)                  \
-    S(sigreturn)                  \
-    S(sigprocmask)                \
-    S(sigpending)                 \
-    S(pipe)                       \
-    S(killpg)                     \
-    S(seteuid)                    \
-    S(setegid)                    \
-    S(setuid)                     \
-    S(setgid)                     \
-    S(setreuid)                   \
-    S(setresuid)                  \
-    S(setresgid)                  \
-    S(alarm)                      \
-    S(fstat)                      \
-    S(access)                     \
-    S(fcntl)                      \
-    S(ioctl)                      \
-    S(mkdir)                      \
-    S(times)                      \
-    S(utime)                      \
-    S(sync)                       \
-    S(ptsname)                    \
-    S(select)                     \
-    S(unlink)                     \
-    S(poll)                       \
-    S(rmdir)                      \
-    S(chmod)                      \
-    S(socket)                     \
-    S(bind)                       \
-    S(accept4)                    \
-    S(listen)                     \
-    S(connect)                    \
-    S(link)                       \
-    S(chown)                      \
-    S(fchmod)                     \
-    S(symlink)                    \
-    S(sendmsg)                    \
-    S(recvmsg)                    \
-    S(getsockopt)                 \
-    S(setsockopt)                 \
-    S(create_thread)              \
-    S(gettid)                     \
-    S(rename)                     \
-    S(ftruncate)                  \
-    S(exit_thread)                \
-    S(mknod)                      \
-    S(writev)                     \
-    S(beep)                       \
-    S(getsockname)                \
-    S(getpeername)                \
-    S(socketpair)                 \
-    S(sched_setparam)             \
-    S(sched_getparam)             \
-    S(fchown)                     \
-    S(halt)                       \
-    S(reboot)                     \
-    S(mount)                      \
-    S(umount)                     \
-    S(dump_backtrace)             \
-    S(dbgputch)                   \
-    S(dbgputstr)                  \
-    S(create_inode_watcher)       \
-    S(inode_watcher_add_watch)    \
-    S(inode_watcher_remove_watch) \
-    S(mprotect)                   \
-    S(realpath)                   \
-    S(get_process_name)           \
-    S(fchdir)                     \
-    S(getrandom)                  \
-    S(getkeymap)                  \
-    S(setkeymap)                  \
-    S(clock_gettime)              \
-    S(clock_settime)              \
-    S(clock_nanosleep)            \
-    S(join_thread)                \
-    S(module_load)                \
-    S(module_unload)              \
-    S(detach_thread)              \
-    S(set_thread_name)            \
-    S(get_thread_name)            \
-    S(madvise)                    \
-    S(purge)                      \
-    S(profiling_enable)           \
-    S(profiling_disable)          \
-    S(profiling_free_buffer)      \
-    S(futex)                      \
-    S(chroot)                     \
-    S(pledge)                     \
-    S(unveil)                     \
-    S(perf_event)                 \
-    S(shutdown)                   \
-    S(get_stack_bounds)           \
-    S(ptrace)                     \
-    S(sendfd)                     \
-    S(recvfd)                     \
-    S(sysconf)                    \
-    S(set_process_name)           \
-    S(disown)                     \
-    S(adjtime)                    \
-    S(allocate_tls)               \
-    S(prctl)                      \
-    S(mremap)                     \
-    S(set_coredump_metadata)      \
-    S(anon_create)                \
-    S(msyscall)                   \
-    S(readv)                      \
-    S(emuctl)                     \
-    S(statvfs)                    \
-    S(fstatvfs)                   \
-    S(kill_thread)
+enum class NeedsBigProcessLock {
+    Yes,
+    No
+};
+
+// Declare all syscalls and associated  metadata.
+//
+// NOTE: When declaring a new syscall or modifying an existing, please
+// ensure that the proper assert is present at the top of the syscall
+// implementation to both verify and document to any readers if the
+// syscall aquires the big process lock or not. The asserts are:
+//   - VERIFY_PROCESS_BIG_LOCK_ACQUIRED(this)
+//   - VERIFY_NO_PROCESS_BIG_LOCK(this)
+//
+#define ENUMERATE_SYSCALLS(S)                               \
+    S(accept4, NeedsBigProcessLock::Yes)                    \
+    S(access, NeedsBigProcessLock::Yes)                     \
+    S(adjtime, NeedsBigProcessLock::Yes)                    \
+    S(alarm, NeedsBigProcessLock::Yes)                      \
+    S(allocate_tls, NeedsBigProcessLock::Yes)               \
+    S(anon_create, NeedsBigProcessLock::Yes)                \
+    S(beep, NeedsBigProcessLock::No)                        \
+    S(bind, NeedsBigProcessLock::Yes)                       \
+    S(chdir, NeedsBigProcessLock::Yes)                      \
+    S(chmod, NeedsBigProcessLock::Yes)                      \
+    S(chown, NeedsBigProcessLock::Yes)                      \
+    S(clock_gettime, NeedsBigProcessLock::No)               \
+    S(clock_nanosleep, NeedsBigProcessLock::No)             \
+    S(clock_settime, NeedsBigProcessLock::Yes)              \
+    S(close, NeedsBigProcessLock::Yes)                      \
+    S(connect, NeedsBigProcessLock::Yes)                    \
+    S(create_inode_watcher, NeedsBigProcessLock::Yes)       \
+    S(create_thread, NeedsBigProcessLock::Yes)              \
+    S(dbgputch, NeedsBigProcessLock::No)                    \
+    S(dbgputstr, NeedsBigProcessLock::No)                   \
+    S(detach_thread, NeedsBigProcessLock::Yes)              \
+    S(disown, NeedsBigProcessLock::Yes)                     \
+    S(dump_backtrace, NeedsBigProcessLock::No)              \
+    S(dup2, NeedsBigProcessLock::Yes)                       \
+    S(emuctl, NeedsBigProcessLock::Yes)                     \
+    S(execve, NeedsBigProcessLock::Yes)                     \
+    S(exit, NeedsBigProcessLock::Yes)                       \
+    S(exit_thread, NeedsBigProcessLock::Yes)                \
+    S(fchdir, NeedsBigProcessLock::Yes)                     \
+    S(fchmod, NeedsBigProcessLock::Yes)                     \
+    S(fchown, NeedsBigProcessLock::Yes)                     \
+    S(fcntl, NeedsBigProcessLock::Yes)                      \
+    S(fork, NeedsBigProcessLock::Yes)                       \
+    S(fstat, NeedsBigProcessLock::Yes)                      \
+    S(fstatvfs, NeedsBigProcessLock::Yes)                   \
+    S(ftruncate, NeedsBigProcessLock::Yes)                  \
+    S(futex, NeedsBigProcessLock::Yes)                      \
+    S(get_dir_entries, NeedsBigProcessLock::Yes)            \
+    S(get_process_name, NeedsBigProcessLock::Yes)           \
+    S(get_stack_bounds, NeedsBigProcessLock::No)            \
+    S(get_thread_name, NeedsBigProcessLock::Yes)            \
+    S(getcwd, NeedsBigProcessLock::Yes)                     \
+    S(getegid, NeedsBigProcessLock::Yes)                    \
+    S(geteuid, NeedsBigProcessLock::Yes)                    \
+    S(getgid, NeedsBigProcessLock::Yes)                     \
+    S(getgroups, NeedsBigProcessLock::Yes)                  \
+    S(gethostname, NeedsBigProcessLock::No)                 \
+    S(getkeymap, NeedsBigProcessLock::No)                   \
+    S(getpeername, NeedsBigProcessLock::Yes)                \
+    S(getpgid, NeedsBigProcessLock::Yes)                    \
+    S(getpgrp, NeedsBigProcessLock::Yes)                    \
+    S(getpid, NeedsBigProcessLock::No)                      \
+    S(getppid, NeedsBigProcessLock::Yes)                    \
+    S(getrandom, NeedsBigProcessLock::No)                   \
+    S(getresgid, NeedsBigProcessLock::Yes)                  \
+    S(getresuid, NeedsBigProcessLock::Yes)                  \
+    S(getsid, NeedsBigProcessLock::Yes)                     \
+    S(getsockname, NeedsBigProcessLock::Yes)                \
+    S(getsockopt, NeedsBigProcessLock::Yes)                 \
+    S(gettid, NeedsBigProcessLock::No)                      \
+    S(getuid, NeedsBigProcessLock::Yes)                     \
+    S(halt, NeedsBigProcessLock::Yes)                       \
+    S(inode_watcher_add_watch, NeedsBigProcessLock::Yes)    \
+    S(inode_watcher_remove_watch, NeedsBigProcessLock::Yes) \
+    S(ioctl, NeedsBigProcessLock::Yes)                      \
+    S(join_thread, NeedsBigProcessLock::Yes)                \
+    S(kill, NeedsBigProcessLock::Yes)                       \
+    S(kill_thread, NeedsBigProcessLock::Yes)                \
+    S(killpg, NeedsBigProcessLock::Yes)                     \
+    S(link, NeedsBigProcessLock::Yes)                       \
+    S(listen, NeedsBigProcessLock::Yes)                     \
+    S(lseek, NeedsBigProcessLock::Yes)                      \
+    S(madvise, NeedsBigProcessLock::Yes)                    \
+    S(map_time_page, NeedsBigProcessLock::Yes)              \
+    S(mkdir, NeedsBigProcessLock::Yes)                      \
+    S(mknod, NeedsBigProcessLock::Yes)                      \
+    S(mmap, NeedsBigProcessLock::Yes)                       \
+    S(module_load, NeedsBigProcessLock::Yes)                \
+    S(module_unload, NeedsBigProcessLock::Yes)              \
+    S(mount, NeedsBigProcessLock::Yes)                      \
+    S(mprotect, NeedsBigProcessLock::Yes)                   \
+    S(mremap, NeedsBigProcessLock::Yes)                     \
+    S(msyscall, NeedsBigProcessLock::Yes)                   \
+    S(munmap, NeedsBigProcessLock::Yes)                     \
+    S(open, NeedsBigProcessLock::Yes)                       \
+    S(perf_event, NeedsBigProcessLock::Yes)                 \
+    S(perf_register_string, NeedsBigProcessLock::Yes)       \
+    S(pipe, NeedsBigProcessLock::Yes)                       \
+    S(pledge, NeedsBigProcessLock::Yes)                     \
+    S(poll, NeedsBigProcessLock::Yes)                       \
+    S(prctl, NeedsBigProcessLock::Yes)                      \
+    S(profiling_disable, NeedsBigProcessLock::Yes)          \
+    S(profiling_enable, NeedsBigProcessLock::Yes)           \
+    S(profiling_free_buffer, NeedsBigProcessLock::Yes)      \
+    S(ptrace, NeedsBigProcessLock::Yes)                     \
+    S(ptsname, NeedsBigProcessLock::Yes)                    \
+    S(purge, NeedsBigProcessLock::Yes)                      \
+    S(read, NeedsBigProcessLock::Yes)                       \
+    S(readlink, NeedsBigProcessLock::Yes)                   \
+    S(readv, NeedsBigProcessLock::Yes)                      \
+    S(realpath, NeedsBigProcessLock::Yes)                   \
+    S(reboot, NeedsBigProcessLock::Yes)                     \
+    S(recvfd, NeedsBigProcessLock::Yes)                     \
+    S(recvmsg, NeedsBigProcessLock::Yes)                    \
+    S(rename, NeedsBigProcessLock::Yes)                     \
+    S(rmdir, NeedsBigProcessLock::Yes)                      \
+    S(sched_getparam, NeedsBigProcessLock::Yes)             \
+    S(sched_setparam, NeedsBigProcessLock::Yes)             \
+    S(select, NeedsBigProcessLock::Yes)                     \
+    S(sendfd, NeedsBigProcessLock::Yes)                     \
+    S(sendmsg, NeedsBigProcessLock::Yes)                    \
+    S(set_coredump_metadata, NeedsBigProcessLock::Yes)      \
+    S(set_mmap_name, NeedsBigProcessLock::Yes)              \
+    S(set_process_name, NeedsBigProcessLock::Yes)           \
+    S(set_thread_name, NeedsBigProcessLock::Yes)            \
+    S(setegid, NeedsBigProcessLock::Yes)                    \
+    S(seteuid, NeedsBigProcessLock::Yes)                    \
+    S(setgid, NeedsBigProcessLock::Yes)                     \
+    S(setgroups, NeedsBigProcessLock::Yes)                  \
+    S(sethostname, NeedsBigProcessLock::No)                 \
+    S(setkeymap, NeedsBigProcessLock::Yes)                  \
+    S(setpgid, NeedsBigProcessLock::Yes)                    \
+    S(setresgid, NeedsBigProcessLock::Yes)                  \
+    S(setresuid, NeedsBigProcessLock::Yes)                  \
+    S(setreuid, NeedsBigProcessLock::Yes)                   \
+    S(setsid, NeedsBigProcessLock::Yes)                     \
+    S(setsockopt, NeedsBigProcessLock::Yes)                 \
+    S(setuid, NeedsBigProcessLock::Yes)                     \
+    S(shutdown, NeedsBigProcessLock::Yes)                   \
+    S(sigaction, NeedsBigProcessLock::Yes)                  \
+    S(sigpending, NeedsBigProcessLock::Yes)                 \
+    S(sigprocmask, NeedsBigProcessLock::Yes)                \
+    S(sigreturn, NeedsBigProcessLock::Yes)                  \
+    S(socket, NeedsBigProcessLock::Yes)                     \
+    S(socketpair, NeedsBigProcessLock::Yes)                 \
+    S(stat, NeedsBigProcessLock::Yes)                       \
+    S(statvfs, NeedsBigProcessLock::Yes)                    \
+    S(symlink, NeedsBigProcessLock::Yes)                    \
+    S(sync, NeedsBigProcessLock::No)                        \
+    S(sysconf, NeedsBigProcessLock::No)                     \
+    S(times, NeedsBigProcessLock::Yes)                      \
+    S(ttyname, NeedsBigProcessLock::Yes)                    \
+    S(umask, NeedsBigProcessLock::Yes)                      \
+    S(umount, NeedsBigProcessLock::Yes)                     \
+    S(uname, NeedsBigProcessLock::No)                       \
+    S(unlink, NeedsBigProcessLock::Yes)                     \
+    S(unveil, NeedsBigProcessLock::Yes)                     \
+    S(utime, NeedsBigProcessLock::Yes)                      \
+    S(waitid, NeedsBigProcessLock::Yes)                     \
+    S(write, NeedsBigProcessLock::Yes)                      \
+    S(writev, NeedsBigProcessLock::Yes)                     \
+    S(yield, NeedsBigProcessLock::No)
 
 namespace Syscall {
 
 enum Function {
 #undef __ENUMERATE_SYSCALL
-#define __ENUMERATE_SYSCALL(x) SC_##x,
+#define __ENUMERATE_SYSCALL(sys_call, needs_lock) SC_##sys_call,
     ENUMERATE_SYSCALLS(__ENUMERATE_SYSCALL)
 #undef __ENUMERATE_SYSCALL
         __Count
 };
 
-constexpr const char* to_string(Function function)
+constexpr StringView to_string(Function function)
 {
     switch (function) {
 #undef __ENUMERATE_SYSCALL
-#define __ENUMERATE_SYSCALL(x) \
-    case SC_##x:               \
-        return #x;
+#define __ENUMERATE_SYSCALL(sys_call, needs_lock) \
+    case SC_##sys_call:                           \
+        return #sys_call##sv;
         ENUMERATE_SYSCALLS(__ENUMERATE_SYSCALL)
 #undef __ENUMERATE_SYSCALL
     default:
         break;
     }
-    return "Unknown";
+    return "Unknown"sv;
 }
 
 #ifdef __serenity__
@@ -517,12 +532,23 @@ inline uintptr_t invoke(Function function, T1 arg1, T2 arg2, T3 arg3)
                  : "memory");
     return result;
 }
+
+template<typename T1, typename T2, typename T3, typename T4>
+inline uintptr_t invoke(Function function, T1 arg1, T2 arg2, T3 arg3, T4 arg4)
+{
+    uintptr_t result;
+    asm volatile("int $0x82"
+                 : "=a"(result)
+                 : "a"(function), "d"((uintptr_t)arg1), "c"((uintptr_t)arg2), "b"((uintptr_t)arg3), "S"((uintptr_t)arg4)
+                 : "memory");
+    return result;
+}
 #endif
 
 }
 
 #undef __ENUMERATE_SYSCALL
-#define __ENUMERATE_SYSCALL(x) using Syscall::SC_##x;
+#define __ENUMERATE_SYSCALL(sys_call, needs_lock) using Syscall::SC_##sys_call;
 ENUMERATE_SYSCALLS(__ENUMERATE_SYSCALL)
 #undef __ENUMERATE_SYSCALL
 

@@ -14,13 +14,13 @@ using Token = Web::HTML::HTMLToken;
 
 #define BEGIN_ENUMERATION(tokens)          \
     auto current_token = (tokens).begin(); \
-    Optional<Token> last_token;
+    [[maybe_unused]] Token* last_token;
 
 #define END_ENUMERATION() \
     EXPECT(current_token.is_end());
 
-#define NEXT_TOKEN()             \
-    last_token = *current_token; \
+#define NEXT_TOKEN()              \
+    last_token = &*current_token; \
     ++current_token;
 
 #define EXPECT_START_TAG_TOKEN(_tag_name)                    \
@@ -56,12 +56,12 @@ using Token = Web::HTML::HTMLToken;
     NEXT_TOKEN();
 
 #define EXPECT_TAG_TOKEN_ATTRIBUTE(name, value) \
-    VERIFY(last_token.has_value());             \
-    EXPECT_EQ(last_token->attribute(#name), #value);
+    VERIFY(last_token);                         \
+    EXPECT_EQ(last_token->attribute(#name), value);
 
 #define EXPECT_TAG_TOKEN_ATTRIBUTE_COUNT(count) \
-    VERIFY(last_token.has_value());             \
-    EXPECT_EQ(last_token->attributes().size(), (size_t)count);
+    VERIFY(last_token);                         \
+    EXPECT_EQ(last_token->attribute_count(), (size_t)(count));
 
 static Vector<Token> run_tokenizer(StringView const& input)
 {
@@ -124,7 +124,7 @@ TEST_CASE(unquoted_attributes)
     BEGIN_ENUMERATION(tokens);
     EXPECT_START_TAG_TOKEN(p);
     EXPECT_TAG_TOKEN_ATTRIBUTE_COUNT(1);
-    EXPECT_TAG_TOKEN_ATTRIBUTE(foo, bar);
+    EXPECT_TAG_TOKEN_ATTRIBUTE(foo, "bar");
     EXPECT_END_OF_FILE_TOKEN();
     END_ENUMERATION();
 }
@@ -135,7 +135,7 @@ TEST_CASE(single_quoted_attributes)
     BEGIN_ENUMERATION(tokens);
     EXPECT_START_TAG_TOKEN(p);
     EXPECT_TAG_TOKEN_ATTRIBUTE_COUNT(1);
-    EXPECT_TAG_TOKEN_ATTRIBUTE(foo, bar);
+    EXPECT_TAG_TOKEN_ATTRIBUTE(foo, "bar");
     EXPECT_END_OF_FILE_TOKEN();
     END_ENUMERATION();
 }
@@ -146,7 +146,7 @@ TEST_CASE(double_quoted_attributes)
     BEGIN_ENUMERATION(tokens);
     EXPECT_START_TAG_TOKEN(p);
     EXPECT_TAG_TOKEN_ATTRIBUTE_COUNT(1);
-    EXPECT_TAG_TOKEN_ATTRIBUTE(foo, bar);
+    EXPECT_TAG_TOKEN_ATTRIBUTE(foo, "bar");
     EXPECT_END_OF_FILE_TOKEN();
     END_ENUMERATION();
 }
@@ -157,9 +157,22 @@ TEST_CASE(multiple_attributes)
     BEGIN_ENUMERATION(tokens);
     EXPECT_START_TAG_TOKEN(p);
     EXPECT_TAG_TOKEN_ATTRIBUTE_COUNT(3);
-    EXPECT_TAG_TOKEN_ATTRIBUTE(foo, bar);
-    EXPECT_TAG_TOKEN_ATTRIBUTE(baz, foobar);
-    EXPECT_TAG_TOKEN_ATTRIBUTE(foo2, bar2);
+    EXPECT_TAG_TOKEN_ATTRIBUTE(foo, "bar");
+    EXPECT_TAG_TOKEN_ATTRIBUTE(baz, "foobar");
+    EXPECT_TAG_TOKEN_ATTRIBUTE(foo2, "bar2");
+    EXPECT_END_OF_FILE_TOKEN();
+    END_ENUMERATION();
+}
+
+TEST_CASE(character_reference_in_attribute)
+{
+    auto tokens = run_tokenizer("<p foo=a&amp;b bar='a&#38;b' baz=\"a&#x26;b\">");
+    BEGIN_ENUMERATION(tokens);
+    EXPECT_START_TAG_TOKEN(p);
+    EXPECT_TAG_TOKEN_ATTRIBUTE_COUNT(3);
+    EXPECT_TAG_TOKEN_ATTRIBUTE(foo, "a&b");
+    EXPECT_TAG_TOKEN_ATTRIBUTE(bar, "a&b");
+    EXPECT_TAG_TOKEN_ATTRIBUTE(baz, "a&b");
     EXPECT_END_OF_FILE_TOKEN();
     END_ENUMERATION();
 }

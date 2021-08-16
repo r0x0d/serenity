@@ -18,7 +18,6 @@
 #include <LibGfx/Bitmap.h>
 #include <LibGfx/Painter.h>
 #include <LibGfx/Vector4.h>
-#include <math.h>
 
 using AK::dbgln;
 
@@ -715,6 +714,76 @@ void SoftwareGLContext::gl_tex_image_2d(GLenum target, GLint level, GLint intern
     m_active_texture_unit->bound_texture_2d()->upload_texture_data(target, level, internal_format, width, height, border, format, type, data);
 }
 
+void SoftwareGLContext::gl_tex_parameter(GLenum target, GLenum pname, GLfloat param)
+{
+    APPEND_TO_CALL_LIST_AND_RETURN_IF_NEEDED(gl_tex_parameter, target, pname, param);
+
+    RETURN_WITH_ERROR_IF(m_in_draw_state, GL_INVALID_OPERATION);
+
+    // FIXME: We currently only support GL_TETXURE_2D targets. 1D, 3D and CUBE should also be supported (https://docs.gl/gl2/glTexParameter)
+    RETURN_WITH_ERROR_IF(target != GL_TEXTURE_2D, GL_INVALID_ENUM);
+
+    // FIXME: implement the remaining parameters. (https://docs.gl/gl2/glTexParameter)
+    RETURN_WITH_ERROR_IF(!(pname == GL_TEXTURE_MIN_FILTER
+                             || pname == GL_TEXTURE_MAG_FILTER
+                             || pname == GL_TEXTURE_WRAP_S
+                             || pname == GL_TEXTURE_WRAP_T),
+        GL_INVALID_ENUM);
+
+    if (target == GL_TEXTURE_2D) {
+        auto texture2d = m_active_texture_unit->bound_texture_2d();
+        if (texture2d.is_null())
+            return;
+
+        switch (pname) {
+        case GL_TEXTURE_MIN_FILTER:
+            RETURN_WITH_ERROR_IF(!(param == GL_NEAREST
+                                     || param == GL_LINEAR
+                                     || param == GL_NEAREST_MIPMAP_NEAREST
+                                     || param == GL_LINEAR_MIPMAP_NEAREST
+                                     || param == GL_NEAREST_MIPMAP_LINEAR
+                                     || param == GL_LINEAR_MIPMAP_LINEAR),
+                GL_INVALID_ENUM);
+
+            texture2d->sampler().set_min_filter(param);
+            break;
+
+        case GL_TEXTURE_MAG_FILTER:
+            RETURN_WITH_ERROR_IF(!(param == GL_NEAREST
+                                     || param == GL_LINEAR),
+                GL_INVALID_ENUM);
+
+            texture2d->sampler().set_mag_filter(param);
+            break;
+
+        case GL_TEXTURE_WRAP_S:
+            RETURN_WITH_ERROR_IF(!(param == GL_CLAMP
+                                     || param == GL_CLAMP_TO_BORDER
+                                     || param == GL_CLAMP_TO_EDGE
+                                     || param == GL_MIRRORED_REPEAT
+                                     || param == GL_REPEAT),
+                GL_INVALID_ENUM);
+
+            texture2d->sampler().set_wrap_s_mode(param);
+            break;
+
+        case GL_TEXTURE_WRAP_T:
+            RETURN_WITH_ERROR_IF(!(param == GL_CLAMP
+                                     || param == GL_CLAMP_TO_BORDER
+                                     || param == GL_CLAMP_TO_EDGE
+                                     || param == GL_MIRRORED_REPEAT
+                                     || param == GL_REPEAT),
+                GL_INVALID_ENUM);
+
+            texture2d->sampler().set_wrap_t_mode(param);
+            break;
+
+        default:
+            VERIFY_NOT_REACHED();
+        }
+    }
+}
+
 void SoftwareGLContext::gl_front_face(GLenum face)
 {
     APPEND_TO_CALL_LIST_AND_RETURN_IF_NEEDED(gl_front_face, face);
@@ -1321,6 +1390,337 @@ void SoftwareGLContext::gl_get_floatv(GLenum pname, GLfloat* params)
         // that we currently support. More parameters should be supported.
         TODO();
     }
+}
+
+void SoftwareGLContext::gl_depth_mask(GLboolean flag)
+{
+    APPEND_TO_CALL_LIST_AND_RETURN_IF_NEEDED(gl_depth_mask, flag);
+
+    RETURN_WITH_ERROR_IF(m_in_draw_state, GL_INVALID_OPERATION);
+
+    auto options = m_rasterizer.options();
+    options.enable_depth_write = (flag != GL_FALSE);
+    m_rasterizer.set_options(options);
+}
+
+void SoftwareGLContext::gl_enable_client_state(GLenum cap)
+{
+    RETURN_WITH_ERROR_IF(m_in_draw_state, GL_INVALID_OPERATION);
+
+    switch (cap) {
+    case GL_VERTEX_ARRAY:
+        m_client_side_vertex_array_enabled = true;
+        break;
+
+    case GL_COLOR_ARRAY:
+        m_client_side_color_array_enabled = true;
+        break;
+
+    case GL_TEXTURE_COORD_ARRAY:
+        m_client_side_texture_coord_array_enabled = true;
+        break;
+
+    default:
+        RETURN_WITH_ERROR_IF(true, GL_INVALID_ENUM);
+    }
+}
+
+void SoftwareGLContext::gl_disable_client_state(GLenum cap)
+{
+    RETURN_WITH_ERROR_IF(m_in_draw_state, GL_INVALID_OPERATION);
+
+    switch (cap) {
+    case GL_VERTEX_ARRAY:
+        m_client_side_vertex_array_enabled = false;
+        break;
+
+    case GL_COLOR_ARRAY:
+        m_client_side_color_array_enabled = false;
+        break;
+
+    case GL_TEXTURE_COORD_ARRAY:
+        m_client_side_texture_coord_array_enabled = false;
+        break;
+
+    default:
+        RETURN_WITH_ERROR_IF(true, GL_INVALID_ENUM);
+    }
+}
+
+void SoftwareGLContext::gl_vertex_pointer(GLint size, GLenum type, GLsizei stride, const void* pointer)
+{
+    RETURN_WITH_ERROR_IF(m_in_draw_state, GL_INVALID_OPERATION);
+
+    RETURN_WITH_ERROR_IF(!(size == 1 || size == 2 || size == 4), GL_INVALID_VALUE);
+    RETURN_WITH_ERROR_IF(!(type == GL_SHORT || type == GL_INT || type == GL_FLOAT || type == GL_DOUBLE), GL_INVALID_ENUM);
+    RETURN_WITH_ERROR_IF(stride < 0, GL_INVALID_VALUE);
+
+    m_client_vertex_pointer.size = size;
+    m_client_vertex_pointer.type = type;
+    m_client_vertex_pointer.stride = stride;
+    m_client_vertex_pointer.pointer = pointer;
+}
+
+void SoftwareGLContext::gl_color_pointer(GLint size, GLenum type, GLsizei stride, const void* pointer)
+{
+    RETURN_WITH_ERROR_IF(m_in_draw_state, GL_INVALID_OPERATION);
+
+    RETURN_WITH_ERROR_IF(!(size == 3 || size == 4), GL_INVALID_VALUE);
+
+    RETURN_WITH_ERROR_IF(!(type == GL_BYTE
+                             || type == GL_UNSIGNED_BYTE
+                             || type == GL_SHORT
+                             || type == GL_UNSIGNED_SHORT
+                             || type == GL_INT
+                             || type == GL_UNSIGNED_INT
+                             || type == GL_FLOAT
+                             || type == GL_DOUBLE),
+        GL_INVALID_ENUM);
+
+    RETURN_WITH_ERROR_IF(stride < 0, GL_INVALID_VALUE);
+
+    m_client_color_pointer.size = size;
+    m_client_color_pointer.type = type;
+    m_client_color_pointer.stride = stride;
+    m_client_color_pointer.pointer = pointer;
+}
+
+void SoftwareGLContext::gl_tex_coord_pointer(GLint size, GLenum type, GLsizei stride, const void* pointer)
+{
+    RETURN_WITH_ERROR_IF(m_in_draw_state, GL_INVALID_OPERATION);
+
+    RETURN_WITH_ERROR_IF(!(size == 1 || size == 2 || size == 3 || size == 4), GL_INVALID_VALUE);
+
+    RETURN_WITH_ERROR_IF(!(type == GL_SHORT || type == GL_INT || type == GL_FLOAT || type == GL_DOUBLE), GL_INVALID_ENUM);
+
+    RETURN_WITH_ERROR_IF(stride < 0, GL_INVALID_VALUE);
+
+    m_client_tex_coord_pointer.size = size;
+    m_client_tex_coord_pointer.type = type;
+    m_client_tex_coord_pointer.stride = stride;
+    m_client_tex_coord_pointer.pointer = pointer;
+}
+
+void SoftwareGLContext::gl_draw_arrays(GLenum mode, GLint first, GLsizei count)
+{
+    APPEND_TO_CALL_LIST_AND_RETURN_IF_NEEDED(gl_draw_arrays, mode, first, count);
+    RETURN_WITH_ERROR_IF(m_in_draw_state, GL_INVALID_OPERATION);
+
+    // FIXME: Some modes are still missing (GL_POINTS, GL_LINE_STRIP, GL_LINE_LOOP, GL_LINES,GL_QUAD_STRIP)
+    RETURN_WITH_ERROR_IF(!(mode == GL_TRIANGLE_STRIP
+                             || mode == GL_TRIANGLE_FAN
+                             || mode == GL_TRIANGLES
+                             || mode == GL_QUADS
+                             || mode == GL_POLYGON),
+        GL_INVALID_ENUM);
+
+    RETURN_WITH_ERROR_IF(count < 0, GL_INVALID_VALUE);
+
+    // At least the vertex array needs to be enabled
+    if (!m_client_side_vertex_array_enabled)
+        return;
+
+    auto last = first + count;
+    glBegin(mode);
+    for (int i = first; i < last; i++) {
+        if (m_client_side_texture_coord_array_enabled) {
+            float tex_coords[4] { 0, 0, 0, 0 };
+            read_from_vertex_attribute_pointer(m_client_tex_coord_pointer, i, tex_coords, false);
+            glTexCoord4fv(tex_coords);
+        }
+
+        if (m_client_side_color_array_enabled) {
+            float color[4] { 0, 0, 0, 1 };
+            read_from_vertex_attribute_pointer(m_client_color_pointer, i, color, true);
+            glColor4fv(color);
+        }
+
+        float vertex[4] { 0, 0, 0, 1 };
+        read_from_vertex_attribute_pointer(m_client_vertex_pointer, i, vertex, false);
+        glVertex4fv(vertex);
+    }
+    glEnd();
+}
+
+void SoftwareGLContext::gl_draw_elements(GLenum mode, GLsizei count, GLenum type, const void* indices)
+{
+    APPEND_TO_CALL_LIST_AND_RETURN_IF_NEEDED(gl_draw_elements, mode, count, type, indices);
+    RETURN_WITH_ERROR_IF(m_in_draw_state, GL_INVALID_OPERATION);
+
+    // FIXME: Some modes are still missing (GL_POINTS, GL_LINE_STRIP, GL_LINE_LOOP, GL_LINES,GL_QUAD_STRIP)
+    RETURN_WITH_ERROR_IF(!(mode == GL_TRIANGLE_STRIP
+                             || mode == GL_TRIANGLE_FAN
+                             || mode == GL_TRIANGLES
+                             || mode == GL_QUADS
+                             || mode == GL_POLYGON),
+        GL_INVALID_ENUM);
+
+    RETURN_WITH_ERROR_IF(!(type == GL_UNSIGNED_BYTE
+                             || type == GL_UNSIGNED_SHORT
+                             || type == GL_UNSIGNED_INT),
+        GL_INVALID_ENUM);
+
+    RETURN_WITH_ERROR_IF(count < 0, GL_INVALID_VALUE);
+
+    // At least the vertex array needs to be enabled
+    if (!m_client_side_vertex_array_enabled)
+        return;
+
+    glBegin(mode);
+    for (int index = 0; index < count; index++) {
+        int i = 0;
+        switch (type) {
+        case GL_UNSIGNED_BYTE:
+            i = reinterpret_cast<const GLubyte*>(indices)[index];
+            break;
+        case GL_UNSIGNED_SHORT:
+            i = reinterpret_cast<const GLushort*>(indices)[index];
+            break;
+        case GL_UNSIGNED_INT:
+            i = reinterpret_cast<const GLuint*>(indices)[index];
+            break;
+        }
+
+        if (m_client_side_texture_coord_array_enabled) {
+            float tex_coords[4] { 0, 0, 0, 0 };
+            read_from_vertex_attribute_pointer(m_client_tex_coord_pointer, i, tex_coords, false);
+            glTexCoord4fv(tex_coords);
+        }
+
+        if (m_client_side_color_array_enabled) {
+            float color[4] { 0, 0, 0, 1 };
+            read_from_vertex_attribute_pointer(m_client_color_pointer, i, color, true);
+            glColor4fv(color);
+        }
+
+        float vertex[4] { 0, 0, 0, 1 };
+        read_from_vertex_attribute_pointer(m_client_vertex_pointer, i, vertex, false);
+        glVertex4fv(vertex);
+    }
+    glEnd();
+}
+
+// General helper function to read arbitrary vertex attribute data into a float array
+void SoftwareGLContext::read_from_vertex_attribute_pointer(VertexAttribPointer const& attrib, int index, float* elements, bool normalize)
+{
+    auto byte_ptr = reinterpret_cast<const char*>(attrib.pointer);
+    size_t stride = attrib.stride;
+
+    switch (attrib.type) {
+    case GL_BYTE: {
+        if (stride == 0)
+            stride = sizeof(GLbyte) * attrib.size;
+
+        for (int i = 0; i < attrib.size; i++) {
+            elements[i] = *(reinterpret_cast<const GLbyte*>(byte_ptr + stride * index) + i);
+            if (normalize)
+                elements[i] /= 0x80;
+        }
+        break;
+    }
+    case GL_UNSIGNED_BYTE: {
+        if (stride == 0)
+            stride = sizeof(GLubyte) * attrib.size;
+
+        for (int i = 0; i < attrib.size; i++) {
+            elements[i] = *(reinterpret_cast<const GLubyte*>(byte_ptr + stride * index) + i);
+            if (normalize)
+                elements[i] /= 0xff;
+        }
+        break;
+    }
+    case GL_SHORT: {
+        if (stride == 0)
+            stride = sizeof(GLshort) * attrib.size;
+
+        for (int i = 0; i < attrib.size; i++) {
+            elements[i] = *(reinterpret_cast<const GLshort*>(byte_ptr + stride * index) + i);
+            if (normalize)
+                elements[i] /= 0x8000;
+        }
+        break;
+    }
+    case GL_UNSIGNED_SHORT: {
+        if (stride == 0)
+            stride = sizeof(GLushort) * attrib.size;
+
+        for (int i = 0; i < attrib.size; i++) {
+            elements[i] = *(reinterpret_cast<const GLushort*>(byte_ptr + stride * index) + i);
+            if (normalize)
+                elements[i] /= 0xffff;
+        }
+        break;
+    }
+    case GL_INT: {
+        if (stride == 0)
+            stride = sizeof(GLint) * attrib.size;
+
+        for (int i = 0; i < attrib.size; i++) {
+            elements[i] = *(reinterpret_cast<const GLint*>(byte_ptr + stride * index) + i);
+            if (normalize)
+                elements[i] /= 0x80000000;
+        }
+        break;
+    }
+    case GL_UNSIGNED_INT: {
+        if (stride == 0)
+            stride = sizeof(GLuint) * attrib.size;
+
+        for (int i = 0; i < attrib.size; i++) {
+            elements[i] = *(reinterpret_cast<const GLuint*>(byte_ptr + stride * index) + i);
+            if (normalize)
+                elements[i] /= 0xffffffff;
+        }
+        break;
+    }
+    case GL_FLOAT: {
+        if (stride == 0)
+            stride = sizeof(GLfloat) * attrib.size;
+
+        for (int i = 0; i < attrib.size; i++) {
+            elements[i] = *(reinterpret_cast<const GLfloat*>(byte_ptr + stride * index) + i);
+        }
+        break;
+    }
+    case GL_DOUBLE: {
+        if (stride == 0)
+            stride = sizeof(GLdouble) * attrib.size;
+
+        for (int i = 0; i < attrib.size; i++) {
+            elements[i] = static_cast<float>(*(reinterpret_cast<const GLdouble*>(byte_ptr + stride * index) + i));
+        }
+        break;
+    }
+    }
+}
+
+void SoftwareGLContext::gl_color_mask(GLboolean red, GLboolean green, GLboolean blue, GLboolean alpha)
+{
+    auto options = m_rasterizer.options();
+    auto mask = options.color_mask;
+
+    if (!red)
+        mask &= ~0x000000ff;
+    else
+        mask |= 0x000000ff;
+
+    if (!green)
+        mask &= ~0x0000ff00;
+    else
+        mask |= 0x0000ff00;
+
+    if (!blue)
+        mask &= ~0x00ff0000;
+    else
+        mask |= 0x00ff0000;
+
+    if (!alpha)
+        mask &= ~0xff000000;
+    else
+        mask |= 0xff000000;
+
+    options.color_mask = mask;
+    m_rasterizer.set_options(options);
 }
 
 void SoftwareGLContext::present()

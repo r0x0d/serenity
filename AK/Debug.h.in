@@ -14,10 +14,6 @@
 #cmakedefine01 AFLACLOADER_DEBUG
 #endif
 
-#ifndef BACKTRACE_DEBUG
-#cmakedefine01 BACKTRACE_DEBUG
-#endif
-
 #ifndef BMP_DEBUG
 #cmakedefine01 BMP_DEBUG
 #endif
@@ -64,6 +60,14 @@
 
 #ifndef CSS_LOADER_DEBUG
 #cmakedefine01 CSS_LOADER_DEBUG
+#endif
+
+#ifndef CSS_PARSER_DEBUG
+#cmakedefine01 CSS_PARSER_DEBUG
+#endif
+
+#ifndef CSS_TOKENIZER_DEBUG
+#cmakedefine01 CSS_TOKENIZER_DEBUG
 #endif
 
 #ifndef CURSOR_TOOL_DEBUG

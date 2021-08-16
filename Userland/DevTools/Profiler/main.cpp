@@ -12,7 +12,6 @@
 #include "TimelineView.h"
 #include <LibCore/ArgsParser.h>
 #include <LibCore/ElapsedTimer.h>
-#include <LibCore/EventLoop.h>
 #include <LibCore/ProcessStatisticsReader.h>
 #include <LibCore/Timer.h>
 #include <LibDesktop/Launcher.h>
@@ -138,19 +137,28 @@ int main(int argc, char** argv)
     auto& tree_view = bottom_splitter.add<GUI::TreeView>();
     tree_view.set_should_fill_selected_rows(true);
     tree_view.set_column_headers_visible(true);
+    tree_view.set_selection_behavior(GUI::TreeView::SelectionBehavior::SelectRows);
     tree_view.set_model(profile->model());
 
     auto& disassembly_view = bottom_splitter.add<GUI::TableView>();
     disassembly_view.set_visible(false);
 
-    tree_view.on_selection_change = [&] {
-        const auto& index = tree_view.selection().first();
-        profile->set_disassembly_index(index);
-        disassembly_view.set_model(profile->disassembly_model());
+    auto update_disassembly_model = [&] {
+        if (disassembly_view.is_visible() && !tree_view.selection().is_empty()) {
+            profile->set_disassembly_index(tree_view.selection().first());
+            disassembly_view.set_model(profile->disassembly_model());
+        } else {
+            disassembly_view.set_model(nullptr);
+        }
     };
 
-    auto disassembly_action = GUI::Action::create_checkable("Show &Disassembly", { Mod_Ctrl, Key_D }, Gfx::Bitmap::load_from_file("/res/icons/16x16/x86.png"), [&](auto& action) {
+    tree_view.on_selection_change = [&] {
+        update_disassembly_model();
+    };
+
+    auto disassembly_action = GUI::Action::create_checkable("Show &Disassembly", { Mod_Ctrl, Key_D }, Gfx::Bitmap::try_load_from_file("/res/icons/16x16/x86.png"), [&](auto& action) {
         disassembly_view.set_visible(action.is_checked());
+        update_disassembly_model();
     });
 
     auto& samples_tab = tab_widget.add_tab<GUI::Widget>("Samples");
@@ -166,6 +174,21 @@ int main(int argc, char** argv)
         const auto& index = samples_table_view.selection().first();
         auto model = IndividualSampleModel::create(*profile, index.data(GUI::ModelRole::Custom).to_integer<size_t>());
         individual_sample_view.set_model(move(model));
+    };
+
+    auto& signposts_tab = tab_widget.add_tab<GUI::Widget>("Signposts");
+    signposts_tab.set_layout<GUI::VerticalBoxLayout>();
+    signposts_tab.layout()->set_margins({ 4, 4, 4, 4 });
+
+    auto& signposts_splitter = signposts_tab.add<GUI::HorizontalSplitter>();
+    auto& signposts_table_view = signposts_splitter.add<GUI::TableView>();
+    signposts_table_view.set_model(profile->signposts_model());
+
+    auto& individual_signpost_view = signposts_splitter.add<GUI::TableView>();
+    signposts_table_view.on_selection_change = [&] {
+        const auto& index = signposts_table_view.selection().first();
+        auto model = IndividualSampleModel::create(*profile, index.data(GUI::ModelRole::Custom).to_integer<size_t>());
+        individual_signpost_view.set_model(move(model));
     };
 
     const u64 start_of_trace = profile->first_timestamp();
@@ -191,11 +214,10 @@ int main(int argc, char** argv)
         statusbar.set_text(builder.to_string());
     };
 
-    auto menubar = GUI::Menubar::construct();
-    auto& file_menu = menubar->add_menu("&File");
+    auto& file_menu = window->add_menu("&File");
     file_menu.add_action(GUI::CommonActions::make_quit_action([&](auto&) { app->quit(); }));
 
-    auto& view_menu = menubar->add_menu("&View");
+    auto& view_menu = window->add_menu("&View");
 
     auto invert_action = GUI::Action::create_checkable("&Invert Tree", { Mod_Ctrl, Key_I }, [&](auto& action) {
         profile->set_inverted(action.is_checked());
@@ -219,13 +241,12 @@ int main(int argc, char** argv)
 
     view_menu.add_action(disassembly_action);
 
-    auto& help_menu = menubar->add_menu("&Help");
+    auto& help_menu = window->add_menu("&Help");
     help_menu.add_action(GUI::CommonActions::make_help_action([](auto&) {
         Desktop::Launcher::open(URL::create_with_file_protocol("/usr/share/man/man1/Profiler.md"), "/bin/Help");
     }));
     help_menu.add_action(GUI::CommonActions::make_about_action("Profiler", app_icon, window));
 
-    window->set_menubar(move(menubar));
     window->show();
     return app->exec();
 }
@@ -235,7 +256,7 @@ static bool prompt_to_stop_profiling(pid_t pid, const String& process_name)
     auto window = GUI::Window::construct();
     window->set_title(String::formatted("Profiling {}({})", process_name, pid));
     window->resize(240, 100);
-    window->set_icon(Gfx::Bitmap::load_from_file("/res/icons/16x16/app-profiler.png"));
+    window->set_icon(Gfx::Bitmap::try_load_from_file("/res/icons/16x16/app-profiler.png"));
     window->center_on_screen();
 
     auto& widget = window->set_main_widget<GUI::Widget>();
@@ -263,7 +284,7 @@ static bool prompt_to_stop_profiling(pid_t pid, const String& process_name)
 bool generate_profile(pid_t& pid)
 {
     if (!pid) {
-        auto process_chooser = GUI::ProcessChooser::construct("Profiler", "Profile", Gfx::Bitmap::load_from_file("/res/icons/16x16/app-profiler.png"));
+        auto process_chooser = GUI::ProcessChooser::construct("Profiler", "Profile", Gfx::Bitmap::try_load_from_file("/res/icons/16x16/app-profiler.png"));
         if (process_chooser->exec() == GUI::Dialog::ExecCancel)
             return false;
         pid = process_chooser->pid();
@@ -273,7 +294,8 @@ bool generate_profile(pid_t& pid)
 
     auto all_processes = Core::ProcessStatisticsReader::get_all();
     if (all_processes.has_value()) {
-        if (auto it = all_processes.value().find_if([&](auto& entry) { return entry.pid == pid; }); it != all_processes.value().end())
+        auto& processes = all_processes->processes;
+        if (auto it = processes.find_if([&](auto& entry) { return entry.pid == pid; }); it != processes.end())
             process_name = it->name;
         else
             process_name = "(unknown)";

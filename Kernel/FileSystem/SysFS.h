@@ -21,6 +21,17 @@ public:
 
 private:
     SysFSRootDirectory();
+    RefPtr<SysFSBusDirectory> m_buses_directory;
+};
+
+class SysFSBusDirectory : public SysFSDirectory {
+    friend class SysFSComponentRegistry;
+
+public:
+    static NonnullRefPtr<SysFSBusDirectory> must_create(SysFSRootDirectory const&);
+
+private:
+    explicit SysFSBusDirectory(SysFSRootDirectory const&);
 };
 
 class SysFSComponentRegistry {
@@ -32,12 +43,15 @@ public:
     SysFSComponentRegistry();
     void register_new_component(SysFSComponent&);
 
-    SysFSDirectory& root_folder() { return m_root_folder; }
-    Lock& get_lock() { return m_lock; }
+    SysFSDirectory& root_directory() { return m_root_directory; }
+    Mutex& get_lock() { return m_lock; }
+
+    void register_new_bus_directory(SysFSDirectory&);
+    SysFSBusDirectory& buses_directory();
 
 private:
-    Lock m_lock;
-    NonnullRefPtr<SysFSRootDirectory> m_root_folder;
+    Mutex m_lock;
+    NonnullRefPtr<SysFSRootDirectory> m_root_directory;
 };
 
 class SysFS final : public FileSystem {
@@ -48,10 +62,10 @@ public:
     virtual ~SysFS() override;
     static NonnullRefPtr<SysFS> create();
 
-    virtual bool initialize() override;
-    virtual char const* class_name() const override { return "SysFS"; }
+    virtual KResult initialize() override;
+    virtual StringView class_name() const override { return "SysFS"sv; }
 
-    virtual NonnullRefPtr<Inode> root_inode() const override;
+    virtual Inode& root_inode() override;
 
 private:
     SysFS();
@@ -71,14 +85,13 @@ protected:
     SysFSInode(SysFS const&, SysFSComponent const&);
     virtual KResultOr<size_t> read_bytes(off_t, size_t, UserOrKernelBuffer& buffer, FileDescription*) const override;
     virtual KResult traverse_as_directory(Function<bool(FileSystem::DirectoryEntryView const&)>) const override;
-    virtual RefPtr<Inode> lookup(StringView name) override;
+    virtual KResultOr<NonnullRefPtr<Inode>> lookup(StringView name) override;
     virtual void flush_metadata() override;
     virtual InodeMetadata metadata() const override;
     virtual KResultOr<size_t> write_bytes(off_t, size_t, UserOrKernelBuffer const&, FileDescription*) override;
-    virtual KResultOr<NonnullRefPtr<Inode>> create_child(String const& name, mode_t, dev_t, uid_t, gid_t) override;
+    virtual KResultOr<NonnullRefPtr<Inode>> create_child(StringView name, mode_t, dev_t, uid_t, gid_t) override;
     virtual KResult add_child(Inode&, StringView const& name, mode_t) override;
     virtual KResult remove_child(StringView const& name) override;
-    virtual KResultOr<size_t> directory_entry_count() const override;
     virtual KResult chmod(mode_t) override;
     virtual KResult chown(uid_t, gid_t) override;
     virtual KResult truncate(u64) override;
@@ -93,15 +106,15 @@ public:
     static NonnullRefPtr<SysFSDirectoryInode> create(SysFS const&, SysFSComponent const&);
     virtual ~SysFSDirectoryInode() override;
 
+    SysFS& fs() { return static_cast<SysFS&>(Inode::fs()); }
+    SysFS const& fs() const { return static_cast<SysFS const&>(Inode::fs()); }
+
 protected:
     SysFSDirectoryInode(SysFS const&, SysFSComponent const&);
     // ^Inode
     virtual InodeMetadata metadata() const override;
     virtual KResult traverse_as_directory(Function<bool(FileSystem::DirectoryEntryView const&)>) const override;
-    virtual RefPtr<Inode> lookup(StringView name) override;
-    virtual KResultOr<size_t> directory_entry_count() const override;
-
-    SysFS& m_parent_fs;
+    virtual KResultOr<NonnullRefPtr<Inode>> lookup(StringView name) override;
 };
 
 }

@@ -66,6 +66,7 @@ Window* Window::from_window_id(int window_id)
 
 Window::Window(Core::Object* parent)
     : Core::Object(parent)
+    , m_menubar(Menubar::construct())
 {
     all_windows->set(this);
     m_rect_when_windowless = { -5000, -5000, 140, 140 };
@@ -92,8 +93,6 @@ Window::Window(Core::Object* parent)
 
 Window::~Window()
 {
-    if (m_menubar)
-        m_menubar->notify_removed_from_window({});
     all_windows->remove(this);
     hide();
 }
@@ -162,11 +161,11 @@ void Window::show()
 
     apply_icon();
 
-    if (m_menubar) {
-        // This little dance makes us create a server-side menubar.
-        auto menubar = move(m_menubar);
-        set_menubar(menubar);
-    }
+    m_menubar->for_each_menu([&](Menu& menu) {
+        menu.realize_menu_if_needed();
+        WindowServerConnection::the().async_add_menu(m_window_id, menu.menu_id());
+        return IterationDecision::Continue;
+    });
 
     reified_windows->set(m_window_id, this);
     Application::the()->did_create_window({});
@@ -410,10 +409,21 @@ void Window::handle_multi_paint_event(MultiPaintEvent& event)
         m_back_store = create_backing_store(event.window_size());
         VERIFY(m_back_store);
     } else if (m_double_buffering_enabled) {
-        bool still_has_pixels = m_back_store->bitmap().set_nonvolatile();
-        if (!still_has_pixels) {
-            m_back_store = create_backing_store(event.window_size());
-            VERIFY(m_back_store);
+        bool was_purged = false;
+        bool bitmap_has_memory = m_back_store->bitmap().set_nonvolatile(was_purged);
+        if (!bitmap_has_memory) {
+            // We didn't have enough memory to make the bitmap non-volatile!
+            // Fall back to single-buffered mode for this window.
+            // FIXME: Once we have a way to listen for system memory pressure notifications,
+            //        it would be cool to transition back into double-buffered mode once
+            //        the coast is clear.
+            dbgln("Not enough memory to make backing store non-volatile. Falling back to single-buffered mode.");
+            m_double_buffering_enabled = false;
+            m_back_store = move(m_front_store);
+            created_new_backing_store = true;
+        } else if (was_purged) {
+            // The backing store bitmap was cleared, but it does have memory.
+            // Act as if it's a new backing store so the entire window gets repainted.
             created_new_backing_store = true;
         }
     }
@@ -481,6 +491,8 @@ void Window::handle_became_active_or_inactive_event(Core::Event& event)
         Application::the()->window_did_become_active({}, *this);
     else
         Application::the()->window_did_become_inactive({}, *this);
+    if (on_active_window_change)
+        on_active_window_change(event.type() == Event::WindowBecameActive);
     if (m_main_widget)
         m_main_widget->dispatch_event(event, this);
     if (m_focused_widget)
@@ -561,10 +573,24 @@ void Window::handle_drag_move_event(DragEvent& event)
     }
 }
 
-void Window::handle_left_event()
+void Window::enter_event(Core::Event&)
+{
+}
+
+void Window::leave_event(Core::Event&)
+{
+}
+
+void Window::handle_entered_event(Core::Event& event)
+{
+    enter_event(event);
+}
+
+void Window::handle_left_event(Core::Event& event)
 {
     set_hovered_widget(nullptr);
     Application::the()->set_drag_hovered_widget({}, nullptr);
+    leave_event(event);
 }
 
 void Window::event(Core::Event& event)
@@ -594,8 +620,11 @@ void Window::event(Core::Event& event)
     if (event.type() == Event::WindowCloseRequest)
         return handle_close_request();
 
+    if (event.type() == Event::WindowEntered)
+        return handle_entered_event(event);
+
     if (event.type() == Event::WindowLeft)
-        return handle_left_event();
+        return handle_left_event(event);
 
     if (event.type() == Event::Resize)
         return handle_resize_event(static_cast<ResizeEvent&>(event));
@@ -781,6 +810,10 @@ void Window::set_hovered_widget(Widget* widget)
 
     if (m_hovered_widget)
         Core::EventLoop::current().post_event(*m_hovered_widget, make<Event>(Event::Enter));
+
+    auto* app = Application::the();
+    if (app && app->hover_debugging_enabled())
+        update();
 }
 
 void Window::set_current_backing_store(WindowBackingStore& backing_store, bool flush_immediately)
@@ -826,7 +859,7 @@ OwnPtr<WindowBackingStore> Window::create_backing_store(const Gfx::IntSize& size
     }
 
     // FIXME: Plumb scale factor here eventually.
-    auto bitmap = Gfx::Bitmap::create_with_anonymous_buffer(format, move(buffer), size, 1, {});
+    auto bitmap = Gfx::Bitmap::try_create_with_anonymous_buffer(format, move(buffer), size, 1, {});
     if (!bitmap) {
         VERIFY(size.width() <= INT16_MAX);
         VERIFY(size.height() <= INT16_MAX);
@@ -856,7 +889,7 @@ void Window::set_icon(const Gfx::Bitmap* icon)
 
     Gfx::IntSize icon_size = icon ? icon->size() : Gfx::IntSize(16, 16);
 
-    m_icon = Gfx::Bitmap::create(Gfx::BitmapFormat::BGRA8888, icon_size);
+    m_icon = Gfx::Bitmap::try_create(Gfx::BitmapFormat::BGRA8888, icon_size);
     VERIFY(m_icon);
     if (icon) {
         Painter painter(*m_icon);
@@ -1015,8 +1048,16 @@ void Window::notify_state_changed(Badge<WindowServerConnection>, bool minimized,
     if (minimized || occluded) {
         store->bitmap().set_volatile();
     } else {
-        if (!store->bitmap().set_nonvolatile()) {
+        bool was_purged = false;
+        bool bitmap_has_memory = store->bitmap().set_nonvolatile(was_purged);
+        if (!bitmap_has_memory) {
+            // Not enough memory to make the bitmap non-volatile. Lose the bitmap and schedule an update.
+            // Let the paint system figure out what to do.
             store = nullptr;
+            update();
+        } else if (was_purged) {
+            // The bitmap memory was purged by the kernel, but we have all-new zero-filled pages.
+            // Schedule an update to regenerate the bitmap.
             update();
         }
     }
@@ -1130,17 +1171,14 @@ Gfx::Bitmap* Window::back_bitmap()
     return m_back_store ? &m_back_store->bitmap() : nullptr;
 }
 
-void Window::set_menubar(RefPtr<Menubar> menubar)
+Menu& Window::add_menu(String name)
 {
-    if (m_menubar == menubar)
-        return;
-    if (m_menubar)
-        m_menubar->notify_removed_from_window({});
-    m_menubar = move(menubar);
-    if (m_window_id && m_menubar) {
-        m_menubar->notify_added_to_window({});
-        WindowServerConnection::the().async_set_window_menubar(m_window_id, m_menubar->menubar_id());
+    Menu& menu = m_menubar->add_menu({}, move(name));
+    if (m_window_id) {
+        menu.realize_menu_if_needed();
+        WindowServerConnection::the().async_add_menu(m_window_id, menu.menu_id());
     }
+    return menu;
 }
 
 bool Window::is_modified() const

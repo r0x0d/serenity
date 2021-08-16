@@ -19,11 +19,24 @@
 #include <LibJS/Runtime/WeakContainer.h>
 #include <setjmp.h>
 
+#ifdef __serenity__
+#    include <serenity.h>
+#endif
+
 namespace JS {
+
+#ifdef __serenity__
+static int gc_perf_string_id;
+#endif
 
 Heap::Heap(VM& vm)
     : m_vm(vm)
 {
+#ifdef __serenity__
+    auto gc_signpost_string = "Garbage collection"sv;
+    gc_perf_string_id = perf_register_string(gc_signpost_string.characters_without_null_termination(), gc_signpost_string.length());
+#endif
+
     if constexpr (HeapBlock::min_possible_cell_size <= 16) {
         m_allocators.append(make<CellAllocator>(16));
     }
@@ -72,6 +85,11 @@ void Heap::collect_garbage(CollectionType collection_type, bool print_report)
     VERIFY(!m_collecting_garbage);
     TemporaryChange change(m_collecting_garbage, true);
 
+#ifdef __serenity__
+    static size_t global_gc_counter = 0;
+    perf_event(PERF_EVENT_SIGNPOST, gc_perf_string_id, global_gc_counter++);
+#endif
+
     Core::ElapsedTimer collection_measurement_timer;
     collection_measurement_timer.start();
     if (collection_type == CollectionType::CollectGarbage) {
@@ -91,11 +109,11 @@ void Heap::gather_roots(HashTable<Cell*>& roots)
     vm().gather_roots(roots);
     gather_conservative_roots(roots);
 
-    for (auto* handle : m_handles)
-        roots.set(handle->cell());
+    for (auto& handle : m_handles)
+        roots.set(handle.cell());
 
-    for (auto* list : m_marked_value_lists) {
-        for (auto& value : list->values()) {
+    for (auto& list : m_marked_value_lists) {
+        for (auto& value : list.values()) {
             if (value.is_cell())
                 roots.set(&value.as_cell());
         }
@@ -226,8 +244,8 @@ void Heap::sweep_dead_cells(bool print_report, const Core::ElapsedTimer& measure
         allocator_for_size(block->cell_size()).block_did_become_usable({}, *block);
     }
 
-    for (auto* weak_container : m_weak_containers)
-        weak_container->remove_swept_cells({}, swept_cells);
+    for (auto& weak_container : m_weak_containers)
+        weak_container.remove_swept_cells({}, swept_cells);
 
     if constexpr (HEAP_DEBUG) {
         for_each_block([&](auto& block) {
@@ -258,38 +276,38 @@ void Heap::sweep_dead_cells(bool print_report, const Core::ElapsedTimer& measure
 
 void Heap::did_create_handle(Badge<HandleImpl>, HandleImpl& impl)
 {
-    VERIFY(!m_handles.contains(&impl));
-    m_handles.set(&impl);
+    VERIFY(!m_handles.contains(impl));
+    m_handles.append(impl);
 }
 
 void Heap::did_destroy_handle(Badge<HandleImpl>, HandleImpl& impl)
 {
-    VERIFY(m_handles.contains(&impl));
-    m_handles.remove(&impl);
+    VERIFY(m_handles.contains(impl));
+    m_handles.remove(impl);
 }
 
 void Heap::did_create_marked_value_list(Badge<MarkedValueList>, MarkedValueList& list)
 {
-    VERIFY(!m_marked_value_lists.contains(&list));
-    m_marked_value_lists.set(&list);
+    VERIFY(!m_marked_value_lists.contains(list));
+    m_marked_value_lists.append(list);
 }
 
 void Heap::did_destroy_marked_value_list(Badge<MarkedValueList>, MarkedValueList& list)
 {
-    VERIFY(m_marked_value_lists.contains(&list));
-    m_marked_value_lists.remove(&list);
+    VERIFY(m_marked_value_lists.contains(list));
+    m_marked_value_lists.remove(list);
 }
 
 void Heap::did_create_weak_container(Badge<WeakContainer>, WeakContainer& set)
 {
-    VERIFY(!m_weak_containers.contains(&set));
-    m_weak_containers.set(&set);
+    VERIFY(!m_weak_containers.contains(set));
+    m_weak_containers.append(set);
 }
 
 void Heap::did_destroy_weak_container(Badge<WeakContainer>, WeakContainer& set)
 {
-    VERIFY(m_weak_containers.contains(&set));
-    m_weak_containers.remove(&set);
+    VERIFY(m_weak_containers.contains(set));
+    m_weak_containers.remove(set);
 }
 
 void Heap::defer_gc(Badge<DeferGC>)

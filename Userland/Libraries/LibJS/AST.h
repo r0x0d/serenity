@@ -19,6 +19,7 @@
 #include <LibJS/Runtime/PropertyName.h>
 #include <LibJS/Runtime/Value.h>
 #include <LibJS/SourceRange.h>
+#include <LibRegex/Regex.h>
 
 namespace JS {
 
@@ -165,10 +166,83 @@ private:
     NonnullRefPtrVector<FunctionDeclaration> m_hoisted_functions;
 };
 
+class ImportStatement final : public Statement {
+public:
+    struct ImportEntry {
+        String import_name;
+        String local_name;
+    };
+
+    explicit ImportStatement(SourceRange source_range, StringView from_module, Vector<ImportEntry> entries = {})
+        : Statement(source_range)
+        , m_module_request(from_module)
+        , m_entries(move(entries))
+    {
+    }
+
+    virtual Value execute(Interpreter&, GlobalObject&) const override;
+
+    virtual void dump(int indent) const override;
+
+    bool has_bound_name(StringView name) const;
+
+private:
+    String m_module_request;
+    Vector<ImportEntry> m_entries;
+};
+
+class ExportStatement final : public Statement {
+public:
+    struct ExportEntry {
+        enum Kind {
+            ModuleRequest,
+            LocalExport
+        } kind;
+        // Can always have
+        String export_name;
+
+        // Only if module request
+        String module_request;
+
+        // Has just one of ones below
+        String local_or_import_name;
+
+        ExportEntry(String export_name, String local_name)
+            : kind(LocalExport)
+            , export_name(export_name)
+            , local_or_import_name(local_name)
+        {
+        }
+    };
+
+    explicit ExportStatement(SourceRange source_range, RefPtr<ASTNode> statement, Vector<ExportEntry> entries)
+        : Statement(source_range)
+        , m_statement(move(statement))
+        , m_entries(move(entries))
+    {
+    }
+
+    virtual Value execute(Interpreter&, GlobalObject&) const override;
+
+    virtual void dump(int indent) const override;
+
+    bool has_export(StringView export_name) const;
+
+private:
+    RefPtr<ASTNode> m_statement;
+    Vector<ExportEntry> m_entries;
+};
+
 class Program final : public ScopeNode {
 public:
-    explicit Program(SourceRange source_range)
+    enum class Type {
+        Script,
+        Module
+    };
+
+    explicit Program(SourceRange source_range, Type program_type)
         : ScopeNode(source_range)
+        , m_type(program_type)
     {
     }
 
@@ -177,10 +251,31 @@ public:
     bool is_strict_mode() const { return m_is_strict_mode; }
     void set_strict_mode() { m_is_strict_mode = true; }
 
+    Type type() const { return m_type; }
+
+    void append_import(NonnullRefPtr<ImportStatement> import_statement)
+    {
+        m_imports.append(import_statement);
+        append(import_statement);
+    }
+
+    void append_export(NonnullRefPtr<ExportStatement> export_statement)
+    {
+        m_exports.append(export_statement);
+        append(export_statement);
+    }
+
+    NonnullRefPtrVector<ImportStatement> const& imports() const { return m_imports; }
+    NonnullRefPtrVector<ExportStatement> const& exports() const { return m_exports; }
+
 private:
     virtual bool is_program() const override { return true; }
 
     bool m_is_strict_mode { false };
+    Type m_type { Type::Script };
+
+    NonnullRefPtrVector<ImportStatement> m_imports;
+    NonnullRefPtrVector<ExportStatement> m_exports;
 };
 
 class BlockStatement final : public ScopeNode {
@@ -758,8 +853,11 @@ public:
 
 class RegExpLiteral final : public Literal {
 public:
-    explicit RegExpLiteral(SourceRange source_range, String pattern, String flags)
+    RegExpLiteral(SourceRange source_range, regex::Parser::Result parsed_regex, String parsed_pattern, regex::RegexOptions<ECMAScriptFlags> parsed_flags, String pattern, String flags)
         : Literal(source_range)
+        , m_parsed_regex(move(parsed_regex))
+        , m_parsed_pattern(move(parsed_pattern))
+        , m_parsed_flags(move(parsed_flags))
         , m_pattern(move(pattern))
         , m_flags(move(flags))
     {
@@ -769,10 +867,16 @@ public:
     virtual void dump(int indent) const override;
     virtual void generate_bytecode(Bytecode::Generator&) const override;
 
+    regex::Parser::Result const& parsed_regex() const { return m_parsed_regex; }
+    String const& parsed_pattern() const { return m_parsed_pattern; }
+    regex::RegexOptions<ECMAScriptFlags> const& parsed_flags() const { return m_parsed_flags; }
     String const& pattern() const { return m_pattern; }
     String const& flags() const { return m_flags; }
 
 private:
+    regex::Parser::Result m_parsed_regex;
+    String m_parsed_pattern;
+    regex::RegexOptions<ECMAScriptFlags> m_parsed_flags;
     String m_pattern;
     String m_flags;
 };

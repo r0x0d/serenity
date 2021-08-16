@@ -9,7 +9,6 @@
 #include "DesktopSettingsWidget.h"
 #include "FontSettingsWidget.h"
 #include "MonitorSettingsWidget.h"
-#include <LibGUI/Action.h>
 #include <LibGUI/Application.h>
 #include <LibGUI/BoxLayout.h>
 #include <LibGUI/Button.h>
@@ -18,7 +17,6 @@
 #include <LibGUI/Menubar.h>
 #include <LibGUI/TabWidget.h>
 #include <LibGUI/Window.h>
-#include <LibGfx/Bitmap.h>
 #include <stdio.h>
 #include <unistd.h>
 
@@ -42,6 +40,7 @@ int main(int argc, char** argv)
     window->set_title("Display Settings");
     window->resize(400, 480);
     window->set_resizable(false);
+    window->set_minimizable(false);
 
     auto& main_widget = window->set_main_widget<GUI::Widget>();
     main_widget.set_fill_with_background_color(true);
@@ -53,7 +52,7 @@ int main(int argc, char** argv)
     auto& background_settings_widget = tab_widget.add_tab<DisplaySettings::BackgroundSettingsWidget>("Background");
     auto& font_settings_widget = tab_widget.add_tab<DisplaySettings::FontSettingsWidget>("Fonts");
     auto& monitor_settings_widget = tab_widget.add_tab<DisplaySettings::MonitorSettingsWidget>("Monitor");
-    auto& desktop_settings_widget = tab_widget.add_tab<DisplaySettings::DesktopSettingsWidget>("Desktop");
+    auto& desktop_settings_widget = tab_widget.add_tab<DisplaySettings::DesktopSettingsWidget>("Workspaces");
     tab_widget.on_change = [&](auto& widget) {
         monitor_settings_widget.show_screen_numbers(&widget == &monitor_settings_widget);
     };

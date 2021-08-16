@@ -72,7 +72,7 @@ int main(int argc, char** argv)
     container.layout()->add_spacer();
 
     auto& flag_image = container.add<GUI::Label>();
-    flag_image.set_icon(Gfx::Bitmap::load_from_file("/res/icons/minesweeper/flag.png"));
+    flag_image.set_icon(Gfx::Bitmap::try_load_from_file("/res/icons/minesweeper/flag.png"));
     flag_image.set_fixed_width(16);
 
     auto& flag_label = container.add<GUI::Label>();
@@ -90,7 +90,7 @@ int main(int argc, char** argv)
 
     auto& time_image = container.add<GUI::Label>();
     time_image.set_fixed_width(16);
-    time_image.set_icon(Gfx::Bitmap::load_from_file("/res/icons/minesweeper/timer.png"));
+    time_image.set_icon(Gfx::Bitmap::try_load_from_file("/res/icons/minesweeper/timer.png"));
 
     auto& time_label = container.add<GUI::Label>();
     time_label.set_autosize(true);
@@ -103,9 +103,7 @@ int main(int argc, char** argv)
         window->resize(size);
     });
 
-    auto menubar = GUI::Menubar::construct();
-
-    auto& game_menu = menubar->add_menu("&Game");
+    auto& game_menu = window->add_menu("&Game");
 
     game_menu.add_action(GUI::Action::create("&New Game", { Mod_None, Key_F2 }, [&](auto&) {
         field.reset();
@@ -125,7 +123,7 @@ int main(int argc, char** argv)
         GUI::Application::the()->quit();
     }));
 
-    auto& difficulty_menu = menubar->add_menu("&Difficulty");
+    auto& difficulty_menu = window->add_menu("&Difficulty");
     difficulty_menu.add_action(GUI::Action::create("&Beginner", { Mod_Ctrl, Key_B }, [&](auto&) {
         field.set_field_size(9, 9, 10);
     }));
@@ -139,10 +137,8 @@ int main(int argc, char** argv)
         field.set_field_size(32, 60, 350);
     }));
 
-    auto& help_menu = menubar->add_menu("&Help");
+    auto& help_menu = window->add_menu("&Help");
     help_menu.add_action(GUI::CommonActions::make_about_action("Minesweeper", app_icon, window));
-
-    window->set_menubar(move(menubar));
 
     window->show();
 

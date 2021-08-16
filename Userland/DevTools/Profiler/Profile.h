@@ -11,6 +11,7 @@
 #include "Profile.h"
 #include "ProfileModel.h"
 #include "SamplesModel.h"
+#include "SignpostsModel.h"
 #include <AK/Bitmap.h>
 #include <AK/FlyString.h>
 #include <AK/JsonArray.h>
@@ -20,6 +21,7 @@
 #include <AK/NonnullRefPtrVector.h>
 #include <AK/OwnPtr.h>
 #include <AK/Result.h>
+#include <AK/Variant.h>
 #include <LibELF/Image.h>
 #include <LibGUI/Forward.h>
 #include <LibGUI/ModelIndex.h>
@@ -28,7 +30,7 @@ namespace Profiler {
 
 class ProfileNode : public RefCounted<ProfileNode> {
 public:
-    static NonnullRefPtr<ProfileNode> create(Process const& process, FlyString object_name, String symbol, u32 address, u32 offset, u64 timestamp, pid_t pid)
+    static NonnullRefPtr<ProfileNode> create(Process const& process, FlyString object_name, String symbol, FlatPtr address, u32 offset, u64 timestamp, pid_t pid)
     {
         return adopt_ref(*new ProfileNode(process, move(object_name), move(symbol), address, offset, timestamp, pid));
     }
@@ -49,7 +51,7 @@ public:
 
     const FlyString& object_name() const { return m_object_name; }
     const String& symbol() const { return m_symbol; }
-    u32 address() const { return m_address; }
+    FlatPtr address() const { return m_address; }
     u32 offset() const { return m_offset; }
     u64 timestamp() const { return m_timestamp; }
 
@@ -68,7 +70,7 @@ public:
         m_children.append(child);
     }
 
-    ProfileNode& find_or_create_child(FlyString object_name, String symbol, u32 address, u32 offset, u64 timestamp, pid_t pid)
+    ProfileNode& find_or_create_child(FlyString object_name, String symbol, FlatPtr address, u32 offset, u64 timestamp, pid_t pid)
     {
         for (size_t i = 0; i < m_children.size(); ++i) {
             auto& child = m_children[i];
@@ -106,7 +108,7 @@ public:
 
 private:
     explicit ProfileNode(Process const&);
-    explicit ProfileNode(Process const&, const String& object_name, String symbol, u32 address, u32 offset, u64 timestamp, pid_t);
+    explicit ProfileNode(Process const&, const String& object_name, String symbol, FlatPtr address, u32 offset, u64 timestamp, pid_t);
 
     bool m_root { false };
     Process const& m_process;
@@ -114,7 +116,7 @@ private:
     FlyString m_object_name;
     String m_symbol;
     pid_t m_pid { 0 };
-    u32 m_address { 0 };
+    FlatPtr m_address { 0 };
     u32 m_offset { 0 };
     u32 m_event_count { 0 };
     u32 m_self_count { 0 };
@@ -141,6 +143,7 @@ public:
 
     GUI::Model& model();
     GUI::Model& samples_model();
+    GUI::Model& signposts_model();
     GUI::Model* disassembly_model();
 
     const Process* find_process(pid_t pid, EventSerialNumber serial) const
@@ -158,29 +161,67 @@ public:
     struct Frame {
         FlyString object_name;
         String symbol;
-        u32 address { 0 };
+        FlatPtr address { 0 };
         u32 offset { 0 };
     };
 
     struct Event {
-        EventSerialNumber serial;
         u64 timestamp { 0 };
-        String type;
-        FlatPtr ptr { 0 };
-        size_t size { 0 };
-        String name;
-        int parent_pid { 0 };
-        int parent_tid { 0 };
-        String executable;
-        int pid { 0 };
-        int tid { 0 };
+        EventSerialNumber serial;
+        pid_t pid { 0 };
+        pid_t tid { 0 };
         u32 lost_samples { 0 };
         bool in_kernel { false };
+
         Vector<Frame> frames;
+
+        struct SampleData {
+        };
+
+        struct MallocData {
+            FlatPtr ptr {};
+            size_t size {};
+        };
+
+        struct FreeData {
+            FlatPtr ptr {};
+        };
+
+        struct SignpostData {
+            String string;
+            FlatPtr arg {};
+        };
+
+        struct MmapData {
+            FlatPtr ptr {};
+            size_t size {};
+            String name;
+        };
+
+        struct MunmapData {
+            FlatPtr ptr {};
+            size_t size {};
+        };
+
+        struct ProcessCreateData {
+            pid_t parent_pid { 0 };
+            String executable;
+        };
+
+        struct ProcessExecData {
+            String executable;
+        };
+
+        struct ThreadCreateData {
+            pid_t parent_tid {};
+        };
+
+        Variant<std::nullptr_t, SampleData, MallocData, FreeData, SignpostData, MmapData, MunmapData, ProcessCreateData, ProcessExecData, ThreadCreateData> data { nullptr };
     };
 
-    const Vector<Event>& events() const { return m_events; }
+    Vector<Event> const& events() const { return m_events; }
     const Vector<size_t>& filtered_event_indices() const { return m_filtered_event_indices; }
+    const Vector<size_t>& filtered_signpost_indices() const { return m_filtered_signpost_indices; }
 
     u64 length_in_ms() const { return m_last_timestamp - m_first_timestamp; }
     u64 first_timestamp() const { return m_first_timestamp; }
@@ -219,6 +260,16 @@ public:
         }
     }
 
+    template<typename Callback>
+    void for_each_signpost(Callback callback) const
+    {
+        for (auto index : m_signpost_indices) {
+            auto& event = m_events[index];
+            if (callback(event) == IterationDecision::Break)
+                break;
+        }
+    }
+
 private:
     Profile(Vector<Process>, Vector<Event>);
 
@@ -226,6 +277,7 @@ private:
 
     RefPtr<ProfileModel> m_model;
     RefPtr<SamplesModel> m_samples_model;
+    RefPtr<SignpostsModel> m_signposts_model;
     RefPtr<DisassemblyModel> m_disassembly_model;
 
     GUI::ModelIndex m_disassembly_index;
@@ -237,6 +289,8 @@ private:
 
     Vector<Process> m_processes;
     Vector<Event> m_events;
+    Vector<size_t> m_signpost_indices;
+    Vector<size_t> m_filtered_signpost_indices;
 
     bool m_has_timestamp_filter_range { false };
     u64 m_timestamp_filter_range_start { 0 };

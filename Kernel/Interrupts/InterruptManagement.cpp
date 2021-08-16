@@ -16,8 +16,8 @@
 #include <Kernel/Interrupts/PIC.h>
 #include <Kernel/Interrupts/SharedIRQHandler.h>
 #include <Kernel/Interrupts/SpuriousInterruptHandler.h>
+#include <Kernel/Memory/TypedMapping.h>
 #include <Kernel/Sections.h>
-#include <Kernel/VM/TypedMapping.h>
 
 #define PCAT_COMPAT_FLAG 0x1
 
@@ -183,7 +183,7 @@ UNMAP_AFTER_INIT void InterruptManagement::switch_to_ioapic_mode()
 UNMAP_AFTER_INIT void InterruptManagement::locate_apic_data()
 {
     VERIFY(!m_madt.is_null());
-    auto madt = map_typed<ACPI::Structures::MADT>(m_madt);
+    auto madt = Memory::map_typed<ACPI::Structures::MADT>(m_madt);
 
     int irq_controller_count = 0;
     if (madt->flags & PCAT_COMPAT_FLAG) {

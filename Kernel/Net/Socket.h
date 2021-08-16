@@ -12,7 +12,7 @@
 #include <AK/Time.h>
 #include <Kernel/FileSystem/File.h>
 #include <Kernel/KResult.h>
-#include <Kernel/Lock.h>
+#include <Kernel/Locking/Mutex.h>
 #include <Kernel/Net/NetworkAdapter.h>
 #include <Kernel/UnixTypes.h>
 
@@ -51,17 +51,17 @@ public:
         Connecting
     };
 
-    static const char* to_string(SetupState setup_state)
+    static StringView to_string(SetupState setup_state)
     {
         switch (setup_state) {
         case SetupState::Unstarted:
-            return "Unstarted";
+            return "Unstarted"sv;
         case SetupState::InProgress:
-            return "InProgress";
+            return "InProgress"sv;
         case SetupState::Completed:
-            return "Completed";
+            return "Completed"sv;
         default:
-            return "None";
+            return "None"sv;
         }
     }
 
@@ -99,7 +99,7 @@ public:
     gid_t acceptor_gid() const { return m_acceptor.gid; }
     const RefPtr<NetworkAdapter> bound_interface() const { return m_bound_interface; }
 
-    Lock& lock() { return m_lock; }
+    Mutex& lock() { return m_lock; }
 
     // ^File
     virtual KResultOr<size_t> read(FileDescription&, u64, UserOrKernelBuffer&, size_t) override final;
@@ -130,6 +130,13 @@ protected:
 
     Role m_role { Role::None };
 
+    KResult so_error() const { return m_so_error; }
+    KResult set_so_error(KResult error)
+    {
+        m_so_error = error;
+        return error;
+    }
+
 protected:
     ucred m_origin { 0, 0, 0 };
     ucred m_acceptor { 0, 0, 0 };
@@ -137,7 +144,7 @@ protected:
 private:
     virtual bool is_socket() const final { return true; }
 
-    Lock m_lock { "Socket" };
+    Mutex m_lock { "Socket" };
 
     int m_domain { 0 };
     int m_type { 0 };
@@ -153,6 +160,8 @@ private:
     Time m_receive_timeout {};
     Time m_send_timeout {};
     int m_timestamp { 0 };
+
+    KResult m_so_error { KSuccess };
 
     NonnullRefPtrVector<Socket> m_pending;
 };

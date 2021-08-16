@@ -14,8 +14,8 @@
 #include <Kernel/Graphics/Console/Console.h>
 #include <Kernel/Graphics/GraphicsDevice.h>
 #include <Kernel/Graphics/VGACompatibleAdapter.h>
-#include <Kernel/Graphics/VirtIOGPU/VirtIOGraphicsAdapter.h>
-#include <Kernel/VM/Region.h>
+#include <Kernel/Graphics/VirtIOGPU/GraphicsAdapter.h>
+#include <Kernel/Memory/Region.h>
 
 namespace Kernel {
 
@@ -26,7 +26,7 @@ class GraphicsManagement {
     friend class BochsGraphicsAdapter;
     friend class IntelNativeGraphicsAdapter;
     friend class VGACompatibleAdapter;
-    friend class Graphics::VirtIOGraphicsAdapter;
+    friend class Graphics::VirtIOGPU::GraphicsAdapter;
     AK_MAKE_ETERNAL
 
 public:
@@ -49,7 +49,6 @@ public:
 private:
     bool determine_and_initialize_graphics_device(const PCI::Address& address, PCI::ID id);
     NonnullRefPtrVector<GraphicsDevice> m_graphics_devices;
-    NonnullOwnPtr<Region> m_vga_font_region;
     RefPtr<Graphics::Console> m_console;
 
     // Note: there could be multiple VGA adapters, but only one can operate in VGA mode

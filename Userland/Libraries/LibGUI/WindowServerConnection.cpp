@@ -10,14 +10,12 @@
 #include <LibCore/MimeData.h>
 #include <LibGUI/Action.h>
 #include <LibGUI/Application.h>
-#include <LibGUI/Clipboard.h>
 #include <LibGUI/Desktop.h>
 #include <LibGUI/DisplayLink.h>
 #include <LibGUI/DragOperation.h>
 #include <LibGUI/EmojiInputDialog.h>
 #include <LibGUI/Event.h>
 #include <LibGUI/Menu.h>
-#include <LibGUI/Widget.h>
 #include <LibGUI/Window.h>
 #include <LibGUI/WindowServerConnection.h>
 #include <LibGfx/Bitmap.h>
@@ -51,9 +49,10 @@ WindowServerConnection::WindowServerConnection()
     Desktop::the().did_receive_screen_rects({}, message->screen_rects(), message->main_screen_index(), message->virtual_desktop_rows(), message->virtual_desktop_columns());
     Gfx::FontDatabase::set_default_font_query(message->default_font_query());
     Gfx::FontDatabase::set_fixed_width_font_query(message->fixed_width_font_query());
+    m_client_id = message->client_id();
 }
 
-void WindowServerConnection::fast_greet(Vector<Gfx::IntRect> const&, u32, u32, u32, Core::AnonymousBuffer const&, String const&, String const&)
+void WindowServerConnection::fast_greet(Vector<Gfx::IntRect> const&, u32, u32, u32, Core::AnonymousBuffer const&, String const&, String const&, i32)
 {
     // NOTE: This message is handled in the constructor.
 }

@@ -13,7 +13,6 @@
 #include <WindowServer/Compositor.h>
 #include <WindowServer/Menu.h>
 #include <WindowServer/MenuItem.h>
-#include <WindowServer/Menubar.h>
 #include <WindowServer/Screen.h>
 #include <WindowServer/Window.h>
 #include <WindowServer/WindowClientEndpoint.h>
@@ -54,7 +53,7 @@ ClientConnection::ClientConnection(NonnullRefPtr<Core::LocalSocket> client_socke
     s_connections->set(client_id, *this);
 
     auto& wm = WindowManager::the();
-    async_fast_greet(Screen::rects(), Screen::main().index(), wm.window_stack_rows(), wm.window_stack_columns(), Gfx::current_system_theme_buffer(), Gfx::FontDatabase::default_font_query(), Gfx::FontDatabase::fixed_width_font_query());
+    async_fast_greet(Screen::rects(), Screen::main().index(), wm.window_stack_rows(), wm.window_stack_columns(), Gfx::current_system_theme_buffer(), Gfx::FontDatabase::default_font_query(), Gfx::FontDatabase::fixed_width_font_query(), client_id);
 }
 
 ClientConnection::~ClientConnection()
@@ -91,22 +90,6 @@ void ClientConnection::notify_about_new_screen_rects()
     async_screen_rects_changed(Screen::rects(), Screen::main().index(), wm.window_stack_rows(), wm.window_stack_columns());
 }
 
-void ClientConnection::create_menubar(i32 menubar_id)
-{
-    auto menubar = Menubar::create(*this, menubar_id);
-    m_menubars.set(menubar_id, move(menubar));
-}
-
-void ClientConnection::destroy_menubar(i32 menubar_id)
-{
-    auto it = m_menubars.find(menubar_id);
-    if (it == m_menubars.end()) {
-        did_misbehave("DestroyMenubar: Bad menubar ID");
-        return;
-    }
-    m_menubars.remove(it);
-}
-
 void ClientConnection::create_menu(i32 menu_id, String const& menu_title)
 {
     auto menu = Menu::construct(this, menu_id, menu_title);
@@ -126,44 +109,21 @@ void ClientConnection::destroy_menu(i32 menu_id)
     remove_child(menu);
 }
 
-void ClientConnection::set_window_menubar(i32 window_id, i32 menubar_id)
+void ClientConnection::add_menu(i32 window_id, i32 menu_id)
 {
-    RefPtr<Window> window;
-    {
-        auto it = m_windows.find(window_id);
-        if (it == m_windows.end()) {
-            did_misbehave("SetWindowMenubar: Bad window ID");
-            return;
-        }
-        window = it->value;
-    }
-    RefPtr<Menubar> menubar;
-    if (menubar_id != -1) {
-        auto it = m_menubars.find(menubar_id);
-        if (it == m_menubars.end()) {
-            did_misbehave("SetWindowMenubar: Bad menubar ID");
-            return;
-        }
-        menubar = *(*it).value;
-    }
-    window->set_menubar(menubar);
-}
-
-void ClientConnection::add_menu_to_menubar(i32 menubar_id, i32 menu_id)
-{
-    auto it = m_menubars.find(menubar_id);
+    auto it = m_windows.find(window_id);
     auto jt = m_menus.find(menu_id);
-    if (it == m_menubars.end()) {
-        did_misbehave("AddMenuToMenubar: Bad menubar ID");
+    if (it == m_windows.end()) {
+        did_misbehave("AddMenu: Bad window ID");
         return;
     }
     if (jt == m_menus.end()) {
-        did_misbehave("AddMenuToMenubar: Bad menu ID");
+        did_misbehave("AddMenu: Bad menu ID");
         return;
     }
-    auto& menubar = *(*it).value;
+    auto& window = *(*it).value;
     auto& menu = *(*jt).value;
-    menubar.add_menu(menu);
+    window.add_menu(menu);
 }
 
 void ClientConnection::add_menu_item(i32 menu_id, i32 identifier, i32 submenu_id,
@@ -680,7 +640,7 @@ void ClientConnection::set_window_backing_store(i32 window_id, [[maybe_unused]] 
             did_misbehave("SetWindowBackingStore: Failed to create anonymous buffer for window backing store");
             return;
         }
-        auto backing_store = Gfx::Bitmap::create_with_anonymous_buffer(
+        auto backing_store = Gfx::Bitmap::try_create_with_anonymous_buffer(
             has_alpha_channel ? Gfx::BitmapFormat::BGRA8888 : Gfx::BitmapFormat::BGRx8888,
             move(buffer),
             size,
@@ -1001,7 +961,7 @@ Messages::WindowServer::GetScreenBitmapResponse ClientConnection::get_screen_bit
         return bitmap.to_shareable_bitmap();
     }
     // TODO: Mixed scale setups at what scale? Lowest? Highest? Configurable?
-    if (auto bitmap = Gfx::Bitmap::create(Gfx::BitmapFormat::BGRx8888, Screen::bounding_rect().size(), 1)) {
+    if (auto bitmap = Gfx::Bitmap::try_create(Gfx::BitmapFormat::BGRx8888, Screen::bounding_rect().size(), 1)) {
         Gfx::Painter painter(*bitmap);
         Screen::for_each([&](auto& screen) {
             auto screen_rect = screen.rect();
@@ -1043,7 +1003,7 @@ Messages::WindowServer::GetScreenBitmapAroundCursorResponse ClientConnection::ge
         return bitmap->to_shareable_bitmap();
     }
 
-    if (auto bitmap = Gfx::Bitmap::create(Gfx::BitmapFormat::BGRx8888, rect.size(), 1)) {
+    if (auto bitmap = Gfx::Bitmap::try_create(Gfx::BitmapFormat::BGRx8888, rect.size(), 1)) {
         auto bounding_screen_src_rect = Screen::bounding_rect().intersected(rect);
         Gfx::Painter painter(*bitmap);
         auto& screen_with_cursor = ScreenInput::the().cursor_location_screen();
@@ -1113,6 +1073,72 @@ void ClientConnection::set_window_modified(i32 window_id, bool modified)
 void ClientConnection::set_flash_flush(bool enabled)
 {
     Compositor::the().set_flash_flush(enabled);
+}
+
+void ClientConnection::set_window_parent_from_client(i32 client_id, i32 parent_id, i32 child_id)
+{
+    auto child_window = window_from_id(child_id);
+    if (!child_window)
+        did_misbehave("SetWindowParentFromClient: Bad child window ID");
+
+    auto client_connection = from_client_id(client_id);
+    if (!client_connection)
+        did_misbehave("SetWindowParentFromClient: Bad client ID");
+
+    auto parent_window = client_connection->window_from_id(parent_id);
+    if (!parent_window)
+        did_misbehave("SetWindowParentFromClient: Bad parent window ID");
+
+    if (parent_window->is_stealable_by_client(this->client_id())) {
+        child_window->set_parent_window(*parent_window);
+    } else {
+        did_misbehave("SetWindowParentFromClient: Window is not stealable");
+    }
+}
+
+Messages::WindowServer::GetWindowRectFromClientResponse ClientConnection::get_window_rect_from_client(i32 client_id, i32 window_id)
+{
+    auto client_connection = from_client_id(client_id);
+    if (!client_connection)
+        did_misbehave("GetWindowRectFromClient: Bad client ID");
+
+    auto window = client_connection->window_from_id(window_id);
+    if (!window)
+        did_misbehave("GetWindowRectFromClient: Bad window ID");
+
+    return window->rect();
+}
+
+void ClientConnection::add_window_stealing_for_client(i32 client_id, i32 window_id)
+{
+    auto window = window_from_id(window_id);
+    if (!window)
+        did_misbehave("AddWindowStealingForClient: Bad window ID");
+
+    if (!from_client_id(client_id))
+        did_misbehave("AddWindowStealingForClient: Bad client ID");
+
+    window->add_stealing_for_client(client_id);
+}
+
+void ClientConnection::remove_window_stealing_for_client(i32 client_id, i32 window_id)
+{
+    auto window = window_from_id(window_id);
+    if (!window)
+        did_misbehave("RemoveWindowStealingForClient: Bad window ID");
+
+    // Don't check if the client exists, it may have died
+
+    window->remove_stealing_for_client(client_id);
+}
+
+void ClientConnection::remove_window_stealing(i32 window_id)
+{
+    auto window = window_from_id(window_id);
+    if (!window)
+        did_misbehave("RemoveWindowStealing: Bad window ID");
+
+    window->remove_all_stealing();
 }
 
 }

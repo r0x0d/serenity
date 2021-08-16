@@ -10,16 +10,16 @@
 #include <Kernel/Debug.h>
 #include <Kernel/FileSystem/Custody.h>
 #include <Kernel/FileSystem/FileDescription.h>
+#include <Kernel/Memory/AllocationStrategy.h>
+#include <Kernel/Memory/MemoryManager.h>
+#include <Kernel/Memory/PageDirectory.h>
+#include <Kernel/Memory/Region.h>
+#include <Kernel/Memory/SharedInodeVMObject.h>
 #include <Kernel/Panic.h>
 #include <Kernel/PerformanceManager.h>
 #include <Kernel/Process.h>
 #include <Kernel/Random.h>
 #include <Kernel/Time/TimeManagement.h>
-#include <Kernel/VM/AllocationStrategy.h>
-#include <Kernel/VM/MemoryManager.h>
-#include <Kernel/VM/PageDirectory.h>
-#include <Kernel/VM/Region.h>
-#include <Kernel/VM/SharedInodeVMObject.h>
 #include <LibC/limits.h>
 #include <LibELF/AuxiliaryVector.h>
 #include <LibELF/Image.h>
@@ -27,17 +27,17 @@
 
 namespace Kernel {
 
-extern Region* g_signal_trampoline_region;
+extern Memory::Region* g_signal_trampoline_region;
 
 struct LoadResult {
-    OwnPtr<Space> space;
+    OwnPtr<Memory::AddressSpace> space;
     FlatPtr load_base { 0 };
     FlatPtr entry_eip { 0 };
     size_t size { 0 };
-    WeakPtr<Region> tls_region;
+    WeakPtr<Memory::Region> tls_region;
     size_t tls_size { 0 };
     size_t tls_alignment { 0 };
-    WeakPtr<Region> stack_region;
+    WeakPtr<Memory::Region> stack_region;
 };
 
 static Vector<ELF::AuxiliaryValue> generate_auxiliary_vector(FlatPtr load_base, FlatPtr entry_eip, uid_t uid, uid_t euid, gid_t gid, gid_t egid, String executable_path, int main_program_fd);
@@ -68,7 +68,7 @@ static bool validate_stack_size(const Vector<String>& arguments, const Vector<St
     return true;
 }
 
-static KResultOr<FlatPtr> make_userspace_context_for_main_thread([[maybe_unused]] ThreadRegisters& regs, Region& region, Vector<String> arguments,
+static KResultOr<FlatPtr> make_userspace_context_for_main_thread([[maybe_unused]] ThreadRegisters& regs, Memory::Region& region, Vector<String> arguments,
     Vector<String> environment, Vector<ELF::AuxiliaryValue> auxiliary_values)
 {
     FlatPtr new_sp = region.range().end().get();
@@ -162,7 +162,7 @@ struct RequiredLoadRange {
 static KResultOr<RequiredLoadRange> get_required_load_range(FileDescription& program_description)
 {
     auto& inode = *(program_description.inode());
-    auto vmobject = SharedInodeVMObject::try_create_with_inode(inode);
+    auto vmobject = Memory::SharedInodeVMObject::try_create_with_inode(inode);
     if (!vmobject) {
         dbgln("get_required_load_range: Unable to allocate SharedInodeVMObject");
         return ENOMEM;
@@ -170,7 +170,7 @@ static KResultOr<RequiredLoadRange> get_required_load_range(FileDescription& pro
 
     size_t executable_size = inode.size();
 
-    auto region = MM.allocate_kernel_region_with_vmobject(*vmobject, page_round_up(executable_size), "ELF memory range calculation", Region::Access::Read);
+    auto region = MM.allocate_kernel_region_with_vmobject(*vmobject, Memory::page_round_up(executable_size), "ELF memory range calculation", Memory::Region::Access::Read);
     if (!region) {
         dbgln("Could not allocate memory for ELF");
         return ENOMEM;
@@ -205,7 +205,7 @@ static KResultOr<FlatPtr> get_load_offset(const ElfW(Ehdr) & main_program_header
     constexpr FlatPtr minimum_load_offset_randomization_size = 10 * MiB;
 
     auto random_load_offset_in_range([](auto start, auto size) {
-        return page_round_down(start + get_good_random<FlatPtr>() % size);
+        return Memory::page_round_down(start + get_good_random<FlatPtr>() % size);
     });
 
     if (main_program_header.e_type == ET_DYN) {
@@ -263,11 +263,11 @@ enum class ShouldAllowSyscalls {
     Yes,
 };
 
-static KResultOr<LoadResult> load_elf_object(NonnullOwnPtr<Space> new_space, FileDescription& object_description,
+static KResultOr<LoadResult> load_elf_object(NonnullOwnPtr<Memory::AddressSpace> new_space, FileDescription& object_description,
     FlatPtr load_offset, ShouldAllocateTls should_allocate_tls, ShouldAllowSyscalls should_allow_syscalls)
 {
     auto& inode = *(object_description.inode());
-    auto vmobject = SharedInodeVMObject::try_create_with_inode(inode);
+    auto vmobject = Memory::SharedInodeVMObject::try_create_with_inode(inode);
     if (!vmobject) {
         dbgln("load_elf_object: Unable to allocate SharedInodeVMObject");
         return ENOMEM;
@@ -280,7 +280,7 @@ static KResultOr<LoadResult> load_elf_object(NonnullOwnPtr<Space> new_space, Fil
 
     size_t executable_size = inode.size();
 
-    auto executable_region = MM.allocate_kernel_region_with_vmobject(*vmobject, page_round_up(executable_size), "ELF loading", Region::Access::Read);
+    auto executable_region = MM.allocate_kernel_region_with_vmobject(*vmobject, Memory::page_round_up(executable_size), "ELF loading", Memory::Region::Access::Read);
     if (!executable_region) {
         dbgln("Could not allocate memory for ELF loading");
         return ENOMEM;
@@ -291,15 +291,15 @@ static KResultOr<LoadResult> load_elf_object(NonnullOwnPtr<Space> new_space, Fil
     if (!elf_image.is_valid())
         return ENOEXEC;
 
-    Region* master_tls_region { nullptr };
+    Memory::Region* master_tls_region { nullptr };
     size_t master_tls_size = 0;
     size_t master_tls_alignment = 0;
     FlatPtr load_base_address = 0;
 
     String elf_name = object_description.absolute_path();
-    VERIFY(!Processor::current().in_critical());
+    VERIFY(!Processor::in_critical());
 
-    MemoryManager::enter_space(*new_space);
+    Memory::MemoryManager::enter_space(*new_space);
 
     KResult ph_load_result = KSuccess;
     elf_image.for_each_program_header([&](const ELF::Image::ProgramHeader& program_header) {
@@ -356,8 +356,8 @@ static KResultOr<LoadResult> load_elf_object(NonnullOwnPtr<Space> new_space, Fil
                 prot |= PROT_WRITE;
             auto region_name = String::formatted("{} (data-{}{})", elf_name, program_header.is_readable() ? "r" : "", program_header.is_writable() ? "w" : "");
 
-            auto range_base = VirtualAddress { page_round_down(program_header.vaddr().offset(load_offset).get()) };
-            auto range_end = VirtualAddress { page_round_up(program_header.vaddr().offset(load_offset).offset(program_header.size_in_memory()).get()) };
+            auto range_base = VirtualAddress { Memory::page_round_down(program_header.vaddr().offset(load_offset).get()) };
+            auto range_end = VirtualAddress { Memory::page_round_up(program_header.vaddr().offset(load_offset).offset(program_header.size_in_memory()).get()) };
 
             auto range = new_space->allocate_range(range_base, range_end.get() - range_base.get());
             if (!range.has_value()) {
@@ -397,8 +397,8 @@ static KResultOr<LoadResult> load_elf_object(NonnullOwnPtr<Space> new_space, Fil
         if (program_header.is_executable())
             prot |= PROT_EXEC;
 
-        auto range_base = VirtualAddress { page_round_down(program_header.vaddr().offset(load_offset).get()) };
-        auto range_end = VirtualAddress { page_round_up(program_header.vaddr().offset(load_offset).offset(program_header.size_in_memory()).get()) };
+        auto range_base = VirtualAddress { Memory::page_round_down(program_header.vaddr().offset(load_offset).get()) };
+        auto range_end = VirtualAddress { Memory::page_round_up(program_header.vaddr().offset(load_offset).offset(program_header.size_in_memory()).get()) };
         auto range = new_space->allocate_range(range_base, range_end.get() - range_base.get());
         if (!range.has_value()) {
             ph_load_result = ENOMEM;
@@ -453,12 +453,12 @@ static KResultOr<LoadResult> load_elf_object(NonnullOwnPtr<Space> new_space, Fil
 KResultOr<LoadResult> Process::load(NonnullRefPtr<FileDescription> main_program_description,
     RefPtr<FileDescription> interpreter_description, const ElfW(Ehdr) & main_program_header)
 {
-    auto new_space = Space::create(*this, nullptr);
+    auto new_space = Memory::AddressSpace::try_create(nullptr);
     if (!new_space)
         return ENOMEM;
 
     ScopeGuard space_guard([&]() {
-        MemoryManager::enter_process_paging_scope(*this);
+        Memory::MemoryManager::enter_process_paging_scope(*this);
     });
 
     auto load_offset = get_load_offset(main_program_header, main_program_description, interpreter_description);
@@ -495,7 +495,7 @@ KResult Process::do_exec(NonnullRefPtr<FileDescription> main_program_description
     RefPtr<FileDescription> interpreter_description, Thread*& new_main_thread, u32& prev_flags, const ElfW(Ehdr) & main_program_header)
 {
     VERIFY(is_user_process());
-    VERIFY(!Processor::current().in_critical());
+    VERIFY(!Processor::in_critical());
     auto path = main_program_description->absolute_path();
 
     dbgln_if(EXEC_DEBUG, "do_exec: {}", path);
@@ -525,7 +525,7 @@ KResult Process::do_exec(NonnullRefPtr<FileDescription> main_program_description
     // We commit to the new executable at this point. There is no turning back!
 
     // Prevent other processes from attaching to us with ptrace while we're doing this.
-    Locker ptrace_locker(ptrace_lock());
+    MutexLocker ptrace_locker(ptrace_lock());
 
     // Disable profiling temporarily in case it's running on this process.
     auto was_profiling = m_profiling;
@@ -540,14 +540,14 @@ KResult Process::do_exec(NonnullRefPtr<FileDescription> main_program_description
         if (main_program_metadata.is_setuid()) {
             executable_is_setid = true;
             ProtectedDataMutationScope scope { *this };
-            m_euid = main_program_metadata.uid;
-            m_suid = main_program_metadata.uid;
+            m_protected_values.euid = main_program_metadata.uid;
+            m_protected_values.suid = main_program_metadata.uid;
         }
         if (main_program_metadata.is_setgid()) {
             executable_is_setid = true;
             ProtectedDataMutationScope scope { *this };
-            m_egid = main_program_metadata.gid;
-            m_sgid = main_program_metadata.gid;
+            m_protected_values.egid = main_program_metadata.gid;
+            m_protected_values.sgid = main_program_metadata.gid;
         }
     }
 
@@ -560,7 +560,7 @@ KResult Process::do_exec(NonnullRefPtr<FileDescription> main_program_description
         TemporaryChange global_profiling_disabler(g_profiling_all_threads, false);
         m_space = load_result.space.release_nonnull();
     }
-    MemoryManager::enter_space(*m_space);
+    Memory::MemoryManager::enter_space(*m_space);
 
     auto signal_trampoline_region = m_space->allocate_region_with_vmobject(signal_trampoline_range.value(), g_signal_trampoline_region->vmobject(), 0, "Signal trampoline", PROT_READ | PROT_EXEC, true);
     if (signal_trampoline_region.is_error()) {
@@ -577,7 +577,8 @@ KResult Process::do_exec(NonnullRefPtr<FileDescription> main_program_description
     m_unveiled_paths.clear();
     m_unveiled_paths.set_metadata({ "/", UnveilAccess::None, false });
 
-    m_coredump_metadata.clear();
+    for (auto& property : m_coredump_properties)
+        property = {};
 
     auto current_thread = Thread::current();
     current_thread->clear_signals();
@@ -591,12 +592,13 @@ KResult Process::do_exec(NonnullRefPtr<FileDescription> main_program_description
 
     int main_program_fd = -1;
     if (interpreter_description) {
-        main_program_fd = m_fds.allocate();
-        VERIFY(main_program_fd >= 0);
+        auto main_program_fd_wrapper = m_fds.allocate().release_value();
+        VERIFY(main_program_fd_wrapper.fd >= 0);
         auto seek_result = main_program_description->seek(0, SEEK_SET);
         VERIFY(!seek_result.is_error());
         main_program_description->set_readable(true);
-        m_fds[main_program_fd].set(move(main_program_description), FD_CLOEXEC);
+        m_fds[main_program_fd_wrapper.fd].set(move(main_program_description), FD_CLOEXEC);
+        main_program_fd = main_program_fd_wrapper.fd;
     }
 
     new_main_thread = nullptr;
@@ -628,25 +630,27 @@ KResult Process::do_exec(NonnullRefPtr<FileDescription> main_program_description
     // We enter a critical section here because we don't want to get interrupted between do_exec()
     // and Processor::assume_context() or the next context switch.
     // If we used an InterruptDisabler that sti()'d on exit, we might timer tick'd too soon in exec().
-    Processor::current().enter_critical(prev_flags);
+    Processor::enter_critical();
+    prev_flags = cpu_flags();
+    cli();
 
     // NOTE: Be careful to not trigger any page faults below!
 
     m_name = parts.take_last();
-    new_main_thread->set_name(m_name);
+    new_main_thread->set_name(KString::try_create(m_name));
 
     {
         ProtectedDataMutationScope scope { *this };
-        m_promises = m_execpromises;
-        m_has_promises = m_has_execpromises;
+        m_protected_values.promises = m_protected_values.execpromises.load();
+        m_protected_values.has_promises = m_protected_values.has_execpromises.load();
 
-        m_execpromises = 0;
-        m_has_execpromises = false;
+        m_protected_values.execpromises = 0;
+        m_protected_values.has_execpromises = false;
 
-        m_signal_trampoline = signal_trampoline_region.value()->vaddr();
+        m_protected_values.signal_trampoline = signal_trampoline_region.value()->vaddr();
 
         // FIXME: PID/TID ISSUE
-        m_pid = new_main_thread->tid().value();
+        m_protected_values.pid = new_main_thread->tid().value();
     }
 
     auto tsr_result = new_main_thread->make_thread_specific_region({});
@@ -670,7 +674,7 @@ KResult Process::do_exec(NonnullRefPtr<FileDescription> main_program_description
     regs.rip = load_result.entry_eip;
     regs.rsp = new_userspace_sp;
 #endif
-    regs.cr3 = space().page_directory().cr3();
+    regs.cr3 = address_space().page_directory().cr3();
 
     {
         TemporaryChange profiling_disabler(m_profiling, was_profiling);
@@ -684,7 +688,7 @@ KResult Process::do_exec(NonnullRefPtr<FileDescription> main_program_description
     u32 lock_count_to_restore;
     [[maybe_unused]] auto rc = big_lock().force_unlock_if_locked(lock_count_to_restore);
     VERIFY_INTERRUPTS_DISABLED();
-    VERIFY(Processor::current().in_critical());
+    VERIFY(Processor::in_critical());
     return KSuccess;
 }
 
@@ -910,7 +914,7 @@ KResult Process::exec(String path, Vector<String> arguments, Vector<String> envi
         return result;
 
     VERIFY_INTERRUPTS_DISABLED();
-    VERIFY(Processor::current().in_critical());
+    VERIFY(Processor::in_critical());
 
     auto current_thread = Thread::current();
     if (current_thread == new_main_thread) {
@@ -918,19 +922,22 @@ KResult Process::exec(String path, Vector<String> arguments, Vector<String> envi
         // and it will be released after the context switch into that
         // thread. We should also still be in our critical section
         VERIFY(!g_scheduler_lock.own_lock());
-        VERIFY(Processor::current().in_critical() == 1);
+        VERIFY(Processor::in_critical() == 1);
         g_scheduler_lock.lock();
         current_thread->set_state(Thread::State::Running);
         Processor::assume_context(*current_thread, prev_flags);
         VERIFY_NOT_REACHED();
     }
 
-    Processor::current().leave_critical(prev_flags);
+    if (prev_flags & 0x200)
+        sti();
+    Processor::leave_critical();
     return KSuccess;
 }
 
 KResultOr<FlatPtr> Process::sys$execve(Userspace<const Syscall::SC_execve_params*> user_params)
 {
+    VERIFY_PROCESS_BIG_LOCK_ACQUIRED(this);
     REQUIRE_PROMISE(exec);
 
     // NOTE: Be extremely careful with allocating any kernel memory in exec().
@@ -963,9 +970,13 @@ KResultOr<FlatPtr> Process::sys$execve(Userspace<const Syscall::SC_execve_params
         if (!copy_from_user(strings.data(), list.strings, size.value()))
             return false;
         for (size_t i = 0; i < list.length; ++i) {
-            auto string = copy_string_from_user(strings[i]);
-            if (string.is_null())
+            auto string_or_error = try_copy_kstring_from_user(strings[i]);
+            if (string_or_error.is_error()) {
+                // FIXME: Propagate the error.
                 return false;
+            }
+            // FIXME: Don't convert to String here, use KString all the way.
+            auto string = String(string_or_error.value()->view());
             if (!output.try_append(move(string)))
                 return false;
         }

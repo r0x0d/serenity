@@ -77,6 +77,9 @@ bool Node::establishes_stacking_context() const
     auto position = computed_values().position();
     if (position == CSS::Position::Absolute || position == CSS::Position::Relative || position == CSS::Position::Fixed || position == CSS::Position::Sticky)
         return true;
+    auto opacity = computed_values().opacity();
+    if (opacity.has_value() && opacity.value() != 1.0f)
+        return true;
     return false;
 }
 
@@ -230,6 +233,7 @@ void NodeWithStyle::apply_style(const CSS::StyleProperties& specified_style)
         m_background_image = static_ptr_cast<CSS::ImageStyleValue>(bgimage.value());
     }
 
+    // FIXME: BorderXRadius properties are now BorderRadiusStyleValues, so make use of that.
     auto border_bottom_left_radius = specified_style.property(CSS::PropertyID::BorderBottomLeftRadius);
     if (border_bottom_left_radius.has_value())
         computed_values.set_border_bottom_left_radius(border_bottom_left_radius.value()->to_length());
@@ -270,6 +274,10 @@ void NodeWithStyle::apply_style(const CSS::StyleProperties& specified_style)
 
     computed_values.set_flex_grow_factor(specified_style.flex_grow_factor());
     computed_values.set_flex_shrink_factor(specified_style.flex_shrink_factor());
+
+    auto justify_content = specified_style.justify_content();
+    if (justify_content.has_value())
+        computed_values.set_justify_content(justify_content.value());
 
     auto position = specified_style.position();
     if (position.has_value()) {
@@ -323,6 +331,9 @@ void NodeWithStyle::apply_style(const CSS::StyleProperties& specified_style)
     computed_values.set_background_color(specified_style.color_or_fallback(CSS::PropertyID::BackgroundColor, document(), Color::Transparent));
 
     computed_values.set_z_index(specified_style.z_index());
+    computed_values.set_opacity(specified_style.opacity());
+    if (computed_values.opacity() == 0)
+        m_visible = false;
 
     if (auto width = specified_style.property(CSS::PropertyID::Width); width.has_value())
         m_has_definite_width = true;
@@ -339,6 +350,8 @@ void NodeWithStyle::apply_style(const CSS::StyleProperties& specified_style)
     computed_values.set_offset(specified_style.length_box(CSS::PropertyID::Left, CSS::PropertyID::Top, CSS::PropertyID::Right, CSS::PropertyID::Bottom, CSS::Length::make_auto()));
     computed_values.set_margin(specified_style.length_box(CSS::PropertyID::MarginLeft, CSS::PropertyID::MarginTop, CSS::PropertyID::MarginRight, CSS::PropertyID::MarginBottom, CSS::Length::make_px(0)));
     computed_values.set_padding(specified_style.length_box(CSS::PropertyID::PaddingLeft, CSS::PropertyID::PaddingTop, CSS::PropertyID::PaddingRight, CSS::PropertyID::PaddingBottom, CSS::Length::make_px(0)));
+
+    computed_values.set_box_shadow(specified_style.box_shadow());
 
     auto do_border_style = [&](CSS::BorderData& border, CSS::PropertyID width_property, CSS::PropertyID color_property, CSS::PropertyID style_property) {
         border.color = specified_style.color_or_fallback(color_property, document(), Color::Transparent);

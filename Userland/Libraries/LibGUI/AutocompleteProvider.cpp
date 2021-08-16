@@ -47,13 +47,13 @@ public:
             if (index.column() == Column::Icon) {
                 if (suggestion.language == GUI::AutocompleteProvider::Language::Cpp) {
                     if (!s_cpp_identifier_icon) {
-                        s_cpp_identifier_icon = Gfx::Bitmap::load_from_file("/res/icons/16x16/completion/cpp-identifier.png");
+                        s_cpp_identifier_icon = Gfx::Bitmap::try_load_from_file("/res/icons/16x16/completion/cpp-identifier.png");
                     }
                     return *s_cpp_identifier_icon;
                 }
                 if (suggestion.language == GUI::AutocompleteProvider::Language::Unspecified) {
                     if (!s_unspecified_identifier_icon) {
-                        s_unspecified_identifier_icon = Gfx::Bitmap::load_from_file("/res/icons/16x16/completion/unspecified-identifier.png");
+                        s_unspecified_identifier_icon = Gfx::Bitmap::try_load_from_file("/res/icons/16x16/completion/unspecified-identifier.png");
                     }
                     return *s_unspecified_identifier_icon;
                 }
@@ -69,7 +69,6 @@ public:
 
         return {};
     }
-    virtual void update() override {};
 
     void set_suggestions(Vector<AutocompleteProvider::Entry>&& suggestions) { m_suggestions = move(suggestions); }
 
@@ -102,13 +101,12 @@ void AutocompleteBox::update_suggestions(Vector<AutocompleteProvider::Entry>&& s
         model.set_suggestions(move(suggestions));
     } else {
         m_suggestion_view->set_model(adopt_ref(*new AutocompleteSuggestionModel(move(suggestions))));
-        m_suggestion_view->set_column_width(1, 100);
         m_suggestion_view->update();
         if (has_suggestions)
             m_suggestion_view->set_cursor(m_suggestion_view->model()->index(0), GUI::AbstractView::SelectionUpdate::Set);
     }
 
-    m_suggestion_view->model()->update();
+    m_suggestion_view->model()->invalidate();
     m_suggestion_view->update();
     if (!has_suggestions)
         close();
@@ -143,7 +141,7 @@ void AutocompleteBox::next_suggestion()
     else
         new_index = m_suggestion_view->model()->index(0);
 
-    if (m_suggestion_view->model()->is_valid(new_index)) {
+    if (m_suggestion_view->model()->is_within_range(new_index)) {
         m_suggestion_view->selection().set(new_index);
         m_suggestion_view->scroll_into_view(new_index, Orientation::Vertical);
     }
@@ -157,7 +155,7 @@ void AutocompleteBox::previous_suggestion()
     else
         new_index = m_suggestion_view->model()->index(0);
 
-    if (m_suggestion_view->model()->is_valid(new_index)) {
+    if (m_suggestion_view->model()->is_within_range(new_index)) {
         m_suggestion_view->selection().set(new_index);
         m_suggestion_view->scroll_into_view(new_index, Orientation::Vertical);
     }
@@ -172,7 +170,7 @@ void AutocompleteBox::apply_suggestion()
         return;
 
     auto selected_index = m_suggestion_view->selection().first();
-    if (!selected_index.is_valid() || !m_suggestion_view->model()->is_valid(selected_index))
+    if (!selected_index.is_valid() || !m_suggestion_view->model()->is_within_range(selected_index))
         return;
 
     auto suggestion_index = m_suggestion_view->model()->index(selected_index.row(), AutocompleteSuggestionModel::Column::Name);

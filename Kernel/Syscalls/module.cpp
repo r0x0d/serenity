@@ -17,6 +17,7 @@ extern HashMap<String, OwnPtr<Module>>* g_modules;
 
 KResultOr<FlatPtr> Process::sys$module_load(Userspace<const char*> user_path, size_t path_length)
 {
+    VERIFY_PROCESS_BIG_LOCK_ACQUIRED(this)
     if (!is_superuser())
         return EPERM;
 
@@ -34,10 +35,12 @@ KResultOr<FlatPtr> Process::sys$module_load(Userspace<const char*> user_path, si
         return payload_or_error.error();
 
     auto& payload = *payload_or_error.value();
-    auto storage = KBuffer::create_with_size(payload.size());
-    memcpy(storage.data(), payload.data(), payload.size());
+    auto storage = KBuffer::try_create_with_size(payload.size());
+    if (!storage)
+        return ENOMEM;
+    memcpy(storage->data(), payload.data(), payload.size());
 
-    auto elf_image = try_make<ELF::Image>(storage.data(), storage.size());
+    auto elf_image = try_make<ELF::Image>(storage->data(), storage->size());
     if (!elf_image)
         return ENOMEM;
     if (!elf_image->parse())
@@ -52,7 +55,7 @@ KResultOr<FlatPtr> Process::sys$module_load(Userspace<const char*> user_path, si
     elf_image->for_each_section_of_type(SHT_PROGBITS, [&](const ELF::Image::Section& section) {
         if (!section.size())
             return;
-        auto section_storage = KBuffer::copy(section.raw_data(), section.size(), Region::Access::Read | Region::Access::Write | Region::Access::Execute);
+        auto section_storage = KBuffer::copy(section.raw_data(), section.size(), Memory::Region::Access::ReadWriteExecute);
         section_storage_by_name.set(section.name(), section_storage.data());
         module->sections.append(move(section_storage));
     });
@@ -146,16 +149,17 @@ KResultOr<FlatPtr> Process::sys$module_load(Userspace<const char*> user_path, si
 
 KResultOr<FlatPtr> Process::sys$module_unload(Userspace<const char*> user_name, size_t name_length)
 {
+    VERIFY_PROCESS_BIG_LOCK_ACQUIRED(this)
     if (!is_superuser())
         return EPERM;
 
     REQUIRE_NO_PROMISES;
 
-    auto module_name = copy_string_from_user(user_name, name_length);
-    if (module_name.is_null())
-        return EFAULT;
+    auto module_name_or_error = try_copy_kstring_from_user(user_name, name_length);
+    if (module_name_or_error.is_error())
+        return module_name_or_error.error();
 
-    auto it = g_modules->find(module_name);
+    auto it = g_modules->find(module_name_or_error.value()->view());
     if (it == g_modules->end())
         return ENOENT;
 

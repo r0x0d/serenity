@@ -21,6 +21,7 @@
 #include <LibGUI/Button.h>
 #include <LibGUI/Clipboard.h>
 #include <LibGUI/Menu.h>
+#include <LibGUI/MessageBox.h>
 #include <LibGUI/Statusbar.h>
 #include <LibGUI/TextBox.h>
 #include <LibGUI/Toolbar.h>
@@ -75,7 +76,7 @@ void Tab::view_source(const URL& url, const String& source)
     editor.set_ruler_visible(true);
     window->resize(640, 480);
     window->set_title(url.to_string());
-    window->set_icon(Gfx::Bitmap::load_from_file("/res/icons/16x16/filetype-text.png"));
+    window->set_icon(Gfx::Bitmap::try_load_from_file("/res/icons/16x16/filetype-text.png"));
     window->show();
 }
 
@@ -84,7 +85,7 @@ void Tab::view_dom_tree(const String& dom_tree)
     auto window = GUI::Window::construct(&this->window());
     window->resize(300, 500);
     window->set_title("DOM inspector");
-    window->set_icon(Gfx::Bitmap::load_from_file("/res/icons/16x16/inspector-object.png"));
+    window->set_icon(Gfx::Bitmap::try_load_from_file("/res/icons/16x16/inspector-object.png"));
     window->set_main_widget<InspectorWidget>();
 
     auto* inspector_widget = static_cast<InspectorWidget*>(window->main_widget());
@@ -117,7 +118,7 @@ Tab::Tab(BrowserWindow& window, Type type)
         for (auto& url : m_history.get_back_title_history()) {
             i++;
             m_go_back_context_menu->add_action(GUI::Action::create(url.to_string(),
-                Gfx::Bitmap::load_from_file("/res/icons/16x16/filetype-html.png"),
+                Gfx::Bitmap::try_load_from_file("/res/icons/16x16/filetype-html.png"),
                 [this, i](auto&) { go_back(i); }));
         }
         m_go_back_context_menu->popup(context_menu_event.screen_position());
@@ -132,7 +133,7 @@ Tab::Tab(BrowserWindow& window, Type type)
         for (auto& url : m_history.get_forward_title_history()) {
             i++;
             m_go_forward_context_menu->add_action(GUI::Action::create(url.to_string(),
-                Gfx::Bitmap::load_from_file("/res/icons/16x16/filetype-html.png"),
+                Gfx::Bitmap::try_load_from_file("/res/icons/16x16/filetype-html.png"),
                 [this, i](auto&) { go_forward(i); }));
         }
         m_go_forward_context_menu->popup(context_menu_event.screen_position());
@@ -145,20 +146,30 @@ Tab::Tab(BrowserWindow& window, Type type)
     m_location_box->set_placeholder("Address");
 
     m_location_box->on_return_pressed = [this] {
+        if (m_location_box->text().starts_with('?') && g_search_engine.is_empty()) {
+            GUI::MessageBox::show(&this->window(), "Select a search engine in the Settings menu before searching.", "No search engine selected", GUI::MessageBox::Type::Information);
+            return;
+        }
+
         auto url = url_from_user_input(m_location_box->text());
         load(url);
         view().set_focus(true);
     };
 
     m_location_box->add_custom_context_menu_action(GUI::Action::create("Paste && Go", [this](auto&) {
-        m_location_box->set_text(GUI::Clipboard::the().data());
+        if (!GUI::Clipboard::the().mime_type().starts_with("text/"))
+            return;
+        auto const& paste_text = GUI::Clipboard::the().data();
+        if (paste_text.is_empty())
+            return;
+        m_location_box->set_text(paste_text);
         m_location_box->on_return_pressed();
     }));
 
     m_bookmark_button = toolbar.add<GUI::Button>();
     m_bookmark_button->set_button_style(Gfx::ButtonStyle::Coolbar);
     m_bookmark_button->set_focus_policy(GUI::FocusPolicy::TabFocus);
-    m_bookmark_button->set_icon(Gfx::Bitmap::load_from_file("/res/icons/16x16/bookmark-contour.png"));
+    m_bookmark_button->set_icon(Gfx::Bitmap::try_load_from_file("/res/icons/16x16/bookmark-contour.png"));
     m_bookmark_button->set_fixed_size(22, 22);
 
     m_bookmark_button->on_click = [this](auto) {
@@ -326,6 +337,12 @@ Tab::Tab(BrowserWindow& window, Type type)
     m_tab_context_menu->add_action(GUI::Action::create("&Close Tab", [this](auto&) {
         on_tab_close_request(*this);
     }));
+    m_tab_context_menu->add_action(GUI::Action::create("&Duplicate Tab", [this](auto&) {
+        on_tab_open_request(url());
+    }));
+    m_tab_context_menu->add_action(GUI::Action::create("Close &Other Tabs", [this](auto&) {
+        on_tab_close_other_request(*this);
+    }));
 
     m_page_context_menu = GUI::Menu::construct();
     m_page_context_menu->add_action(window.go_back_action());
@@ -394,10 +411,10 @@ void Tab::update_actions()
 void Tab::update_bookmark_button(const String& url)
 {
     if (BookmarksBarWidget::the().contains_bookmark(url)) {
-        m_bookmark_button->set_icon(Gfx::Bitmap::load_from_file("/res/icons/16x16/bookmark-filled.png"));
+        m_bookmark_button->set_icon(Gfx::Bitmap::try_load_from_file("/res/icons/16x16/bookmark-filled.png"));
         m_bookmark_button->set_tooltip("Remove Bookmark");
     } else {
-        m_bookmark_button->set_icon(Gfx::Bitmap::load_from_file("/res/icons/16x16/bookmark-contour.png"));
+        m_bookmark_button->set_icon(Gfx::Bitmap::try_load_from_file("/res/icons/16x16/bookmark-contour.png"));
         m_bookmark_button->set_tooltip("Add Bookmark");
     }
 }

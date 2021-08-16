@@ -246,9 +246,9 @@ void IconView::mouseup_event(MouseEvent& event)
     AbstractView::mouseup_event(event);
 }
 
-bool IconView::update_rubber_banding(const Gfx::IntPoint& position)
+bool IconView::update_rubber_banding(const Gfx::IntPoint& input_position)
 {
-    auto adjusted_position = to_content_position(position);
+    auto adjusted_position = to_content_position(input_position.constrained(widget_inner_rect()));
     if (m_rubber_band_current != adjusted_position) {
         auto prev_rect = Gfx::IntRect::from_two_points(m_rubber_band_origin, m_rubber_band_current);
         auto prev_rubber_band_fill_rect = prev_rect.shrunken(1, 1);
@@ -539,7 +539,8 @@ void IconView::paint_event(PaintEvent& event)
                 } else if (m_hovered_index.is_valid() && m_hovered_index == item_data.index) {
                     painter.blit_brightened(destination.location(), *bitmap, bitmap->rect());
                 } else {
-                    painter.blit(destination.location(), *bitmap, bitmap->rect());
+                    auto opacity = item_data.index.data(ModelRole::IconOpacity).as_float_or(1.0f);
+                    painter.blit(destination.location(), *bitmap, bitmap->rect(), opacity);
                 }
             }
         }

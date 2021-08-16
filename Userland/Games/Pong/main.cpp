@@ -52,19 +52,17 @@ int main(int argc, char** argv)
     window->set_title("Pong");
     window->set_double_buffering_enabled(false);
     window->set_main_widget<Pong::Game>();
-    window->show();
+    window->set_resizable(false);
 
-    auto menubar = GUI::Menubar::construct();
-
-    auto& game_menu = menubar->add_menu("&Game");
+    auto& game_menu = window->add_menu("&Game");
     game_menu.add_action(GUI::CommonActions::make_quit_action([](auto&) {
         GUI::Application::the()->quit();
     }));
 
-    auto& help_menu = menubar->add_menu("&Help");
+    auto& help_menu = window->add_menu("&Help");
     help_menu.add_action(GUI::CommonActions::make_about_action("Pong", app_icon, window));
 
-    window->set_menubar(move(menubar));
+    window->show();
 
     return app->exec();
 }

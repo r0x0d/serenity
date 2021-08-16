@@ -36,14 +36,21 @@ public:
     // Not included in JS_ENUMERATE_NATIVE_OBJECTS due to missing distinct constructor
     GeneratorObjectPrototype* generator_object_prototype() { return m_generator_object_prototype; }
 
+    FunctionObject* array_prototype_values_function() const { return m_array_prototype_values_function; }
     FunctionObject* eval_function() const { return m_eval_function; }
-
+    FunctionObject* temporal_time_zone_prototype_get_offset_nanoseconds_for_function() const { return m_temporal_time_zone_prototype_get_offset_nanoseconds_for_function; }
     FunctionObject* throw_type_error_function() const { return m_throw_type_error_function; }
 
 #define __JS_ENUMERATE(ClassName, snake_name, PrototypeName, ConstructorName, ArrayType) \
     ConstructorName* snake_name##_constructor() { return m_##snake_name##_constructor; } \
     Object* snake_name##_prototype() { return m_##snake_name##_prototype; }
     JS_ENUMERATE_BUILTIN_TYPES
+#undef __JS_ENUMERATE
+
+#define __JS_ENUMERATE(ClassName, snake_name, PrototypeName, ConstructorName)                              \
+    Intl::ConstructorName* intl_##snake_name##_constructor() { return m_intl_##snake_name##_constructor; } \
+    Object* intl_##snake_name##_prototype() { return m_intl_##snake_name##_prototype; }
+    JS_ENUMERATE_INTL_OBJECTS
 #undef __JS_ENUMERATE
 
 #define __JS_ENUMERATE(ClassName, snake_name, PrototypeName, ConstructorName)                                          \
@@ -95,10 +102,21 @@ private:
 
     GlobalEnvironment* m_environment { nullptr };
 
+    FunctionObject* m_array_prototype_values_function { nullptr };
+    FunctionObject* m_eval_function { nullptr };
+    FunctionObject* m_temporal_time_zone_prototype_get_offset_nanoseconds_for_function { nullptr };
+    FunctionObject* m_throw_type_error_function { nullptr };
+
 #define __JS_ENUMERATE(ClassName, snake_name, PrototypeName, ConstructorName, ArrayType) \
     ConstructorName* m_##snake_name##_constructor { nullptr };                           \
     Object* m_##snake_name##_prototype { nullptr };
     JS_ENUMERATE_BUILTIN_TYPES
+#undef __JS_ENUMERATE
+
+#define __JS_ENUMERATE(ClassName, snake_name, PrototypeName, ConstructorName) \
+    Intl::ConstructorName* m_intl_##snake_name##_constructor { nullptr };     \
+    Object* m_intl_##snake_name##_prototype { nullptr };
+    JS_ENUMERATE_INTL_OBJECTS
 #undef __JS_ENUMERATE
 
 #define __JS_ENUMERATE(ClassName, snake_name, PrototypeName, ConstructorName)     \
@@ -111,9 +129,6 @@ private:
     Object* m_##snake_name##_prototype { nullptr };
     JS_ENUMERATE_ITERATOR_PROTOTYPES
 #undef __JS_ENUMERATE
-
-    FunctionObject* m_eval_function;
-    FunctionObject* m_throw_type_error_function;
 };
 
 template<typename ConstructorType>
@@ -147,5 +162,17 @@ inline GlobalObject* Shape::global_object() const
 
 template<>
 inline bool Object::fast_is<GlobalObject>() const { return is_global_object(); }
+
+template<typename... Args>
+[[nodiscard]] ALWAYS_INLINE Value Value::invoke(GlobalObject& global_object, PropertyName const& property_name, Args... args)
+{
+    if constexpr (sizeof...(Args) > 0) {
+        MarkedValueList arglist { global_object.vm().heap() };
+        (..., arglist.append(move(args)));
+        return invoke_internal(global_object, property_name, move(arglist));
+    }
+
+    return invoke_internal(global_object, property_name, Optional<MarkedValueList> {});
+}
 
 }

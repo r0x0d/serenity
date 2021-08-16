@@ -7,7 +7,7 @@ Make sure you have all the dependencies installed:
 ### Debian / Ubuntu
 
 ```console
-sudo apt install build-essential cmake curl libmpfr-dev libmpc-dev libgmp-dev e2fsprogs ninja-build qemu-system-i386 qemu-utils ccache rsync
+sudo apt install build-essential cmake curl libmpfr-dev libmpc-dev libgmp-dev e2fsprogs ninja-build qemu-system-i386 qemu-utils ccache rsync genext2fs
 ```
 
 #### GCC 10
@@ -18,25 +18,12 @@ On Ubuntu gcc-10 is available in the repositories of 20.04 (Focal) and later - a
 sudo add-apt-repository ppa:ubuntu-toolchain-r/test
 ```
 
-On Debian you can use the Debian testing branch:
-
-```console
-sudo echo "deb http://http.us.debian.org/debian/ testing non-free contrib main" >> /etc/apt/sources.list
-sudo apt update
-```
+On Debian your system must be on the _testing_ or _unstable_ branch as gcc 10 is not available on _stable_ or in the backports. If you want to switch from _stable_ to _testing_, see the instructions on the Debian website on [switching to testing](https://wiki.debian.org/DebianTesting). Alternatively, if you want to stay on _stable_, you can build SerenityOS in a Debian testing or Ubuntu [Docker](https://www.docker.com/) container.
 
 Now on Ubuntu or Debian you can install gcc-10 with apt like this:
 
 ```console
 sudo apt install gcc-10 g++-10
-sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 900 --slave /usr/bin/g++ g++ /usr/bin/g++-10
-```
-
-If you don't want to stay on the Debian testing branch you can switch back by running:
-
-```console
-sudo sed -i '$d' /etc/apt/sources.list
-sudo apt update
 ```
 
 #### QEMU 5 or later

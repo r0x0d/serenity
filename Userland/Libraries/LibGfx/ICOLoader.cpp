@@ -13,8 +13,6 @@
 #include <AK/Types.h>
 #include <LibGfx/ICOLoader.h>
 #include <LibGfx/PNGLoader.h>
-#include <math.h>
-#include <stdio.h>
 #include <string.h>
 
 namespace Gfx {
@@ -247,7 +245,7 @@ static bool load_ico_bmp(ICOLoadingContext& context, ICOImageDescriptor& desc)
         return false;
     }
 
-    desc.bitmap = Bitmap::create_purgeable(BitmapFormat::BGRA8888, { desc.width, desc.height });
+    desc.bitmap = Bitmap::try_create(BitmapFormat::BGRA8888, { desc.width, desc.height });
     if (!desc.bitmap)
         return false;
     Bitmap& bitmap = *desc.bitmap;
@@ -353,11 +351,11 @@ void ICOImageDecoderPlugin::set_volatile()
         m_context->images[0].bitmap->set_volatile();
 }
 
-bool ICOImageDecoderPlugin::set_nonvolatile()
+bool ICOImageDecoderPlugin::set_nonvolatile(bool& was_purged)
 {
     if (!m_context->images[0].bitmap)
         return false;
-    return m_context->images[0].bitmap->set_nonvolatile();
+    return m_context->images[0].bitmap->set_nonvolatile(was_purged);
 }
 
 bool ICOImageDecoderPlugin::sniff()
@@ -383,10 +381,9 @@ size_t ICOImageDecoderPlugin::frame_count()
 
 ImageFrameDescriptor ICOImageDecoderPlugin::frame(size_t i)
 {
-    if (i > 0) {
-        return { bitmap(), 0 };
-    }
-    return {};
+    if (i > 0)
+        return {};
+    return { bitmap(), 0 };
 }
 
 }

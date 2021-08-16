@@ -11,9 +11,9 @@
 #include <AK/Vector.h>
 #include <Kernel/FileSystem/SysFS.h>
 #include <Kernel/KBuffer.h>
+#include <Kernel/Memory/MappedROM.h>
+#include <Kernel/Memory/Region.h>
 #include <Kernel/PhysicalAddress.h>
-#include <Kernel/VM/MappedROM.h>
-#include <Kernel/VM/Region.h>
 #include <Kernel/VirtualAddress.h>
 
 namespace Kernel::SMBIOS {
@@ -55,8 +55,8 @@ struct [[gnu::packed]] EntryPoint64bit {
 
 namespace Kernel {
 
-MappedROM map_bios();
-MappedROM map_ebda();
+Memory::MappedROM map_bios();
+Memory::MappedROM map_ebda();
 
 class BIOSSysFSComponent : public SysFSComponent {
 public:

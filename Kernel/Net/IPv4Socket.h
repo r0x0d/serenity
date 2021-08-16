@@ -10,7 +10,7 @@
 #include <AK/SinglyLinkedListWithCount.h>
 #include <Kernel/DoubleBuffer.h>
 #include <Kernel/KBuffer.h>
-#include <Kernel/Lock.h>
+#include <Kernel/Locking/ProtectedValue.h>
 #include <Kernel/Net/IPv4.h>
 #include <Kernel/Net/IPv4SocketTuple.h>
 #include <Kernel/Net/Socket.h>
@@ -31,8 +31,6 @@ public:
     static KResultOr<NonnullRefPtr<Socket>> create(int type, int protocol);
     virtual ~IPv4Socket() override;
 
-    static Lockable<HashTable<IPv4Socket*>>& all_sockets();
-
     virtual KResult close() override;
     virtual KResult bind(Userspace<const sockaddr*>, socklen_t) override;
     virtual KResult connect(FileDescription&, Userspace<const sockaddr*>, socklen_t, ShouldBlock = ShouldBlock::Yes) override;
@@ -46,7 +44,7 @@ public:
     virtual KResult setsockopt(int level, int option, Userspace<const void*>, socklen_t) override;
     virtual KResult getsockopt(FileDescription&, int level, int option, Userspace<void*>, Userspace<socklen_t*>) override;
 
-    virtual int ioctl(FileDescription&, unsigned request, FlatPtr arg) override;
+    virtual KResult ioctl(FileDescription&, unsigned request, Userspace<void*> arg) override;
 
     bool did_receive(const IPv4Address& peer_address, u16 peer_port, ReadonlyBytes, const Time&);
 
@@ -74,7 +72,7 @@ public:
     BufferMode buffer_mode() const { return m_buffer_mode; }
 
 protected:
-    IPv4Socket(int type, int protocol);
+    IPv4Socket(int type, int protocol, NonnullOwnPtr<DoubleBuffer> receive_buffer, OwnPtr<KBuffer> optional_scratch_buffer);
     virtual StringView class_name() const override { return "IPv4Socket"; }
 
     PortAllocationResult allocate_local_port_if_needed();
@@ -91,6 +89,8 @@ protected:
 
     void set_local_address(IPv4Address address) { m_local_address = address; }
     void set_peer_address(IPv4Address address) { m_peer_address = address; }
+
+    static OwnPtr<DoubleBuffer> create_receive_buffer();
 
 private:
     virtual bool is_ipv4() const override { return true; }
@@ -115,7 +115,7 @@ private:
 
     SinglyLinkedListWithCount<ReceivedPacket> m_receive_queue;
 
-    DoubleBuffer m_receive_buffer { 256 * KiB };
+    NonnullOwnPtr<DoubleBuffer> m_receive_buffer;
 
     u16 m_local_port { 0 };
     u16 m_peer_port { 0 };
@@ -128,7 +128,14 @@ private:
 
     BufferMode m_buffer_mode { BufferMode::Packets };
 
-    Optional<KBuffer> m_scratch_buffer;
+    OwnPtr<KBuffer> m_scratch_buffer;
+
+    IntrusiveListNode<IPv4Socket> m_list_node;
+
+public:
+    using List = IntrusiveList<IPv4Socket, RawPtr<IPv4Socket>, &IPv4Socket::m_list_node>;
+
+    static ProtectedValue<IPv4Socket::List>& all_sockets();
 };
 
 }

@@ -12,11 +12,11 @@
 #include <AK/Types.h>
 #include <Kernel/ACPI/Definitions.h>
 #include <Kernel/Bus/PCI/Access.h>
-#include <Kernel/SpinLock.h>
-#include <Kernel/VM/AnonymousVMObject.h>
-#include <Kernel/VM/PhysicalRegion.h>
-#include <Kernel/VM/Region.h>
-#include <Kernel/VM/VMObject.h>
+#include <Kernel/Locking/SpinLock.h>
+#include <Kernel/Memory/AnonymousVMObject.h>
+#include <Kernel/Memory/PhysicalRegion.h>
+#include <Kernel/Memory/Region.h>
+#include <Kernel/Memory/VMObject.h>
 
 namespace Kernel {
 namespace PCI {
@@ -46,12 +46,11 @@ private:
     VirtualAddress get_device_configuration_space(Address address);
     SpinLock<u8> m_access_lock;
     u8 m_mapped_bus { 0 };
-    OwnPtr<Region> m_mapped_region;
+    OwnPtr<Memory::Region> m_mapped_region;
 
 protected:
     explicit MMIOAccess(PhysicalAddress mcfg);
 
-    virtual const char* access_type() const override { return "MMIOAccess"; };
     virtual u32 segment_count() const override;
     virtual void enumerate_hardware(Function<void(Address, ID)>) override;
     virtual void write8_field(Address address, u32, u8) override;

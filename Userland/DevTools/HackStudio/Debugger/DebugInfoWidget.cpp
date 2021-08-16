@@ -25,19 +25,19 @@ namespace HackStudio {
 
 void DebugInfoWidget::init_toolbar()
 {
-    m_continue_action = GUI::Action::create("Continue", Gfx::Bitmap::load_from_file("/res/icons/16x16/debug-continue.png"), [](auto&) {
+    m_continue_action = GUI::Action::create("Continue", Gfx::Bitmap::try_load_from_file("/res/icons/16x16/debug-continue.png"), [](auto&) {
         Debugger::the().set_requested_debugger_action(Debugger::DebuggerAction::Continue);
     });
 
-    m_singlestep_action = GUI::Action::create("Step Over", { Mod_None, Key_F10 }, Gfx::Bitmap::load_from_file("/res/icons/16x16/debug-step-over.png"), [](auto&) {
+    m_singlestep_action = GUI::Action::create("Step Over", { Mod_None, Key_F10 }, Gfx::Bitmap::try_load_from_file("/res/icons/16x16/debug-step-over.png"), [](auto&) {
         Debugger::the().set_requested_debugger_action(Debugger::DebuggerAction::SourceStepOver);
     });
 
-    m_step_in_action = GUI::Action::create("Step In", { Mod_None, Key_F11 }, Gfx::Bitmap::load_from_file("/res/icons/16x16/debug-step-in.png"), [](auto&) {
+    m_step_in_action = GUI::Action::create("Step In", { Mod_None, Key_F11 }, Gfx::Bitmap::try_load_from_file("/res/icons/16x16/debug-step-in.png"), [](auto&) {
         Debugger::the().set_requested_debugger_action(Debugger::DebuggerAction::SourceSingleStep);
     });
 
-    m_step_out_action = GUI::Action::create("Step Out", { Mod_Shift, Key_F11 }, Gfx::Bitmap::load_from_file("/res/icons/16x16/debug-step-out.png"), [](auto&) {
+    m_step_out_action = GUI::Action::create("Step Out", { Mod_Shift, Key_F11 }, Gfx::Bitmap::try_load_from_file("/res/icons/16x16/debug-step-out.png"), [](auto&) {
         Debugger::the().set_requested_debugger_action(Debugger::DebuggerAction::SourceStepOut);
     });
 
@@ -67,14 +67,18 @@ DebugInfoWidget::DebugInfoWidget()
 
     m_backtrace_view->on_selection_change = [this] {
         const auto& index = m_backtrace_view->selection().first();
-        auto& model = static_cast<BacktraceModel&>(*m_backtrace_view->model());
 
+        if (!index.is_valid()) {
+            return;
+        }
+
+        auto& model = static_cast<BacktraceModel&>(*m_backtrace_view->model());
         // Note: The reconstruction of the register set here is obviously incomplete.
         // We currently only reconstruct eip & ebp. Ideally would also reconstruct the other registers somehow.
         // (Other registers may be needed to get the values of variables who are not stored on the stack)
         PtraceRegisters frame_regs {};
-        frame_regs.eip = model.frames()[index.row()].instruction_address;
-        frame_regs.ebp = model.frames()[index.row()].frame_base;
+        frame_regs.set_ip(model.frames()[index.row()].instruction_address);
+        frame_regs.set_bp(model.frames()[index.row()].frame_base);
 
         m_variables_view->set_model(VariablesModel::create(frame_regs));
     };
@@ -104,7 +108,7 @@ RefPtr<GUI::Menu> DebugInfoWidget::get_context_menu_for_variable(const GUI::Mode
         }));
     }
 
-    auto variable_address = (u32*)variable->location_data.address;
+    auto variable_address = (FlatPtr*)variable->location_data.address;
     if (Debugger::the().session()->watchpoint_exists(variable_address)) {
         context_menu->add_action(GUI::Action::create("Remove watchpoint", [variable_address](auto&) {
             Debugger::the().session()->remove_watchpoint(variable_address);

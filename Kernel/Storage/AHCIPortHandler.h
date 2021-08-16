@@ -6,19 +6,18 @@
 
 #pragma once
 
-#include <AK/OwnPtr.h>
 #include <AK/RefPtr.h>
 #include <Kernel/Devices/Device.h>
 #include <Kernel/IO.h>
 #include <Kernel/Interrupts/IRQHandler.h>
-#include <Kernel/Lock.h>
+#include <Kernel/Locking/Mutex.h>
+#include <Kernel/Memory/PhysicalPage.h>
 #include <Kernel/PhysicalAddress.h>
 #include <Kernel/Random.h>
 #include <Kernel/Sections.h>
 #include <Kernel/Storage/AHCIController.h>
 #include <Kernel/Storage/AHCIPort.h>
 #include <Kernel/Storage/StorageDevice.h>
-#include <Kernel/VM/PhysicalPage.h>
 #include <Kernel/WaitQueue.h>
 
 namespace Kernel {
@@ -67,7 +66,7 @@ private:
     // Data members
     HashMap<u32, NonnullRefPtr<AHCIPort>> m_handled_ports;
     NonnullRefPtr<AHCIController> m_parent_controller;
-    NonnullRefPtrVector<PhysicalPage> m_identify_metadata_pages;
+    NonnullRefPtrVector<Memory::PhysicalPage> m_identify_metadata_pages;
     AHCI::MaskedBitField m_taken_ports;
     AHCI::MaskedBitField m_pending_ports_interrupts;
 };

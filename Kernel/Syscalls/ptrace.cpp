@@ -6,12 +6,13 @@
  */
 
 #include <AK/ScopeGuard.h>
+#include <Kernel/Memory/MemoryManager.h>
+#include <Kernel/Memory/PrivateInodeVMObject.h>
+#include <Kernel/Memory/ProcessPagingScope.h>
+#include <Kernel/Memory/Region.h>
+#include <Kernel/Memory/SharedInodeVMObject.h>
 #include <Kernel/Process.h>
-#include <Kernel/VM/MemoryManager.h>
-#include <Kernel/VM/PrivateInodeVMObject.h>
-#include <Kernel/VM/ProcessPagingScope.h>
-#include <Kernel/VM/Region.h>
-#include <Kernel/VM/SharedInodeVMObject.h>
+#include <Kernel/ThreadTracer.h>
 
 namespace Kernel {
 
@@ -37,7 +38,7 @@ static KResultOr<u32> handle_ptrace(const Kernel::Syscall::SC_ptrace_params& par
     if (!peer)
         return ESRCH;
 
-    Locker ptrace_locker(peer->process().ptrace_lock());
+    MutexLocker ptrace_locker(peer->process().ptrace_lock());
 
     if ((peer->process().uid() != caller.euid())
         || (peer->process().uid() != peer->process().euid())) // Disallow tracing setuid processes
@@ -120,7 +121,7 @@ static KResultOr<u32> handle_ptrace(const Kernel::Syscall::SC_ptrace_params& par
         Kernel::Syscall::SC_ptrace_peek_params peek_params {};
         if (!copy_from_user(&peek_params, reinterpret_cast<Kernel::Syscall::SC_ptrace_peek_params*>(params.addr)))
             return EFAULT;
-        if (!is_user_address(VirtualAddress { peek_params.address }))
+        if (!Memory::is_user_address(VirtualAddress { peek_params.address }))
             return EFAULT;
         auto result = peer->process().peek_user_data(Userspace<const u32*> { (FlatPtr)peek_params.address });
         if (result.is_error())
@@ -131,7 +132,7 @@ static KResultOr<u32> handle_ptrace(const Kernel::Syscall::SC_ptrace_params& par
     }
 
     case PT_POKE:
-        if (!is_user_address(VirtualAddress { params.addr }))
+        if (!Memory::is_user_address(VirtualAddress { params.addr }))
             return EFAULT;
         return peer->process().poke_user_data(Userspace<u32*> { (FlatPtr)params.addr }, params.data);
 
@@ -157,6 +158,7 @@ static KResultOr<u32> handle_ptrace(const Kernel::Syscall::SC_ptrace_params& par
 
 KResultOr<FlatPtr> Process::sys$ptrace(Userspace<const Syscall::SC_ptrace_params*> user_params)
 {
+    VERIFY_PROCESS_BIG_LOCK_ACQUIRED(this)
     REQUIRE_PROMISE(ptrace);
     Syscall::SC_ptrace_params params {};
     if (!copy_from_user(&params, user_params))
@@ -192,8 +194,8 @@ KResultOr<u32> Process::peek_user_data(Userspace<const u32*> address)
 
 KResult Process::poke_user_data(Userspace<u32*> address, u32 data)
 {
-    Range range = { VirtualAddress(address), sizeof(u32) };
-    auto* region = space().find_region_containing(range);
+    Memory::VirtualRange range = { VirtualAddress(address), sizeof(u32) };
+    auto* region = address_space().find_region_containing(range);
     if (!region)
         return EFAULT;
     ProcessPagingScope scope(*this);
@@ -201,7 +203,7 @@ KResult Process::poke_user_data(Userspace<u32*> address, u32 data)
         // If the region is shared, we change its vmobject to a PrivateInodeVMObject
         // to prevent the write operation from changing any shared inode data
         VERIFY(region->vmobject().is_shared_inode());
-        auto vmobject = PrivateInodeVMObject::try_create_with_inode(static_cast<SharedInodeVMObject&>(region->vmobject()).inode());
+        auto vmobject = Memory::PrivateInodeVMObject::try_create_with_inode(static_cast<Memory::SharedInodeVMObject&>(region->vmobject()).inode());
         if (!vmobject)
             return ENOMEM;
         region->set_vmobject(vmobject.release_nonnull());

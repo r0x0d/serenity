@@ -25,9 +25,9 @@ static ManualSectionNode s_sections[] = {
 
 ManualModel::ManualModel()
 {
-    m_section_open_icon.set_bitmap_for_size(16, Gfx::Bitmap::load_from_file("/res/icons/16x16/book-open.png"));
-    m_section_icon.set_bitmap_for_size(16, Gfx::Bitmap::load_from_file("/res/icons/16x16/book.png"));
-    m_page_icon.set_bitmap_for_size(16, Gfx::Bitmap::load_from_file("/res/icons/16x16/filetype-unknown.png"));
+    m_section_open_icon.set_bitmap_for_size(16, Gfx::Bitmap::try_load_from_file("/res/icons/16x16/book-open.png"));
+    m_section_icon.set_bitmap_for_size(16, Gfx::Bitmap::try_load_from_file("/res/icons/16x16/book.png"));
+    m_page_icon.set_bitmap_for_size(16, Gfx::Bitmap::try_load_from_file("/res/icons/16x16/filetype-unknown.png"));
 }
 
 Optional<GUI::ModelIndex> ManualModel::index_from_path(const StringView& path) const
@@ -171,9 +171,4 @@ TriState ManualModel::data_matches(const GUI::ModelIndex& index, const GUI::Vari
         return TriState::False;
 
     return view_result.value().contains(term.as_string()) ? TriState::True : TriState::False;
-}
-
-void ManualModel::update()
-{
-    did_update();
 }

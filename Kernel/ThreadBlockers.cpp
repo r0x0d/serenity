@@ -118,7 +118,7 @@ bool Thread::JoinBlocker::unblock(void* value, bool from_add_blocker)
     return true;
 }
 
-Thread::QueueBlocker::QueueBlocker(WaitQueue& wait_queue, const char* block_reason)
+Thread::QueueBlocker::QueueBlocker(WaitQueue& wait_queue, StringView block_reason)
     : m_block_reason(block_reason)
 {
     if (!set_block_condition(wait_queue, Thread::current()))
@@ -581,7 +581,7 @@ void Thread::WaitBlockCondition::finalize()
     m_processes.clear();
 
     // NOTE: Kernel processes don't have a leaked ref on them.
-    if (!is_kernel_mode()) {
+    if (!m_process.is_kernel_process()) {
         // No more waiters, drop the last reference immediately. This may
         // cause us to be destructed ourselves!
         VERIFY(m_process.ref_count() > 0);

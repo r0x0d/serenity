@@ -6,7 +6,6 @@
  */
 
 #include <AK/ScopeGuard.h>
-#include <AK/StringBuilder.h>
 #include <LibJS/AST.h>
 #include <LibJS/Interpreter.h>
 #include <LibJS/Runtime/FunctionEnvironment.h>
@@ -46,7 +45,7 @@ void Interpreter::run(GlobalObject& global_object, const Program& program)
 
     vm.set_last_value(Badge<Interpreter> {}, {});
 
-    ExecutionContext execution_context;
+    ExecutionContext execution_context(heap());
     execution_context.current_node = &program;
     execution_context.this_value = &global_object;
     static FlyString global_execution_context_name = "(global execution context)";

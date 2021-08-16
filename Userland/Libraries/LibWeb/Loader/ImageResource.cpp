@@ -4,7 +4,6 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
-#include <AK/Function.h>
 #include <LibGfx/Bitmap.h>
 #include <LibImageDecoderClient/Client.h>
 #include <LibWeb/Loader/ImageResource.h>
@@ -97,8 +96,9 @@ void ImageResource::update_volatility()
         if (!frame.bitmap) {
             still_has_decoded_image = false;
         } else {
-            bool still_has_frame = frame.bitmap->set_nonvolatile();
-            if (!still_has_frame)
+            bool was_purged = false;
+            bool bitmap_has_memory = frame.bitmap->set_nonvolatile(was_purged);
+            if (!bitmap_has_memory || was_purged)
                 still_has_decoded_image = false;
         }
     }

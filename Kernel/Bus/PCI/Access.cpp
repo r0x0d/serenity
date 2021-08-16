@@ -368,13 +368,14 @@ void Capability::write32(u32 field, u32 value)
     PCI::write32(m_address, m_ptr + field, value);
 }
 
-UNMAP_AFTER_INIT NonnullRefPtr<PCIDeviceSysFSDirectory> PCIDeviceSysFSDirectory::create(const SysFSDirectory& parent_folder, Address address)
+UNMAP_AFTER_INIT NonnullRefPtr<PCIDeviceSysFSDirectory> PCIDeviceSysFSDirectory::create(const SysFSDirectory& parent_directory, Address address)
 {
-    return adopt_ref(*new (nothrow) PCIDeviceSysFSDirectory(parent_folder, address));
+    return adopt_ref(*new (nothrow) PCIDeviceSysFSDirectory(parent_directory, address));
 }
 
-UNMAP_AFTER_INIT PCIDeviceSysFSDirectory::PCIDeviceSysFSDirectory(const SysFSDirectory& parent_folder, Address address)
-    : SysFSDirectory(String::formatted("{:04x}:{:04x}:{:02x}.{}", address.seg(), address.bus(), address.device(), address.function()), parent_folder)
+UNMAP_AFTER_INIT PCIDeviceSysFSDirectory::PCIDeviceSysFSDirectory(const SysFSDirectory& parent_directory, Address address)
+    : SysFSDirectory(String::formatted("{:04x}:{:02x}:{:02x}.{}", address.seg(), address.bus(), address.device(), address.function()), parent_directory)
+    , m_address(address)
 {
     m_components.append(PCIDeviceAttributeSysFSComponent::create("vendor", *this, PCI_VENDOR_ID, 2));
     m_components.append(PCIDeviceAttributeSysFSComponent::create("device_id", *this, PCI_DEVICE_ID, 2));
@@ -388,12 +389,12 @@ UNMAP_AFTER_INIT PCIDeviceSysFSDirectory::PCIDeviceSysFSDirectory(const SysFSDir
 
 UNMAP_AFTER_INIT void PCIBusSysFSDirectory::initialize()
 {
-    auto pci_folder = adopt_ref(*new (nothrow) PCIBusSysFSDirectory());
-    SysFSComponentRegistry::the().register_new_component(pci_folder);
+    auto pci_directory = adopt_ref(*new (nothrow) PCIBusSysFSDirectory());
+    SysFSComponentRegistry::the().register_new_component(pci_directory);
 }
 
 UNMAP_AFTER_INIT PCIBusSysFSDirectory::PCIBusSysFSDirectory()
-    : SysFSDirectory("pci", SysFSComponentRegistry::the().root_folder())
+    : SysFSDirectory("pci", SysFSComponentRegistry::the().root_directory())
 {
     PCI::enumerate([&](const Address& address, ID) {
         auto pci_device = PCI::PCIDeviceSysFSDirectory::create(*this, address);
@@ -429,26 +430,18 @@ KResultOr<size_t> PCIDeviceAttributeSysFSComponent::read_bytes(off_t offset, siz
     return nread;
 }
 
-size_t PCIDeviceAttributeSysFSComponent::size() const
-{
-    auto buffer = try_to_generate_buffer();
-    if (!buffer)
-        return 0;
-    return buffer->size();
-}
-
 OwnPtr<KBuffer> PCIDeviceAttributeSysFSComponent::try_to_generate_buffer() const
 {
     String value;
     switch (m_field_bytes_width) {
     case 1:
-        value = String::formatted("0x{:x}", PCI::read8(m_device->address(), m_offset));
+        value = String::formatted("{:#x}", PCI::read8(m_device->address(), m_offset));
         break;
     case 2:
-        value = String::formatted("0x{:x}", PCI::read16(m_device->address(), m_offset));
+        value = String::formatted("{:#x}", PCI::read16(m_device->address(), m_offset));
         break;
     case 4:
-        value = String::formatted("0x{:x}", PCI::read32(m_device->address(), m_offset));
+        value = String::formatted("{:#x}", PCI::read32(m_device->address(), m_offset));
         break;
     default:
         VERIFY_NOT_REACHED();

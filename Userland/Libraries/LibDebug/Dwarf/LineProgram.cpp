@@ -63,7 +63,7 @@ void LineProgram::parse_path_entries(Function<void(PathEntry& entry)> callback, 
                     entry.path = value.data.as_string;
                     break;
                 case ContentType::DirectoryIndex:
-                    entry.directory_index = value.data.as_u32;
+                    entry.directory_index = value.data.as_unsigned;
                     break;
                 default:
                     dbgln_if(DWARF_DEBUG, "Unhandled path list attribute: {}", (int)format_description.type);
@@ -246,6 +246,10 @@ void LineProgram::handle_standard_opcode(u8 opcode)
         m_basic_block = true;
         break;
     }
+    case StandardOpcodes::SetProlougeEnd: {
+        m_prologue_end = true;
+        break;
+    }
     default:
         dbgln("Unhandled LineProgram opcode {}", opcode);
         VERIFY_NOT_REACHED();
@@ -268,6 +272,7 @@ void LineProgram::handle_special_opcode(u8 opcode)
     append_to_line_info();
 
     m_basic_block = false;
+    m_prologue_end = false;
 }
 
 void LineProgram::run_program()

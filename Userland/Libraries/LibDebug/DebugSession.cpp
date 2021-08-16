@@ -345,11 +345,7 @@ void* DebugSession::single_step()
     regs.rflags &= ~(TRAP_FLAG);
 #endif
     set_registers(regs);
-#if ARCH(I386)
-    return (void*)regs.eip;
-#else
-    TODO();
-#endif
+    return (void*)regs.ip();
 }
 
 void DebugSession::detach()
@@ -422,7 +418,7 @@ void DebugSession::update_loaded_libs()
         auto rc = re.search(vm_name, result);
         if (!rc)
             return {};
-        auto lib_name = result.capture_group_matches.at(0).at(0).view.u8view().to_string();
+        auto lib_name = result.capture_group_matches.at(0).at(0).view.string_view().to_string();
         if (lib_name.starts_with("/"))
             return lib_name;
         return String::formatted("/usr/lib/{}", lib_name);
@@ -451,9 +447,10 @@ void DebugSession::update_loaded_libs()
         if (file_or_error.is_error())
             return IterationDecision::Continue;
 
-        FlatPtr base_address = entry.as_object().get("address").as_u32();
-        auto debug_info = make<DebugInfo>(make<ELF::Image>(file_or_error.value()->bytes()), m_source_root, base_address);
-        auto lib = make<LoadedLibrary>(lib_name, file_or_error.release_value(), move(debug_info), base_address);
+        FlatPtr base_address = entry.as_object().get("address").to_addr();
+        auto image = make<ELF::Image>(file_or_error.value()->bytes());
+        auto debug_info = make<DebugInfo>(*image, m_source_root, base_address);
+        auto lib = make<LoadedLibrary>(lib_name, file_or_error.release_value(), move(image), move(debug_info), base_address);
         m_loaded_libraries.set(lib_name, move(lib));
 
         return IterationDecision::Continue;

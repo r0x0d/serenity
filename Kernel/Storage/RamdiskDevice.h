@@ -6,7 +6,7 @@
 
 #pragma once
 
-#include <Kernel/Lock.h>
+#include <Kernel/Locking/Mutex.h>
 #include <Kernel/Storage/StorageDevice.h>
 
 namespace Kernel {
@@ -17,8 +17,8 @@ class RamdiskDevice final : public StorageDevice {
     friend class RamdiskController;
     AK_MAKE_ETERNAL
 public:
-    static NonnullRefPtr<RamdiskDevice> create(const RamdiskController&, NonnullOwnPtr<Region>&& region, int major, int minor);
-    RamdiskDevice(const RamdiskController&, NonnullOwnPtr<Region>&&, int major, int minor);
+    static NonnullRefPtr<RamdiskDevice> create(const RamdiskController&, NonnullOwnPtr<Memory::Region>&& region, int major, int minor);
+    RamdiskDevice(const RamdiskController&, NonnullOwnPtr<Memory::Region>&&, int major, int minor);
     virtual ~RamdiskDevice() override;
 
     // ^BlockDevice
@@ -30,9 +30,9 @@ public:
 
     bool is_slave() const;
 
-    Lock m_lock { "RamdiskDevice" };
+    Mutex m_lock { "RamdiskDevice" };
 
-    NonnullOwnPtr<Region> m_region;
+    NonnullOwnPtr<Memory::Region> m_region;
 };
 
 }

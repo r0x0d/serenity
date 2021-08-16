@@ -4,7 +4,6 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
-#include <AK/StringBuilder.h>
 #include <AK/Vector.h>
 #include <LibGUI/AbstractTableView.h>
 #include <LibGUI/Action.h>
@@ -13,7 +12,6 @@
 #include <LibGUI/Menu.h>
 #include <LibGUI/Model.h>
 #include <LibGUI/Painter.h>
-#include <LibGUI/Scrollbar.h>
 #include <LibGUI/Window.h>
 #include <LibGfx/Palette.h>
 
@@ -108,7 +106,8 @@ void AbstractTableView::update_column_sizes()
             auto cell_data = model.index(row, column).data();
             int cell_width = 0;
             if (cell_data.is_icon()) {
-                cell_width = cell_data.as_icon().bitmap_for_size(16)->width();
+                if (auto bitmap = cell_data.as_icon().bitmap_for_size(16))
+                    cell_width = bitmap->width();
             } else if (cell_data.is_bitmap()) {
                 cell_width = cell_data.as_bitmap().width();
             } else if (cell_data.is_valid()) {
@@ -178,6 +177,16 @@ int AbstractTableView::column_width(int column_index) const
 void AbstractTableView::set_column_width(int column, int width)
 {
     column_header().set_section_size(column, width);
+}
+
+int AbstractTableView::minimum_column_width(int)
+{
+    return 2;
+}
+
+int AbstractTableView::minimum_row_height(int)
+{
+    return 2;
 }
 
 Gfx::TextAlignment AbstractTableView::column_header_alignment(int column_index) const

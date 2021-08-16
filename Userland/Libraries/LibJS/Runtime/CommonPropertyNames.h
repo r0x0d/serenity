@@ -25,6 +25,7 @@ namespace JS {
     P(EPSILON)                               \
     P(Function)                              \
     P(Infinity)                              \
+    P(Intl)                                  \
     P(JSON)                                  \
     P(LN10)                                  \
     P(LN2)                                   \
@@ -37,6 +38,7 @@ namespace JS {
     P(Math)                                  \
     P(NEGATIVE_INFINITY)                     \
     P(NaN)                                   \
+    P(Now)                                   \
     P(Number)                                \
     P(PI)                                    \
     P(POSITIVE_INFINITY)                     \
@@ -71,11 +73,13 @@ namespace JS {
     P(atanh)                                 \
     P(big)                                   \
     P(bind)                                  \
+    P(blank)                                 \
     P(blink)                                 \
     P(bold)                                  \
     P(buffer)                                \
     P(byteLength)                            \
     P(byteOffset)                            \
+    P(calendar)                              \
     P(call)                                  \
     P(callee)                                \
     P(caller)                                \
@@ -101,6 +105,14 @@ namespace JS {
     P(count)                                 \
     P(countReset)                            \
     P(create)                                \
+    P(dateFromFields)                        \
+    P(day)                                   \
+    P(dayOfWeek)                             \
+    P(dayOfYear)                             \
+    P(days)                                  \
+    P(daysInMonth)                           \
+    P(daysInWeek)                            \
+    P(daysInYear)                            \
     P(debug)                                 \
     P(decodeURI)                             \
     P(decodeURIComponent)                    \
@@ -130,10 +142,13 @@ namespace JS {
     P(exec)                                  \
     P(exp)                                   \
     P(expm1)                                 \
+    P(fields)                                \
     P(fill)                                  \
     P(filter)                                \
     P(finally)                               \
     P(find)                                  \
+    P(findLast)                              \
+    P(findLastIndex)                         \
     P(findIndex)                             \
     P(fixed)                                 \
     P(flags)                                 \
@@ -166,13 +181,17 @@ namespace JS {
     P(getInt8)                               \
     P(getInt16)                              \
     P(getInt32)                              \
+    P(getISOFields)                          \
     P(getMilliseconds)                       \
     P(getMinutes)                            \
     P(getMonth)                              \
+    P(getOffsetNanosecondsFor)               \
+    P(getOffsetStringFor)                    \
     P(getOwnPropertyDescriptor)              \
     P(getOwnPropertyDescriptors)             \
     P(getOwnPropertyNames)                   \
     P(getOwnPropertySymbols)                 \
+    P(getPlainDateTimeFor)                   \
     P(getPrototypeOf)                        \
     P(getSeconds)                            \
     P(getTime)                               \
@@ -196,6 +215,8 @@ namespace JS {
     P(hasIndices)                            \
     P(hasOwn)                                \
     P(hasOwnProperty)                        \
+    P(hour)                                  \
+    P(hours)                                 \
     P(hypot)                                 \
     P(id)                                    \
     P(ignoreCase)                            \
@@ -205,6 +226,7 @@ namespace JS {
     P(indexOf)                               \
     P(indices)                               \
     P(info)                                  \
+    P(inLeapYear)                            \
     P(input)                                 \
     P(instant)                               \
     P(is)                                    \
@@ -219,6 +241,15 @@ namespace JS {
     P(isSafeInteger)                         \
     P(isSealed)                              \
     P(isView)                                \
+    P(isoDay)                                \
+    P(isoHour)                               \
+    P(isoMicrosecond)                        \
+    P(isoMillisecond)                        \
+    P(isoMinute)                             \
+    P(isoMonth)                              \
+    P(isoNanosecond)                         \
+    P(isoSecond)                             \
+    P(isoYear)                               \
     P(italics)                               \
     P(join)                                  \
     P(keyFor)                                \
@@ -228,6 +259,7 @@ namespace JS {
     P(length)                                \
     P(link)                                  \
     P(load)                                  \
+    P(localeCompare)                         \
     P(log)                                   \
     P(log1p)                                 \
     P(log2)                                  \
@@ -235,18 +267,39 @@ namespace JS {
     P(map)                                   \
     P(max)                                   \
     P(message)                               \
+    P(microsecond)                           \
+    P(microseconds)                          \
+    P(millisecond)                           \
+    P(milliseconds)                          \
     P(min)                                   \
+    P(minute)                                \
+    P(minutes)                               \
+    P(month)                                 \
+    P(monthCode)                             \
+    P(monthDayFromFields)                    \
+    P(months)                                \
+    P(monthsInYear)                          \
     P(multiline)                             \
     P(name)                                  \
+    P(nanosecond)                            \
+    P(nanoseconds)                           \
+    P(negated)                               \
     P(next)                                  \
     P(now)                                   \
     P(of)                                    \
+    P(offset)                                \
+    P(offsetNanoseconds)                     \
     P(ownKeys)                               \
     P(padEnd)                                \
     P(padStart)                              \
     P(parse)                                 \
     P(parseFloat)                            \
     P(parseInt)                              \
+    P(plainDate)                             \
+    P(plainDateISO)                          \
+    P(plainDateTime)                         \
+    P(plainDateTimeISO)                      \
+    P(plainTimeISO)                          \
     P(pop)                                   \
     P(pow)                                   \
     P(preventExtensions)                     \
@@ -267,6 +320,8 @@ namespace JS {
     P(revoke)                                \
     P(round)                                 \
     P(seal)                                  \
+    P(second)                                \
+    P(seconds)                               \
     P(set)                                   \
     P(setBigInt64)                           \
     P(setBigUint64)                          \
@@ -316,6 +371,7 @@ namespace JS {
     P(subarray)                              \
     P(substr)                                \
     P(substring)                             \
+    P(subtract)                              \
     P(sup)                                   \
     P(tan)                                   \
     P(tanh)                                  \
@@ -325,12 +381,20 @@ namespace JS {
     P(toDateString)                          \
     P(toFixed)                               \
     P(toGMTString)                           \
+    P(toInstant)                             \
     P(toISOString)                           \
     P(toJSON)                                \
     P(toLocaleDateString)                    \
+    P(toLocaleLowerCase)                     \
     P(toLocaleString)                        \
     P(toLocaleTimeString)                    \
+    P(toLocaleUpperCase)                     \
     P(toLowerCase)                           \
+    P(toPlainDate)                           \
+    P(toPlainDateTime)                       \
+    P(toPlainMonthDay)                       \
+    P(toPlainTime)                           \
+    P(toPlainYearMonth)                      \
     P(toString)                              \
     P(toTemporalInstant)                     \
     P(toTimeString)                          \
@@ -352,7 +416,17 @@ namespace JS {
     P(valueOf)                               \
     P(values)                                \
     P(warn)                                  \
-    P(writable)
+    P(weekOfYear)                            \
+    P(weeks)                                 \
+    P(with)                                  \
+    P(withCalendar)                          \
+    P(withPlainDate)                         \
+    P(writable)                              \
+    P(year)                                  \
+    P(yearMonthFromFields)                   \
+    P(years)                                 \
+    P(zonedDateTime)                         \
+    P(zonedDateTimeISO)
 
 struct CommonPropertyNames {
     PropertyName and_ { "and", PropertyName::StringMayBeNumber::No };
@@ -369,6 +443,9 @@ struct CommonPropertyNames {
 #undef __ENUMERATE
 #define __JS_ENUMERATE(x, a, b, c, t) PropertyName x { #x, PropertyName::StringMayBeNumber::No };
     JS_ENUMERATE_BUILTIN_TYPES
+#undef __JS_ENUMERATE
+#define __JS_ENUMERATE(x, a, b, c) PropertyName x { #x, PropertyName::StringMayBeNumber::No };
+    JS_ENUMERATE_INTL_OBJECTS
 #undef __JS_ENUMERATE
 #define __JS_ENUMERATE(x, a, b, c) PropertyName x { #x, PropertyName::StringMayBeNumber::No };
     JS_ENUMERATE_TEMPORAL_OBJECTS

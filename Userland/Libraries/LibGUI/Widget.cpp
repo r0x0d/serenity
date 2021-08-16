@@ -356,6 +356,11 @@ void Widget::handle_paint_event(PaintEvent& event)
         painter.draw_rect(rect(), Color::Cyan);
     }
 
+    if (app && app->hover_debugging_enabled() && this == window()->hovered_widget()) {
+        Painter painter(*this);
+        painter.draw_rect(rect(), Color::Red);
+    }
+
     if (is_being_inspected()) {
         Painter painter(*this);
         painter.draw_rect(rect(), Color::Magenta);
@@ -1135,7 +1140,7 @@ bool Widget::has_pending_drop() const
 
 bool Widget::is_visible_for_timer_purposes() const
 {
-    return is_visible();
+    return is_visible() && Object::is_visible_for_timer_purposes();
 }
 
 }

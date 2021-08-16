@@ -50,7 +50,7 @@ void FileResult::activate() const
 void TerminalResult::activate() const
 {
     pid_t pid;
-    char const* argv[] = { "Terminal", "-e", title().characters(), nullptr };
+    char const* argv[] = { "Terminal", "-k", "-e", title().characters(), nullptr };
 
     if ((errno = posix_spawn(&pid, "/bin/Terminal", nullptr, nullptr, const_cast<char**>(argv), environ))) {
         perror("posix_spawn");
@@ -209,7 +209,7 @@ void TerminalProvider::query(String const& query, Function<void(NonnullRefPtrVec
     if (!query.starts_with('$'))
         return;
 
-    auto command = query.substring(1);
+    auto command = query.substring(1).trim_whitespace();
 
     NonnullRefPtrVector<Result> results;
     results.append(adopt_ref(*new TerminalResult(move(command))));

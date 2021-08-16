@@ -8,8 +8,8 @@
 
 #include <Kernel/Devices/CharacterDevice.h>
 #include <Kernel/Interrupts/IRQHandler.h>
+#include <Kernel/Memory/PhysicalPage.h>
 #include <Kernel/PhysicalAddress.h>
-#include <Kernel/VM/PhysicalPage.h>
 #include <Kernel/WaitQueue.h>
 
 namespace Kernel {
@@ -55,7 +55,7 @@ private:
     void set_irq_register(u8 irq_number);
     void set_irq_line(u8 irq_number);
 
-    OwnPtr<Region> m_dma_region;
+    OwnPtr<Memory::Region> m_dma_region;
     int m_major_version { 0 };
 
     WaitQueue m_irq_queue;

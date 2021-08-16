@@ -11,7 +11,7 @@
 #pragma once
 
 #include <Kernel/Interrupts/IRQHandler.h>
-#include <Kernel/Lock.h>
+#include <Kernel/Locking/Mutex.h>
 #include <Kernel/Storage/StorageDevice.h>
 
 namespace Kernel {
@@ -52,7 +52,6 @@ private:
 
     bool is_slave() const;
 
-    Lock m_lock { "IDEDiskDevice" };
     u16 m_capabilities { 0 };
     NonnullRefPtr<IDEChannel> m_channel;
     DriveType m_drive_type { DriveType::Master };

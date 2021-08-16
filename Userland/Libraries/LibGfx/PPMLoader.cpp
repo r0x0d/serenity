@@ -9,7 +9,6 @@
 #include "Streamer.h"
 #include <AK/Endian.h>
 #include <AK/LexicalPath.h>
-#include <AK/MappedFile.h>
 #include <AK/ScopeGuard.h>
 #include <AK/StringBuilder.h>
 #include <string.h>
@@ -161,12 +160,12 @@ void PPMImageDecoderPlugin::set_volatile()
         m_context->bitmap->set_volatile();
 }
 
-bool PPMImageDecoderPlugin::set_nonvolatile()
+bool PPMImageDecoderPlugin::set_nonvolatile(bool& was_purged)
 {
     if (!m_context->bitmap)
         return false;
 
-    return m_context->bitmap->set_nonvolatile();
+    return m_context->bitmap->set_nonvolatile(was_purged);
 }
 
 bool PPMImageDecoderPlugin::sniff()
@@ -200,11 +199,9 @@ size_t PPMImageDecoderPlugin::frame_count()
 
 ImageFrameDescriptor PPMImageDecoderPlugin::frame(size_t i)
 {
-    if (i > 0) {
-        return { bitmap(), 0 };
-    }
-
-    return {};
+    if (i > 0)
+        return {};
+    return { bitmap(), 0 };
 }
 
 }

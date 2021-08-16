@@ -792,7 +792,7 @@ static bool decode_dds(DDSLoadingContext& context)
         dbgln_if(DDS_DEBUG, "There are {} bytes remaining, we need {} for mipmap level {} of the image", stream.remaining(), needed_bytes, mipmap_level);
         VERIFY(stream.remaining() >= needed_bytes);
 
-        context.bitmap = Bitmap::create_purgeable(BitmapFormat::BGRA8888, { width, height });
+        context.bitmap = Bitmap::try_create(BitmapFormat::BGRA8888, { width, height });
 
         decode_bitmap(stream, context, format, width, height);
 
@@ -1014,11 +1014,11 @@ void DDSImageDecoderPlugin::set_volatile()
         m_context->bitmap->set_volatile();
 }
 
-bool DDSImageDecoderPlugin::set_nonvolatile()
+bool DDSImageDecoderPlugin::set_nonvolatile(bool& was_purged)
 {
     if (!m_context->bitmap)
         return false;
-    return m_context->bitmap->set_nonvolatile();
+    return m_context->bitmap->set_nonvolatile(was_purged);
 }
 
 bool DDSImageDecoderPlugin::sniff()
@@ -1046,9 +1046,11 @@ size_t DDSImageDecoderPlugin::frame_count()
     return 1;
 }
 
-ImageFrameDescriptor DDSImageDecoderPlugin::frame([[maybe_unused]] size_t i)
+ImageFrameDescriptor DDSImageDecoderPlugin::frame(size_t i)
 {
-    // We have "frames", but they are all the same image, so lets just use the largest version.
+    if (i > 0)
+        return {};
     return { bitmap(), 0 };
 }
+
 }

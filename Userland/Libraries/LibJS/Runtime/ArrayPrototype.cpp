@@ -58,6 +58,8 @@ void ArrayPrototype::initialize(GlobalObject& global_object)
     define_native_function(vm.names.includes, includes, 1, attr);
     define_native_function(vm.names.find, find, 1, attr);
     define_native_function(vm.names.findIndex, find_index, 1, attr);
+    define_native_function(vm.names.findLast, find_last, 1, attr);
+    define_native_function(vm.names.findLastIndex, find_last_index, 1, attr);
     define_native_function(vm.names.some, some, 1, attr);
     define_native_function(vm.names.every, every, 1, attr);
     define_native_function(vm.names.splice, splice, 2, attr);
@@ -77,12 +79,15 @@ void ArrayPrototype::initialize(GlobalObject& global_object)
     define_direct_property(*vm.well_known_symbol_iterator(), get(vm.names.values), attr);
 
     // 23.1.3.34 Array.prototype [ @@unscopables ], https://tc39.es/ecma262/#sec-array.prototype-@@unscopables
+    // With proposal, https://tc39.es/proposal-array-find-from-last/index.html#sec-array.prototype-@@unscopables
     auto* unscopable_list = Object::create(global_object, nullptr);
     unscopable_list->create_data_property_or_throw(vm.names.copyWithin, Value(true));
     unscopable_list->create_data_property_or_throw(vm.names.entries, Value(true));
     unscopable_list->create_data_property_or_throw(vm.names.fill, Value(true));
     unscopable_list->create_data_property_or_throw(vm.names.find, Value(true));
     unscopable_list->create_data_property_or_throw(vm.names.findIndex, Value(true));
+    unscopable_list->create_data_property_or_throw(vm.names.findLast, Value(true));
+    unscopable_list->create_data_property_or_throw(vm.names.findLastIndex, Value(true));
     unscopable_list->create_data_property_or_throw(vm.names.flat, Value(true));
     unscopable_list->create_data_property_or_throw(vm.names.flatMap, Value(true));
     unscopable_list->create_data_property_or_throw(vm.names.includes, Value(true));
@@ -358,12 +363,12 @@ JS_DEFINE_NATIVE_FUNCTION(ArrayPrototype::push)
         return {};
     }
     for (size_t i = 0; i < argument_count; ++i) {
-        this_object->set(length + i, vm.argument(i), true);
+        this_object->set(length + i, vm.argument(i), Object::ShouldThrowExceptions::Yes);
         if (vm.exception())
             return {};
     }
     auto new_length_value = Value(new_length);
-    this_object->set(vm.names.length, new_length_value, true);
+    this_object->set(vm.names.length, new_length_value, Object::ShouldThrowExceptions::Yes);
     if (vm.exception())
         return {};
     return new_length_value;
@@ -397,7 +402,7 @@ JS_DEFINE_NATIVE_FUNCTION(ArrayPrototype::unshift)
                 auto from_value = this_object->get(from);
                 if (vm.exception())
                     return {};
-                this_object->set(to, from_value, true);
+                this_object->set(to, from_value, Object::ShouldThrowExceptions::Yes);
                 if (vm.exception())
                     return {};
             } else {
@@ -408,13 +413,13 @@ JS_DEFINE_NATIVE_FUNCTION(ArrayPrototype::unshift)
         }
 
         for (size_t j = 0; j < arg_count; j++) {
-            this_object->set(j, vm.argument(j), true);
+            this_object->set(j, vm.argument(j), Object::ShouldThrowExceptions::Yes);
             if (vm.exception())
                 return {};
         }
     }
 
-    this_object->set(vm.names.length, Value(new_length), true);
+    this_object->set(vm.names.length, Value(new_length), Object::ShouldThrowExceptions::Yes);
     if (vm.exception())
         return {};
     return Value(new_length);
@@ -430,7 +435,7 @@ JS_DEFINE_NATIVE_FUNCTION(ArrayPrototype::pop)
     if (vm.exception())
         return {};
     if (length == 0) {
-        this_object->set(vm.names.length, Value(0), true);
+        this_object->set(vm.names.length, Value(0), Object::ShouldThrowExceptions::Yes);
         return js_undefined();
     }
     auto index = length - 1;
@@ -440,7 +445,7 @@ JS_DEFINE_NATIVE_FUNCTION(ArrayPrototype::pop)
     this_object->delete_property_or_throw(index);
     if (vm.exception())
         return {};
-    this_object->set(vm.names.length, Value(index), true);
+    this_object->set(vm.names.length, Value(index), Object::ShouldThrowExceptions::Yes);
     if (vm.exception())
         return {};
     return element;
@@ -456,7 +461,7 @@ JS_DEFINE_NATIVE_FUNCTION(ArrayPrototype::shift)
     if (vm.exception())
         return {};
     if (length == 0) {
-        this_object->set(vm.names.length, Value(0), true);
+        this_object->set(vm.names.length, Value(0), Object::ShouldThrowExceptions::Yes);
         if (vm.exception())
             return {};
         return js_undefined();
@@ -475,7 +480,7 @@ JS_DEFINE_NATIVE_FUNCTION(ArrayPrototype::shift)
             auto from_value = this_object->get(from);
             if (vm.exception())
                 return {};
-            this_object->set(to, from_value, true);
+            this_object->set(to, from_value, Object::ShouldThrowExceptions::Yes);
             if (vm.exception())
                 return {};
         } else {
@@ -489,7 +494,7 @@ JS_DEFINE_NATIVE_FUNCTION(ArrayPrototype::shift)
     if (vm.exception())
         return {};
 
-    this_object->set(vm.names.length, Value(length - 1), true);
+    this_object->set(vm.names.length, Value(length - 1), Object::ShouldThrowExceptions::Yes);
     if (vm.exception())
         return {};
     return first;
@@ -537,10 +542,7 @@ JS_DEFINE_NATIVE_FUNCTION(ArrayPrototype::to_locale_string)
             return {};
         if (value.is_nullish())
             continue;
-        auto* value_object = value.to_object(global_object);
-        if (!value_object)
-            return {};
-        auto locale_string_result = value_object->invoke(vm.names.toLocaleString);
+        auto locale_string_result = value.invoke(global_object, vm.names.toLocaleString);
         if (vm.exception())
             return {};
         auto string = locale_string_result.to_string(global_object);
@@ -681,7 +683,7 @@ JS_DEFINE_NATIVE_FUNCTION(ArrayPrototype::concat)
             return {};
     }
 
-    new_array->set(vm.names.length, Value(n), true);
+    new_array->set(vm.names.length, Value(n), Object::ShouldThrowExceptions::Yes);
     if (vm.exception())
         return {};
     return Value(new_array);
@@ -758,7 +760,7 @@ JS_DEFINE_NATIVE_FUNCTION(ArrayPrototype::slice)
         ++index;
     }
 
-    new_array->set(vm.names.length, Value(index), true);
+    new_array->set(vm.names.length, Value(index), Object::ShouldThrowExceptions::Yes);
     if (vm.exception())
         return {};
 
@@ -1084,14 +1086,14 @@ JS_DEFINE_NATIVE_FUNCTION(ArrayPrototype::reverse)
         }
 
         if (lower_exists && upper_exists) {
-            this_object->set(lower, upper_value, true);
+            this_object->set(lower, upper_value, Object::ShouldThrowExceptions::Yes);
             if (vm.exception())
                 return {};
-            this_object->set(upper, lower_value, true);
+            this_object->set(upper, lower_value, Object::ShouldThrowExceptions::Yes);
             if (vm.exception())
                 return {};
         } else if (!lower_exists && upper_exists) {
-            this_object->set(lower, upper_value, true);
+            this_object->set(lower, upper_value, Object::ShouldThrowExceptions::Yes);
             if (vm.exception())
                 return {};
             this_object->delete_property_or_throw(upper);
@@ -1101,7 +1103,7 @@ JS_DEFINE_NATIVE_FUNCTION(ArrayPrototype::reverse)
             this_object->delete_property_or_throw(lower);
             if (vm.exception())
                 return {};
-            this_object->set(upper, lower_value, true);
+            this_object->set(upper, lower_value, Object::ShouldThrowExceptions::Yes);
             if (vm.exception())
                 return {};
         }
@@ -1260,7 +1262,7 @@ JS_DEFINE_NATIVE_FUNCTION(ArrayPrototype::sort)
         return {};
 
     for (size_t j = 0; j < items.size(); ++j) {
-        object->set(j, items[j], true);
+        object->set(j, items[j], Object::ShouldThrowExceptions::Yes);
         if (vm.exception())
             return {};
     }
@@ -1492,6 +1494,104 @@ JS_DEFINE_NATIVE_FUNCTION(ArrayPrototype::find_index)
     return Value(-1);
 }
 
+// 1 Array.prototype.findLast ( predicate [ , thisArg ] ), https://tc39.es/proposal-array-find-from-last/index.html#sec-array.prototype.findlast
+JS_DEFINE_NATIVE_FUNCTION(ArrayPrototype::find_last)
+{
+    auto predicate = vm.argument(0);
+    auto this_arg = vm.argument(1);
+
+    // 1. Let O be ? ToObject(this value).
+    auto* object = vm.this_value(global_object).to_object(global_object);
+    if (vm.exception())
+        return {};
+
+    // 2. Let len be ? LengthOfArrayLike(O).
+    auto length = length_of_array_like(global_object, *object);
+    if (vm.exception())
+        return {};
+
+    // 3. If IsCallable(predicate) is false, throw a TypeError exception.
+    if (!predicate.is_function()) {
+        vm.throw_exception<TypeError>(global_object, ErrorType::NotAFunction, predicate.to_string_without_side_effects());
+        return {};
+    }
+
+    // 4. Let k be len - 1.
+    // 5. Repeat, while k ≥ 0,
+    for (i64 k = static_cast<i64>(length) - 1; k >= 0; --k) {
+        // a. Let Pk be ! ToString(𝔽(k)).
+        auto property_name = PropertyName { k };
+
+        // b. Let kValue be ? Get(O, Pk).
+        auto k_value = object->get(property_name);
+        if (vm.exception())
+            return {};
+
+        // c. Let testResult be ! ToBoolean(? Call(predicate, thisArg, « kValue, 𝔽(k), O »)).
+        auto test_result = vm.call(predicate.as_function(), this_arg, k_value, Value((double)k), object);
+        if (vm.exception())
+            return {};
+
+        // d. If testResult is true, return kValue.
+        if (test_result.to_boolean())
+            return k_value;
+
+        // e. Set k to k - 1.
+    }
+
+    // 6. Return undefined.
+    return js_undefined();
+}
+
+// 2 Array.prototype.findLastIndex ( predicate [ , thisArg ] ), https://tc39.es/proposal-array-find-from-last/index.html#sec-array.prototype.findlastindex
+JS_DEFINE_NATIVE_FUNCTION(ArrayPrototype::find_last_index)
+{
+    auto predicate = vm.argument(0);
+    auto this_arg = vm.argument(1);
+
+    // 1. Let O be ? ToObject(this value).
+    auto* object = vm.this_value(global_object).to_object(global_object);
+    if (vm.exception())
+        return {};
+
+    // 2. Let len be ? LengthOfArrayLike(O).
+    auto length = length_of_array_like(global_object, *object);
+    if (vm.exception())
+        return {};
+
+    // 3. If IsCallable(predicate) is false, throw a TypeError exception.
+    if (!predicate.is_function()) {
+        vm.throw_exception<TypeError>(global_object, ErrorType::NotAFunction, predicate.to_string_without_side_effects());
+        return {};
+    }
+
+    // 4. Let k be len - 1.
+    // 5. Repeat, while k ≥ 0,
+    for (i64 k = static_cast<i64>(length) - 1; k >= 0; --k) {
+        // a. Let Pk be ! ToString(𝔽(k)).
+        auto property_name = PropertyName { k };
+
+        // b. Let kValue be ? Get(O, Pk).
+        auto k_value = object->get(property_name);
+        if (vm.exception())
+            return {};
+
+        // c. Let testResult be ! ToBoolean(? Call(predicate, thisArg, « kValue, 𝔽(k), O »)).
+        auto test_result = vm.call(predicate.as_function(), this_arg, k_value, Value((double)k), object);
+        if (vm.exception())
+            return {};
+
+        // d. If testResult is true, return 𝔽(k).
+        if (test_result.to_boolean())
+            return Value((double)k);
+
+        // e. Set k to k - 1.
+    }
+
+    // 6. Return -1𝔽.
+    return Value(-1);
+}
+
 // 23.1.3.26 Array.prototype.some ( callbackfn [ , thisArg ] ), https://tc39.es/ecma262/#sec-array.prototype.some
 JS_DEFINE_NATIVE_FUNCTION(ArrayPrototype::some)
 {
@@ -1673,7 +1773,7 @@ JS_DEFINE_NATIVE_FUNCTION(ArrayPrototype::splice)
         }
     }
 
-    removed_elements->set(vm.names.length, Value(actual_delete_count), true);
+    removed_elements->set(vm.names.length, Value(actual_delete_count), Object::ShouldThrowExceptions::Yes);
     if (vm.exception())
         return {};
 
@@ -1691,7 +1791,7 @@ JS_DEFINE_NATIVE_FUNCTION(ArrayPrototype::splice)
                 if (vm.exception())
                     return {};
 
-                this_object->set(to, from_value, true);
+                this_object->set(to, from_value, Object::ShouldThrowExceptions::Yes);
             } else {
                 this_object->delete_property_or_throw(to);
             }
@@ -1717,7 +1817,7 @@ JS_DEFINE_NATIVE_FUNCTION(ArrayPrototype::splice)
                 auto from_value = this_object->get(from_index);
                 if (vm.exception())
                     return {};
-                this_object->set(to, from_value, true);
+                this_object->set(to, from_value, Object::ShouldThrowExceptions::Yes);
             } else {
                 this_object->delete_property_or_throw(to);
             }
@@ -1727,12 +1827,12 @@ JS_DEFINE_NATIVE_FUNCTION(ArrayPrototype::splice)
     }
 
     for (u64 i = 0; i < insert_count; ++i) {
-        this_object->set(actual_start + i, vm.argument(i + 2), true);
+        this_object->set(actual_start + i, vm.argument(i + 2), Object::ShouldThrowExceptions::Yes);
         if (vm.exception())
             return {};
     }
 
-    this_object->set(vm.names.length, Value(new_length), true);
+    this_object->set(vm.names.length, Value(new_length), Object::ShouldThrowExceptions::Yes);
     if (vm.exception())
         return {};
 
@@ -1783,7 +1883,7 @@ JS_DEFINE_NATIVE_FUNCTION(ArrayPrototype::fill)
         to = min(relative_end, length);
 
     for (u64 i = from; i < to; i++) {
-        this_object->set(i, vm.argument(0), true);
+        this_object->set(i, vm.argument(0), Object::ShouldThrowExceptions::Yes);
         if (vm.exception())
             return {};
     }
@@ -1845,6 +1945,11 @@ static size_t flatten_into_array(GlobalObject& global_object, Object& new_array,
         }
 
         if (depth > 0 && value.is_array(global_object)) {
+            if (vm.did_reach_stack_space_limit()) {
+                vm.throw_exception<Error>(global_object, "Call stack size limit exceeded");
+                return {};
+            }
+
             auto length = length_of_array_like(global_object, value.as_object());
             if (vm.exception())
                 return {};
@@ -2000,7 +2105,7 @@ JS_DEFINE_NATIVE_FUNCTION(ArrayPrototype::copy_within)
             auto from_value = this_object->get(from_i);
             if (vm.exception())
                 return {};
-            this_object->set(to_i, from_value, true);
+            this_object->set(to_i, from_value, Object::ShouldThrowExceptions::Yes);
             if (vm.exception())
                 return {};
         } else {

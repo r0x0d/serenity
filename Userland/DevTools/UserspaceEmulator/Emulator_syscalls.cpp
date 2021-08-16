@@ -8,6 +8,7 @@
 #include "MmapRegion.h"
 #include "SimpleRegion.h"
 #include <AK/Debug.h>
+#include <AK/FileStream.h>
 #include <AK/Format.h>
 #include <fcntl.h>
 #include <sched.h>
@@ -202,8 +203,6 @@ u32 Emulator::virt_syscall(u32 function, u32 arg1, u32 arg2, u32 arg3)
     case SC_exit:
         virt$exit((int)arg1);
         return 0;
-    case SC_gettimeofday:
-        return virt$gettimeofday(arg1);
     case SC_clock_gettime:
         return virt$clock_gettime(arg1, arg2);
     case SC_clock_settime:
@@ -248,6 +247,8 @@ u32 Emulator::virt_syscall(u32 function, u32 arg1, u32 arg2, u32 arg3)
         return virt$msyscall(arg1);
     case SC_futex:
         return virt$futex(arg1);
+    case SC_map_time_page:
+        return -ENOSYS;
     default:
         reportln("\n=={}==  \033[31;1mUnimplemented syscall: {}\033[0m, {:p}", getpid(), Syscall::to_string((Syscall::Function)function), function);
         dump_backtrace();
@@ -504,16 +505,6 @@ int Emulator::virt$kill(pid_t pid, int signal)
 int Emulator::virt$killpg(int pgrp, int sig)
 {
     return syscall(SC_killpg, pgrp, sig);
-}
-
-int Emulator::virt$gettimeofday(FlatPtr timeval)
-{
-    struct timeval host_timeval;
-    int rc = syscall(SC_gettimeofday, &host_timeval);
-    if (rc < 0)
-        return rc;
-    mmu().copy_to_vm(timeval, &host_timeval, sizeof(host_timeval));
-    return rc;
 }
 
 int Emulator::virt$clock_gettime(int clockid, FlatPtr timespec)
@@ -812,6 +803,8 @@ static void round_to_page_size(FlatPtr& address, size_t& size)
 
 u32 Emulator::virt$munmap(FlatPtr address, size_t size)
 {
+    if (is_profiling())
+        emit_profile_event(profile_stream(), "munmap", String::formatted("\"ptr\": {}, \"size\": {}", address, size));
     round_to_page_size(address, size);
     Vector<Region*, 4> marked_for_deletion;
     bool has_non_mmap_region = false;
@@ -852,7 +845,7 @@ u32 Emulator::virt$mmap(u32 params_addr)
         else {
             // mmap(nullptr, …, MAP_FIXED) is technically okay, but tends to be a bug.
             // Therefore, refuse to be helpful.
-            reportln("\n=={}==  \033[31;1mTried to mmap at nullptr with MAP_FIXED.\033[0m, 0x{:x} bytes.", getpid(), params.size);
+            reportln("\n=={}==  \033[31;1mTried to mmap at nullptr with MAP_FIXED.\033[0m, {:#x} bytes.", getpid(), params.size);
             dump_backtrace();
         }
     } else {
@@ -870,16 +863,14 @@ u32 Emulator::virt$mmap(u32 params_addr)
         name_str = { name.data(), name.size() };
     }
 
+    if (is_profiling())
+        emit_profile_event(profile_stream(), "mmap", String::formatted(R"("ptr": {}, "size": {}, "name": "{}")", final_address, final_size, name_str));
+
     if (params.flags & MAP_ANONYMOUS) {
         mmu().add_region(MmapRegion::create_anonymous(final_address, final_size, params.prot, move(name_str)));
     } else {
         auto region = MmapRegion::create_file_backed(final_address, final_size, params.prot, params.flags, params.fd, params.offset, move(name_str));
-        if (region->name() == "libc.so: .text" && !m_libc_start) {
-            m_libc_start = final_address;
-            m_libc_end = final_address + final_size;
-            bool rc = find_malloc_symbols(*region);
-            VERIFY(rc);
-        } else if (region->name() == "libsystem.so: .text" && !m_libsystem_start) {
+        if (region->name() == "libsystem.so: .text" && !m_libsystem_start) {
             m_libsystem_start = final_address;
             m_libsystem_end = final_address + final_size;
         }
@@ -1109,7 +1100,7 @@ int Emulator::virt$ioctl([[maybe_unused]] int fd, unsigned request, [[maybe_unus
 int Emulator::virt$emuctl(FlatPtr arg1, FlatPtr arg2, FlatPtr arg3)
 {
     auto* tracer = malloc_tracer();
-    if (!tracer)
+    if (arg1 <= 4 && !tracer)
         return 0;
     switch (arg1) {
     case 1:
@@ -1123,6 +1114,20 @@ int Emulator::virt$emuctl(FlatPtr arg1, FlatPtr arg2, FlatPtr arg3)
         return 0;
     case 4:
         tracer->target_did_change_chunk_size({}, arg3, arg2);
+        return 0;
+    case 5: // mark ROI start
+        if (is_in_region_of_interest())
+            return -EINVAL;
+        m_is_in_region_of_interest = true;
+        return 0;
+    case 6: // mark ROI end
+        m_is_in_region_of_interest = false;
+        return 0;
+    case 7:
+        m_is_memory_auditing_suppressed = true;
+        return 0;
+    case 8:
+        m_is_memory_auditing_suppressed = false;
         return 0;
     default:
         return -EINVAL;

@@ -37,8 +37,16 @@ protected:
     void branch_to_label(Configuration&, LabelIndex);
     template<typename ReadT, typename PushT>
     void load_and_push(Configuration&, Instruction const&);
+    template<typename PopT, typename StoreT>
+    void pop_and_store(Configuration&, Instruction const&);
     void store_to_memory(Configuration&, Instruction const&, ReadonlyBytes data);
     void call_address(Configuration&, FunctionAddress);
+
+    template<typename PopType, typename PushType, typename Operator>
+    void binary_numeric_operation(Configuration&);
+
+    template<typename PopType, typename PushType, typename Operator>
+    void unary_operation(Configuration&);
 
     template<typename V, typename T>
     MakeUnsigned<T> checked_unsigned_truncate(V);
@@ -50,7 +58,7 @@ protected:
     T read_value(ReadonlyBytes data);
 
     Vector<Value> pop_values(Configuration& configuration, size_t count);
-    bool trap_if_not(bool value, StringView reason)
+    ALWAYS_INLINE bool trap_if_not(bool value, StringView reason)
     {
         if (!value)
             m_trap = Trap { reason };

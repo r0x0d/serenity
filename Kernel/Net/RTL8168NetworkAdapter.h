@@ -26,6 +26,8 @@ public:
 
     virtual void send_raw(ReadonlyBytes) override;
     virtual bool link_up() override { return m_link_up; }
+    virtual bool link_full_duplex() override;
+    virtual i32 link_speed() override;
 
     virtual StringView purpose() const override { return class_name(); }
 
@@ -195,11 +197,11 @@ private:
     bool m_version_uncertain { true };
     IOAddress m_io_base;
     u32 m_ocp_base_address { 0 };
-    OwnPtr<Region> m_rx_descriptors_region;
-    NonnullOwnPtrVector<Region> m_rx_buffers_regions;
+    OwnPtr<Memory::Region> m_rx_descriptors_region;
+    NonnullOwnPtrVector<Memory::Region> m_rx_buffers_regions;
     u16 m_rx_free_index { 0 };
-    OwnPtr<Region> m_tx_descriptors_region;
-    NonnullOwnPtrVector<Region> m_tx_buffers_regions;
+    OwnPtr<Memory::Region> m_tx_descriptors_region;
+    NonnullOwnPtrVector<Memory::Region> m_tx_buffers_regions;
     u16 m_tx_free_index { 0 };
     bool m_link_up { false };
     EntropySource m_entropy_source;
