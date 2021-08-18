@@ -8,5 +8,18 @@ jobs:
 
   - template: Meta/Azure/Lagom.yml
     parameters:
+      os: 'Linux'
+      fuzzer: 'Fuzz'
+
+  - template: Meta/Azure/Lagom.yml
+    parameters:
       os: 'macOS'
       allow_test_failures: true
+
+  - template: Meta/Azure/Serenity.yml
+    parameters:
+      arch: 'i686'
+
+  - template: Meta/Azure/Serenity.yml
+    parameters:
+      arch: 'x86_64'
