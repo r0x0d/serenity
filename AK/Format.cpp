@@ -26,6 +26,21 @@
 
 namespace AK {
 
+class FormatParser : public GenericLexer {
+public:
+    struct FormatSpecifier {
+        StringView flags;
+        size_t index;
+    };
+
+    explicit FormatParser(StringView input);
+
+    StringView consume_literal();
+    bool consume_number(size_t& value);
+    bool consume_specifier(FormatSpecifier& specifier);
+    bool consume_replacement_field(size_t& index);
+};
+
 namespace {
 
 static constexpr size_t use_next_index = NumericLimits<size_t>::max();
@@ -774,9 +789,9 @@ void vdbgln(StringView fmtstr, TypeErasedFormatParams params)
 #    ifdef KERNEL
     if (Kernel::Processor::is_initialized() && Kernel::Thread::current()) {
         auto& thread = *Kernel::Thread::current();
-        builder.appendff("\033[34;1m[#{} {}({}:{})]\033[0m: ", Kernel::Processor::id(), thread.process().name(), thread.pid().value(), thread.tid().value());
+        builder.appendff("\033[34;1m[#{} {}({}:{})]\033[0m: ", Kernel::Processor::current_id(), thread.process().name(), thread.pid().value(), thread.tid().value());
     } else {
-        builder.appendff("\033[34;1m[#{} Kernel]\033[0m: ", Kernel::Processor::id());
+        builder.appendff("\033[34;1m[#{} Kernel]\033[0m: ", Kernel::Processor::current_id());
     }
 #    else
     static TriState got_process_name = TriState::Unknown;

@@ -16,7 +16,7 @@ namespace Kernel::Memory {
 KResultOr<NonnullRefPtr<VMObject>> AnonymousVMObject::try_clone()
 {
     // We need to acquire our lock so we copy a sane state
-    ScopedSpinLock lock(m_lock);
+    SpinlockLocker lock(m_lock);
 
     if (is_purgeable() && is_volatile()) {
         // If this object is purgeable+volatile, create a new zero-filled purgeable+volatile
@@ -178,7 +178,7 @@ AnonymousVMObject::~AnonymousVMObject()
 
 size_t AnonymousVMObject::purge()
 {
-    ScopedSpinLock lock(m_lock);
+    SpinlockLocker lock(m_lock);
 
     if (!is_purgeable() || !is_volatile())
         return 0;
@@ -206,7 +206,7 @@ KResult AnonymousVMObject::set_volatile(bool is_volatile, bool& was_purged)
 {
     VERIFY(is_purgeable());
 
-    ScopedSpinLock locker(m_lock);
+    SpinlockLocker locker(m_lock);
 
     was_purged = m_was_purged;
     if (m_volatile == is_volatile)
@@ -306,7 +306,7 @@ size_t AnonymousVMObject::cow_pages() const
 PageFaultResponse AnonymousVMObject::handle_cow_fault(size_t page_index, VirtualAddress vaddr)
 {
     VERIFY_INTERRUPTS_DISABLED();
-    ScopedSpinLock lock(m_lock);
+    SpinlockLocker lock(m_lock);
 
     if (is_volatile()) {
         // A COW fault in a volatile region? Userspace is writing to volatile memory, this is a bug. Crash.
@@ -346,9 +346,10 @@ PageFaultResponse AnonymousVMObject::handle_cow_fault(size_t page_index, Virtual
         }
     }
 
-    u8* dest_ptr = MM.quickmap_page(*page);
     dbgln_if(PAGE_FAULT_DEBUG, "      >> COW {} <- {}", page->paddr(), page_slot->paddr());
     {
+        SpinlockLocker mm_locker(s_mm_lock);
+        u8* dest_ptr = MM.quickmap_page(*page);
         SmapDisabler disabler;
         void* fault_at;
         if (!safe_memcpy(dest_ptr, vaddr.as_ptr(), PAGE_SIZE, fault_at)) {
@@ -361,9 +362,9 @@ PageFaultResponse AnonymousVMObject::handle_cow_fault(size_t page_index, Virtual
             else
                 VERIFY_NOT_REACHED();
         }
+        MM.unquickmap_page();
     }
     page_slot = move(page);
-    MM.unquickmap_page();
     set_should_cow(page_index, false);
     return PageFaultResponse::Continue;
 }
@@ -379,13 +380,13 @@ AnonymousVMObject::SharedCommittedCowPages::~SharedCommittedCowPages()
 
 NonnullRefPtr<PhysicalPage> AnonymousVMObject::SharedCommittedCowPages::take_one()
 {
-    ScopedSpinLock locker(m_lock);
+    SpinlockLocker locker(m_lock);
     return m_committed_pages.take_one();
 }
 
 void AnonymousVMObject::SharedCommittedCowPages::uncommit_one()
 {
-    ScopedSpinLock locker(m_lock);
+    SpinlockLocker locker(m_lock);
     m_committed_pages.uncommit_one();
 }
 

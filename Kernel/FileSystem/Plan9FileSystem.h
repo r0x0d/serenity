@@ -50,9 +50,9 @@ private:
 
     class Blocker;
 
-    class Plan9FSBlockCondition : public Thread::BlockCondition {
+    class Plan9FSBlockerSet final : public Thread::BlockerSet {
     public:
-        Plan9FSBlockCondition(Plan9FS& fs)
+        Plan9FSBlockerSet(Plan9FS& fs)
             : m_fs(fs)
         {
         }
@@ -66,11 +66,11 @@ private:
 
     private:
         Plan9FS& m_fs;
-        mutable SpinLock<u8> m_lock;
+        mutable Spinlock<u8> m_lock;
     };
 
     struct ReceiveCompletion : public RefCounted<ReceiveCompletion> {
-        mutable SpinLock<u8> lock;
+        mutable Spinlock<u8> lock;
         bool completed { false };
         const u16 tag;
         OwnPtr<Message> message;
@@ -87,11 +87,11 @@ private:
             , m_message(message)
             , m_completion(move(completion))
         {
-            set_block_condition(fs.m_completion_blocker);
         }
+        virtual bool setup_blocker() override;
         virtual StringView state_string() const override { return "Waiting"sv; }
         virtual Type blocker_type() const override { return Type::Plan9FS; }
-        virtual void not_blocking(bool) override;
+        virtual void will_unblock_immediately_without_blocking(UnblockImmediatelyReason) override;
 
         const NonnullRefPtr<ReceiveCompletion>& completion() const { return m_completion; }
         u16 tag() const { return m_completion->tag; }
@@ -136,10 +136,10 @@ private:
     size_t m_max_message_size { 4 * KiB };
 
     Mutex m_send_lock { "Plan9FS send" };
-    Plan9FSBlockCondition m_completion_blocker;
+    Plan9FSBlockerSet m_completion_blocker;
     HashMap<u16, NonnullRefPtr<ReceiveCompletion>> m_completions;
 
-    SpinLock<u8> m_thread_lock;
+    Spinlock<u8> m_thread_lock;
     RefPtr<Thread> m_thread;
     Atomic<bool> m_thread_running { false };
     Atomic<bool, AK::MemoryOrder::memory_order_relaxed> m_thread_shutdown { false };

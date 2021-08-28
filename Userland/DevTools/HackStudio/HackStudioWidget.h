@@ -35,6 +35,7 @@ class HackStudioWidget : public GUI::Widget {
 public:
     virtual ~HackStudioWidget() override;
     bool open_file(const String& filename);
+    void close_file_in_all_editors(String const& filename);
 
     void update_actions();
     Project& project();
@@ -72,7 +73,7 @@ private:
     void set_edit_mode(EditMode);
 
     NonnullRefPtr<GUI::Menu> create_project_tree_view_context_menu();
-    NonnullRefPtr<GUI::Action> create_new_file_action();
+    NonnullRefPtr<GUI::Action> create_new_file_action(String const& label, String const& icon, String const& extension);
     NonnullRefPtr<GUI::Action> create_new_directory_action();
     NonnullRefPtr<GUI::Action> create_open_selected_action();
     NonnullRefPtr<GUI::Action> create_delete_action();
@@ -102,6 +103,8 @@ private:
     void update_statusbar();
 
     void handle_external_file_deletion(const String& filepath);
+    void stop_debugger_if_running();
+    void close_current_project();
 
     void create_open_files_view(GUI::Widget& parent);
     void create_toolbar(GUI::Widget& parent);
@@ -122,6 +125,8 @@ private:
     bool any_document_is_dirty() const;
 
     void update_gml_preview();
+    void update_tree_view();
+    void update_window_title();
 
     NonnullRefPtrVector<EditorWrapper> m_all_editor_wrappers;
     RefPtr<EditorWrapper> m_current_editor_wrapper;
@@ -154,7 +159,9 @@ private:
     RefPtr<Threading::Thread> m_debugger_thread;
     RefPtr<EditorWrapper> m_current_editor_in_execution;
 
-    RefPtr<GUI::Action> m_new_file_action;
+    NonnullRefPtrVector<GUI::Action> m_new_file_actions;
+    RefPtr<GUI::Action> m_new_plain_file_action;
+
     RefPtr<GUI::Action> m_new_directory_action;
     RefPtr<GUI::Action> m_open_selected_action;
     RefPtr<GUI::Action> m_show_in_file_manager_action;

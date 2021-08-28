@@ -18,9 +18,9 @@ namespace Kernel {
 
 static KResultOr<u32> handle_ptrace(const Kernel::Syscall::SC_ptrace_params& params, Process& caller)
 {
-    ScopedSpinLock scheduler_lock(g_scheduler_lock);
+    SpinlockLocker scheduler_lock(g_scheduler_lock);
     if (params.request == PT_TRACE_ME) {
-        if (Process::current()->tracer())
+        if (Process::current().tracer())
             return EBUSY;
 
         caller.set_wait_for_tracer_at_next_execve(true);
@@ -55,7 +55,7 @@ static KResultOr<u32> handle_ptrace(const Kernel::Syscall::SC_ptrace_params& par
         auto result = peer_process.start_tracing_from(caller.pid());
         if (result.is_error())
             return result.error();
-        ScopedSpinLock lock(peer->get_lock());
+        SpinlockLocker lock(peer->get_lock());
         if (peer->state() != Thread::State::Stopped) {
             peer->send_signal(SIGSTOP, &caller);
         }

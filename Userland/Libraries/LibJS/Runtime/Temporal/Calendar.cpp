@@ -288,6 +288,54 @@ Value calendar_in_leap_year(GlobalObject& global_object, Object& calendar, Objec
     return Value(&calendar).invoke(global_object, vm.names.inLeapYear, &date_like);
 }
 
+// 15.6.1.2 CalendarEra ( calendar, dateLike ), https://tc39.es/proposal-temporal/#sec-temporal-calendarera
+Value calendar_era(GlobalObject& global_object, Object& calendar, Object& date_like)
+{
+    auto& vm = global_object.vm();
+
+    // 1. Assert: Type(calendar) is Object.
+
+    // 2. Let result be ? Invoke(calendar, "era", « dateLike »).
+    auto result = Value(&calendar).invoke(global_object, vm.names.era, &date_like);
+    if (vm.exception())
+        return {};
+
+    // 3. If result is not undefined, set result to ? ToString(result).
+    if (!result.is_undefined()) {
+        auto result_string = result.to_string(global_object);
+        if (vm.exception())
+            return {};
+        result = js_string(vm, move(result_string));
+    }
+
+    // 4. Return result.
+    return result;
+}
+
+// 15.6.1.3 CalendarEraYear ( calendar, dateLike ), https://tc39.es/proposal-temporal/#sec-temporal-calendarerayear
+Value calendar_era_year(GlobalObject& global_object, Object& calendar, Object& date_like)
+{
+    auto& vm = global_object.vm();
+
+    // 1. Assert: Type(calendar) is Object.
+
+    // 2. Let result be ? Invoke(calendar, "eraYear", « dateLike »).
+    auto result = Value(&calendar).invoke(global_object, vm.names.eraYear, &date_like);
+    if (vm.exception())
+        return {};
+
+    // 3. If result is not undefined, set result to ? ToIntegerOrInfinity(result).
+    if (!result.is_undefined()) {
+        auto result_number = result.to_integer_or_infinity(global_object);
+        if (vm.exception())
+            return {};
+        result = Value(result_number);
+    }
+
+    // 4. Return result.
+    return result;
+}
+
 // 12.1.21 ToTemporalCalendar ( temporalCalendarLike ), https://tc39.es/proposal-temporal/#sec-temporal-totemporalcalendar
 Object* to_temporal_calendar(GlobalObject& global_object, Value temporal_calendar_like)
 {
@@ -475,6 +523,24 @@ PlainMonthDay* month_day_from_fields(GlobalObject& global_object, Object& calend
 
     // 7. Return monthDay.
     return static_cast<PlainMonthDay*>(month_day_object);
+}
+
+// 12.1.27 FormatCalendarAnnotation ( id, showCalendar ), https://tc39.es/proposal-temporal/#sec-temporal-formatcalendarannotation
+String format_calendar_annotation(StringView id, StringView show_calendar)
+{
+    // 1. Assert: showCalendar is "auto", "always", or "never".
+    VERIFY(show_calendar == "auto"sv || show_calendar == "always"sv || show_calendar == "never"sv);
+
+    // 2. If showCalendar is "never", return the empty String.
+    if (show_calendar == "never"sv)
+        return String::empty();
+
+    // 3. If showCalendar is "auto" and id is "iso8601", return the empty String.
+    if (show_calendar == "auto"sv && id == "iso8601"sv)
+        return String::empty();
+
+    // 4. Return the string-concatenation of "[u-ca=", id, and "]".
+    return String::formatted("[u-ca={}]", id);
 }
 
 // 12.1.28 CalendarEquals ( one, two ), https://tc39.es/proposal-temporal/#sec-temporal-calendarequals

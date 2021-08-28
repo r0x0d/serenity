@@ -30,13 +30,17 @@ PATH="$SCRIPT_DIR/../Toolchain/Local/qemu/bin:$PATH"
 # directory was changed to Toolchain/Local/qemu.
 PATH="$SCRIPT_DIR/../Toolchain/Local/i686/bin:$PATH"
 
+# We depend on GNU coreutils du for the --apparent-size extension.
+# GNU coreutils is a build dependency.
+if type gdu > /dev/null 2>&1; then
+    GNUDU="gdu"
+else
+    GNUDU="du"
+fi
+
 disk_usage() {
     # shellcheck disable=SC2003
-if [ "$(uname -s)" = "Darwin" ]; then
-    expr "$(du -sk "$1" | cut -f1)"
-else
-    expr "$(du -sk --apparent-size "$1" | cut -f1)"
-fi
+    expr "$(${GNUDU} -sk --apparent-size "$1" | cut -f1)"
 }
 
 inode_usage() {
@@ -98,9 +102,6 @@ if [ $USE_EXISTING -ne 1 ]; then
         VND=$(vnconfig _disk_image)
         (echo "e 0"; echo 83; echo n; echo 0; echo "*"; echo "quit") | fdisk -e "$VND"
         newfs_ext2fs -D $INODE_SIZE -n $INODE_COUNT "/dev/r${VND}i" || die "could not create filesystem"
-    elif [ "$(uname -s)" = "FreeBSD" ]; then
-        MD=$(mdconfig _disk_image)
-        mke2fs -q -I $INODE_SIZE -N $INODE_COUNT _disk_image || die "could not create filesystem"
     else
         if [ -x /sbin/mke2fs ]; then
             /sbin/mke2fs -q -I $INODE_SIZE -N $INODE_COUNT _disk_image || die "could not create filesystem"
@@ -119,6 +120,7 @@ if [ "$(uname -s)" = "Darwin" ]; then
 elif [ "$(uname -s)" = "OpenBSD" ]; then
   mount_cmd="mount -t ext2fs "/dev/${VND}i" mnt/"
 elif [ "$(uname -s)" = "FreeBSD" ]; then
+  MD=$(mdconfig _disk_image)
   mount_cmd="fuse-ext2 -o rw+,direct_io "/dev/${MD}" mnt/"
 else
   mount_cmd="mount _disk_image mnt/"

@@ -183,7 +183,7 @@ Optional<ISODate> regulate_iso_date(GlobalObject& global_object, double year, do
         auto m = static_cast<u8>(month);
         auto d = static_cast<u8>(day);
         // a. If ! IsValidISODate(year, month, day) is false, throw a RangeError exception.
-        if (is_valid_iso_date(y, m, d)) {
+        if (!is_valid_iso_date(y, m, d)) {
             vm.throw_exception<RangeError>(global_object, ErrorType::TemporalInvalidPlainDate);
             return {};
         }
@@ -330,6 +330,53 @@ ISODate balance_iso_date(double year_, double month_, double day)
 
     // 16. Return the Record { [[Year]]: year, [[Month]]: month, [[Day]]: day }.
     return ISODate { .year = year, .month = static_cast<u8>(month), .day = static_cast<u8>(day) };
+}
+
+// 3.5.7 PadISOYear ( y ), https://tc39.es/proposal-temporal/#sec-temporal-padisoyear
+String pad_iso_year(i32 y)
+{
+    // 1. Assert: y is an integer.
+
+    // 2. If y > 999 and y ≤ 9999, then
+    if (y > 999 && y <= 9999) {
+        // a. Return y formatted as a four-digit decimal number.
+        return String::number(y);
+    }
+    // 3. If y ≥ 0, let yearSign be "+"; otherwise, let yearSign be "-".
+    auto year_sign = y >= 0 ? '+' : '-';
+
+    // 4. Let year be abs(y), formatted as a six-digit decimal number, padded to the left with zeroes as necessary.
+    // 5. Return the string-concatenation of yearSign and year.
+    return String::formatted("{}{:06}", year_sign, abs(y));
+}
+
+// 3.5.8 TemporalDateToString ( temporalDate, showCalendar ), https://tc39.es/proposal-temporal/#sec-temporal-temporaldatetostring
+Optional<String> temporal_date_to_string(GlobalObject& global_object, PlainDate& temporal_date, StringView show_calendar)
+{
+    auto& vm = global_object.vm();
+
+    // 1. Assert: Type(temporalDate) is Object.
+    // 2. Assert: temporalDate has an [[InitializedTemporalDate]] internal slot.
+
+    // 3. Let year be ! PadISOYear(temporalDate.[[ISOYear]]).
+    auto year = pad_iso_year(temporal_date.iso_year());
+
+    // 4. Let month be temporalDate.[[ISOMonth]] formatted as a two-digit decimal number, padded to the left with a zero if necessary.
+    auto month = String::formatted("{:02}", temporal_date.iso_month());
+
+    // 5. Let day be temporalDate.[[ISODay]] formatted as a two-digit decimal number, padded to the left with a zero if necessary.
+    auto day = String::formatted("{:02}", temporal_date.iso_day());
+
+    // 6. Let calendarID be ? ToString(temporalDate.[[Calendar]]).
+    auto calendar_id = Value(&temporal_date.calendar()).to_string(global_object);
+    if (vm.exception())
+        return {};
+
+    // 7. Let calendar be ! FormatCalendarAnnotation(calendarID, showCalendar).
+    auto calendar = format_calendar_annotation(calendar_id, show_calendar);
+
+    // 8. Return the string-concatenation of year, the code unit 0x002D (HYPHEN-MINUS), month, the code unit 0x002D (HYPHEN-MINUS), day, and calendar.
+    return String::formatted("{}-{}-{}{}", year, month, day, calendar);
 }
 
 // 3.5.10 CompareISODate ( y1, m1, d1, y2, m2, d2 ), https://tc39.es/proposal-temporal/#sec-temporal-compareisodate

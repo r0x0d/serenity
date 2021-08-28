@@ -24,7 +24,7 @@
 #include <Kernel/Forward.h>
 #include <Kernel/FutexQueue.h>
 #include <Kernel/Locking/Mutex.h>
-#include <Kernel/Locking/ProtectedValue.h>
+#include <Kernel/Locking/MutexProtected.h>
 #include <Kernel/Memory/AddressSpace.h>
 #include <Kernel/PerformanceEventBuffer.h>
 #include <Kernel/ProcessExposed.h>
@@ -37,7 +37,7 @@
 
 namespace Kernel {
 
-ProtectedValue<String>& hostname();
+MutexProtected<String>& hostname();
 Time kgettimeofday();
 
 #define ENUMERATE_PLEDGE_PROMISES         \
@@ -118,7 +118,7 @@ public:
     MAKE_ALIGNED_ALLOCATED(Process, PAGE_SIZE);
 
     friend class Thread;
-    friend class CoreDump;
+    friend class Coredump;
     friend class ProcFSProcessFileDescriptions;
 
     // Helper class to temporarily unprotect a process's protected data so you can write to it.
@@ -145,10 +145,16 @@ public:
 public:
     class ProcessProcFSTraits;
 
-    inline static Process* current()
+    inline static Process& current()
     {
         auto current_thread = Processor::current_thread();
-        return current_thread ? &current_thread->process() : nullptr;
+        VERIFY(current_thread);
+        return current_thread->process();
+    }
+
+    inline static bool has_current()
+    {
+        return Processor::current_thread();
     }
 
     template<typename EntryFunction>
@@ -184,8 +190,9 @@ public:
 
     bool is_profiling() const { return m_profiling; }
     void set_profiling(bool profiling) { m_profiling = profiling; }
-    bool should_core_dump() const { return m_should_dump_core; }
-    void set_dump_core(bool dump_core) { m_should_dump_core = dump_core; }
+
+    bool should_generate_coredump() const { return m_should_generate_coredump; }
+    void set_should_generate_coredump(bool b) { m_should_generate_coredump = b; }
 
     bool is_dying() const { return m_state.load(AK::MemoryOrder::memory_order_acquire) != State::Running; }
     bool is_dead() const { return m_state.load(AK::MemoryOrder::memory_order_acquire) == State::Dead; }
@@ -478,7 +485,7 @@ public:
 
     void disowned_by_waiter(Process& process);
     void unblock_waiters(Thread::WaitBlocker::UnblockFlags, u8 signal = 0);
-    Thread::WaitBlockCondition& wait_block_condition() { return m_wait_block_condition; }
+    Thread::WaitBlockerSet& wait_blocker_set() { return m_wait_blocker_set; }
 
     template<typename Callback>
     void for_each_coredump_property(Callback callback) const
@@ -492,7 +499,7 @@ public:
     KResult set_coredump_property(NonnullOwnPtr<KString> key, NonnullOwnPtr<KString> value);
     KResult try_set_coredump_property(StringView key, StringView value);
 
-    const NonnullRefPtrVector<Thread>& threads_for_coredump(Badge<CoreDump>) const { return m_threads_for_coredump; }
+    const NonnullRefPtrVector<Thread>& threads_for_coredump(Badge<Coredump>) const { return m_threads_for_coredump; }
 
     PerformanceEventBuffer* perf_events() { return m_perf_event_buffer; }
 
@@ -630,7 +637,7 @@ public:
 
         KResult try_clone(const Kernel::Process::FileDescriptions& other)
         {
-            ScopedSpinLock lock_other(other.m_fds_lock);
+            SpinlockLocker lock_other(other.m_fds_lock);
             if (!try_resize(other.m_fds_metadatas.size()))
                 return ENOMEM;
 
@@ -661,7 +668,7 @@ public:
 
         void clear()
         {
-            ScopedSpinLock lock(m_fds_lock);
+            SpinlockLocker lock(m_fds_lock);
             m_fds_metadatas.clear();
         }
 
@@ -671,7 +678,7 @@ public:
     private:
         FileDescriptions() = default;
         static constexpr size_t m_max_open_file_descriptors { FD_SETSIZE };
-        mutable SpinLock<u8> m_fds_lock;
+        mutable Spinlock<u8> m_fds_lock;
         Vector<FileDescriptionAndFlags> m_fds_metadatas;
     };
 
@@ -737,10 +744,10 @@ public:
     const FileDescriptions& fds() const { return m_fds; }
 
 private:
-    SpinLockProtectedValue<Thread::ListInProcess>& thread_list() { return m_thread_list; }
-    SpinLockProtectedValue<Thread::ListInProcess> const& thread_list() const { return m_thread_list; }
+    SpinlockProtected<Thread::ListInProcess>& thread_list() { return m_thread_list; }
+    SpinlockProtected<Thread::ListInProcess> const& thread_list() const { return m_thread_list; }
 
-    SpinLockProtectedValue<Thread::ListInProcess> m_thread_list;
+    SpinlockProtected<Thread::ListInProcess> m_thread_list;
 
     FileDescriptions m_fds;
 
@@ -748,7 +755,7 @@ private:
     Atomic<State> m_state { State::Running };
     bool m_profiling { false };
     Atomic<bool, AK::MemoryOrder::memory_order_relaxed> m_is_stopped { false };
-    bool m_should_dump_core { false };
+    bool m_should_generate_coredump { false };
 
     RefPtr<Custody> m_executable;
     RefPtr<Custody> m_cwd;
@@ -773,14 +780,14 @@ private:
     OwnPtr<PerformanceEventBuffer> m_perf_event_buffer;
 
     FutexQueues m_futex_queues;
-    SpinLock<u8> m_futex_lock;
+    Spinlock<u8> m_futex_lock;
 
     // This member is used in the implementation of ptrace's PT_TRACEME flag.
     // If it is set to true, the process will stop at the next execve syscall
     // and wait for a tracer to attach.
     bool m_wait_for_tracer_at_next_execve { false };
 
-    Thread::WaitBlockCondition m_wait_block_condition;
+    Thread::WaitBlockerSet m_wait_blocker_set;
 
     struct CoredumpProperty {
         OwnPtr<KString> key;
@@ -806,9 +813,9 @@ public:
 // The second page is being used exclusively for write-protected values.
 static_assert(sizeof(Process) == (PAGE_SIZE * 2));
 
-extern RecursiveSpinLock g_profiling_lock;
+extern RecursiveSpinlock g_profiling_lock;
 
-ProtectedValue<Process::List>& processes();
+MutexProtected<Process::List>& processes();
 
 template<IteratorFunction<Process&> Callback>
 inline void Process::for_each(Callback callback)
@@ -948,25 +955,25 @@ inline ProcessID Thread::pid() const
     return m_process->pid();
 }
 
-#define REQUIRE_NO_PROMISES                        \
-    do {                                           \
-        if (Process::current()->has_promises()) {  \
-            dbgln("Has made a promise");           \
-            Process::current()->crash(SIGABRT, 0); \
-            VERIFY_NOT_REACHED();                  \
-        }                                          \
+#define REQUIRE_NO_PROMISES                       \
+    do {                                          \
+        if (Process::current().has_promises()) {  \
+            dbgln("Has made a promise");          \
+            Process::current().crash(SIGABRT, 0); \
+            VERIFY_NOT_REACHED();                 \
+        }                                         \
     } while (0)
 
-#define REQUIRE_PROMISE(promise)                                     \
-    do {                                                             \
-        if (Process::current()->has_promises()                       \
-            && !Process::current()->has_promised(Pledge::promise)) { \
-            dbgln("Has not pledged {}", #promise);                   \
-            (void)Process::current()->try_set_coredump_property(     \
-                "pledge_violation"sv, #promise);                     \
-            Process::current()->crash(SIGABRT, 0);                   \
-            VERIFY_NOT_REACHED();                                    \
-        }                                                            \
+#define REQUIRE_PROMISE(promise)                                    \
+    do {                                                            \
+        if (Process::current().has_promises()                       \
+            && !Process::current().has_promised(Pledge::promise)) { \
+            dbgln("Has not pledged {}", #promise);                  \
+            (void)Process::current().try_set_coredump_property(     \
+                "pledge_violation"sv, #promise);                    \
+            Process::current().crash(SIGABRT, 0);                   \
+            VERIFY_NOT_REACHED();                                   \
+        }                                                           \
     } while (0)
 }
 

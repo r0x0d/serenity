@@ -28,7 +28,7 @@ struct SchedulerData {
     bool in_scheduler { true };
 };
 
-RecursiveSpinLock g_scheduler_lock;
+RecursiveSpinlock g_scheduler_lock;
 
 static u32 time_slice_for(const Thread& thread)
 {
@@ -53,9 +53,9 @@ struct ThreadReadyQueues {
     Array<ThreadReadyQueue, count> queues;
 };
 
-static Singleton<SpinLockProtectedValue<ThreadReadyQueues>> g_ready_queues;
+static Singleton<SpinlockProtected<ThreadReadyQueues>> g_ready_queues;
 
-static SpinLockProtectedValue<TotalTimeScheduled> g_total_time_scheduled;
+static SpinlockProtected<TotalTimeScheduled> g_total_time_scheduled;
 
 // The Scheduler::current_time function provides a current time for scheduling purposes,
 // which may not necessarily relate to wall time
@@ -77,7 +77,7 @@ static inline u32 thread_priority_to_priority_index(u32 thread_priority)
 
 Thread& Scheduler::pull_next_runnable_thread()
 {
-    auto affinity_mask = 1u << Processor::id();
+    auto affinity_mask = 1u << Processor::current_id();
 
     return g_ready_queues->with([&](auto& ready_queues) -> Thread& {
         auto priority_mask = ready_queues.mask;
@@ -116,7 +116,7 @@ Thread& Scheduler::pull_next_runnable_thread()
 
 Thread* Scheduler::peek_next_runnable_thread()
 {
-    auto affinity_mask = 1u << Processor::id();
+    auto affinity_mask = 1u << Processor::current_id();
 
     return g_ready_queues->with([&](auto& ready_queues) -> Thread* {
         auto priority_mask = ready_queues.mask;
@@ -154,7 +154,7 @@ bool Scheduler::dequeue_runnable_thread(Thread& thread, bool check_affinity)
             return false;
         }
 
-        if (check_affinity && !(thread.affinity() & (1 << Processor::id())))
+        if (check_affinity && !(thread.affinity() & (1 << Processor::current_id())))
             return false;
 
         VERIFY(ready_queues.mask & (1u << priority));
@@ -204,7 +204,7 @@ UNMAP_AFTER_INIT void Scheduler::start()
     idle_thread.set_initialized(true);
     processor.init_context(idle_thread, false);
     idle_thread.set_state(Thread::Running);
-    VERIFY(idle_thread.affinity() == (1u << processor.get_id()));
+    VERIFY(idle_thread.affinity() == (1u << processor.id()));
     processor.initialize_context_switching(idle_thread);
     VERIFY_NOT_REACHED();
 }
@@ -227,7 +227,7 @@ bool Scheduler::pick_next()
             scheduler_data.in_scheduler = false;
         });
 
-    ScopedSpinLock lock(g_scheduler_lock);
+    SpinlockLocker lock(g_scheduler_lock);
 
     if constexpr (SCHEDULER_RUNNABLE_DEBUG) {
         dump_thread_list();
@@ -236,7 +236,7 @@ bool Scheduler::pick_next()
     auto& thread_to_schedule = pull_next_runnable_thread();
     if constexpr (SCHEDULER_DEBUG) {
         dbgln("Scheduler[{}]: Switch to {} @ {:#04x}:{:p}",
-            Processor::id(),
+            Processor::current_id(),
             thread_to_schedule,
             thread_to_schedule.regs().cs, thread_to_schedule.regs().ip());
     }
@@ -252,16 +252,15 @@ bool Scheduler::pick_next()
 bool Scheduler::yield()
 {
     InterruptDisabler disabler;
-    auto& proc = Processor::current();
 
     auto current_thread = Thread::current();
-    dbgln_if(SCHEDULER_DEBUG, "Scheduler[{}]: yielding thread {} in_irq={}", proc.get_id(), *current_thread, proc.in_irq());
+    dbgln_if(SCHEDULER_DEBUG, "Scheduler[{}]: yielding thread {} in_irq={}", Processor::current_id(), *current_thread, Processor::current_in_irq());
     VERIFY(current_thread != nullptr);
-    if (proc.in_irq() || Processor::in_critical()) {
+    if (Processor::current_in_irq() || Processor::in_critical()) {
         // If we're handling an IRQ we can't switch context, or we're in
         // a critical section where we don't want to switch contexts, then
         // delay until exiting the trap or critical section
-        proc.invoke_scheduler_async();
+        Processor::current().invoke_scheduler_async();
         return false;
     }
 
@@ -269,7 +268,7 @@ bool Scheduler::yield()
         return false;
 
     if constexpr (SCHEDULER_DEBUG)
-        dbgln("Scheduler[{}]: yield returns to thread {} in_irq={}", Processor::id(), *current_thread, Processor::current().in_irq());
+        dbgln("Scheduler[{}]: yield returns to thread {} in_irq={}", Processor::current_id(), *current_thread, Processor::current_in_irq());
     return true;
 }
 
@@ -295,7 +294,7 @@ bool Scheduler::context_switch(Thread* thread)
         const auto msg = "Scheduler[{}]: {} -> {} [prio={}] {:#04x}:{:p}";
 
         dbgln(msg,
-            Processor::id(), from_thread->tid().value(),
+            Processor::current_id(), from_thread->tid().value(),
             thread->tid().value(), thread->priority(), thread->regs().cs, thread->regs().ip());
 #endif
     }
@@ -347,7 +346,7 @@ void Scheduler::enter_current(Thread& prev_thread, bool is_first)
         // Check if we have any signals we should deliver (even if we don't
         // end up switching to another thread).
         if (!current_thread->is_in_block() && current_thread->previous_mode() != Thread::PreviousMode::KernelMode && current_thread->current_trap()) {
-            ScopedSpinLock lock(current_thread->get_lock());
+            SpinlockLocker lock(current_thread->get_lock());
             if (current_thread->state() == Thread::Running && current_thread->pending_signals_for_state()) {
                 current_thread->dispatch_one_pending_signal();
             }
@@ -462,7 +461,7 @@ void Scheduler::add_time_scheduled(u64 time_to_add, bool is_kernel)
 void Scheduler::timer_tick(const RegisterState& regs)
 {
     VERIFY_INTERRUPTS_DISABLED();
-    VERIFY(Processor::current().in_irq());
+    VERIFY(Processor::current_in_irq());
 
     auto current_thread = Processor::current_thread();
     if (!current_thread)
@@ -485,8 +484,8 @@ void Scheduler::timer_tick(const RegisterState& regs)
     }
 
     if (current_thread->previous_mode() == Thread::PreviousMode::UserMode && current_thread->should_die() && !current_thread->is_blocked()) {
-        ScopedSpinLock scheduler_lock(g_scheduler_lock);
-        dbgln_if(SCHEDULER_DEBUG, "Scheduler[{}]: Terminating user mode thread {}", Processor::id(), *current_thread);
+        SpinlockLocker scheduler_lock(g_scheduler_lock);
+        dbgln_if(SCHEDULER_DEBUG, "Scheduler[{}]: Terminating user mode thread {}", Processor::current_id(), *current_thread);
         current_thread->set_state(Thread::Dying);
         Processor::current().invoke_scheduler_async();
         return;
@@ -501,23 +500,22 @@ void Scheduler::timer_tick(const RegisterState& regs)
         // time slice and let it run!
         current_thread->set_ticks_left(time_slice_for(*current_thread));
         current_thread->did_schedule();
-        dbgln_if(SCHEDULER_DEBUG, "Scheduler[{}]: No other threads ready, give {} another timeslice", Processor::id(), *current_thread);
+        dbgln_if(SCHEDULER_DEBUG, "Scheduler[{}]: No other threads ready, give {} another timeslice", Processor::current_id(), *current_thread);
         return;
     }
 
     VERIFY_INTERRUPTS_DISABLED();
-    VERIFY(Processor::current().in_irq());
+    VERIFY(Processor::current_in_irq());
     Processor::current().invoke_scheduler_async();
 }
 
 void Scheduler::invoke_async()
 {
     VERIFY_INTERRUPTS_DISABLED();
-    auto& processor = Processor::current();
-    VERIFY(!processor.in_irq());
+    VERIFY(!Processor::current_in_irq());
 
     // Since this function is called when leaving critical sections (such
-    // as a SpinLock), we need to check if we're not already doing this
+    // as a Spinlock), we need to check if we're not already doing this
     // to prevent recursion
     if (!ProcessorSpecific<SchedulerData>::get().in_scheduler)
         pick_next();
@@ -532,7 +530,7 @@ void Scheduler::notify_finalizer()
 void Scheduler::idle_loop(void*)
 {
     auto& proc = Processor::current();
-    dbgln("Scheduler[{}]: idle loop running", proc.get_id());
+    dbgln("Scheduler[{}]: idle loop running", proc.id());
     VERIFY(are_interrupts_enabled());
 
     for (;;) {
@@ -544,7 +542,7 @@ void Scheduler::idle_loop(void*)
 #if SCHEDULE_ON_ALL_PROCESSORS
         yield();
 #else
-        if (Processor::id() == 0)
+        if (Processor::current_id() == 0)
             yield();
 #endif
     }
@@ -568,7 +566,7 @@ TotalTimeScheduled Scheduler::get_total_time_scheduled()
 
 void dump_thread_list(bool with_stack_traces)
 {
-    dbgln("Scheduler thread list for processor {}:", Processor::id());
+    dbgln("Scheduler thread list for processor {}:", Processor::current_id());
 
     auto get_cs = [](Thread& thread) -> u16 {
         if (!thread.current_trap())

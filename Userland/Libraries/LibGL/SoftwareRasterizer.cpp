@@ -28,6 +28,12 @@ constexpr static T interpolate(const T& v0, const T& v1, const T& v2, const Floa
     return v0 * barycentric_coords.x() + v1 * barycentric_coords.y() + v2 * barycentric_coords.z();
 }
 
+template<typename T>
+constexpr static T mix(const T& x, const T& y, float interp)
+{
+    return x * (1 - interp) + y * interp;
+}
+
 static Gfx::RGBA32 to_rgba32(const FloatVector4& v)
 {
     auto clamped = v.clamped(0, 1);
@@ -35,15 +41,15 @@ static Gfx::RGBA32 to_rgba32(const FloatVector4& v)
     u8 g = clamped.y() * 255;
     u8 b = clamped.z() * 255;
     u8 a = clamped.w() * 255;
-    return a << 24 | b << 16 | g << 8 | r;
+    return a << 24 | r << 16 | g << 8 | b;
 }
 
 static FloatVector4 to_vec4(Gfx::RGBA32 rgba)
 {
     return {
-        (rgba & 0xff) / 255.0f,
-        ((rgba >> 8) & 0xff) / 255.0f,
         ((rgba >> 16) & 0xff) / 255.0f,
+        ((rgba >> 8) & 0xff) / 255.0f,
+        (rgba & 0xff) / 255.0f,
         ((rgba >> 24) & 0xff) / 255.0f
     };
 }
@@ -77,7 +83,7 @@ static constexpr void setup_blend_factors(GLenum mode, FloatVector4& constant, f
         src_alpha = -1;
         break;
     case GL_DST_ALPHA:
-        dst_alpha = -1;
+        dst_alpha = 1;
         break;
     case GL_ONE_MINUS_DST_ALPHA:
         constant = { 1.0f, 1.0f, 1.0f, 1.0f };
@@ -107,9 +113,9 @@ static void rasterize_triangle(const RasterizerOptions& options, Gfx::Bitmap& re
     VERIFY((render_target.height() % RASTERIZER_BLOCK_SIZE) == 0);
 
     // Calculate area of the triangle for later tests
-    IntVector2 v0 { (int)triangle.vertices[0].x, (int)triangle.vertices[0].y };
-    IntVector2 v1 { (int)triangle.vertices[1].x, (int)triangle.vertices[1].y };
-    IntVector2 v2 { (int)triangle.vertices[2].x, (int)triangle.vertices[2].y };
+    IntVector2 v0 { (int)triangle.vertices[0].position.x(), (int)triangle.vertices[0].position.y() };
+    IntVector2 v1 { (int)triangle.vertices[1].position.x(), (int)triangle.vertices[1].position.y() };
+    IntVector2 v2 { (int)triangle.vertices[2].position.x(), (int)triangle.vertices[2].position.y() };
 
     int area = edge_function(v0, v1, v2);
     if (area == 0)
@@ -139,7 +145,7 @@ static void rasterize_triangle(const RasterizerOptions& options, Gfx::Bitmap& re
             src_factor_dst_color);
 
         setup_blend_factors(
-            options.blend_source_factor,
+            options.blend_destination_factor,
             dst_constant,
             dst_factor_src_alpha,
             dst_factor_dst_alpha,
@@ -259,8 +265,58 @@ static void rasterize_triangle(const RasterizerOptions& options, Gfx::Bitmap& re
                             continue;
 
                         auto barycentric = FloatVector3(coords.x(), coords.y(), coords.z()) * one_over_area;
-                        float z = interpolate(triangle.vertices[0].z, triangle.vertices[1].z, triangle.vertices[2].z, barycentric);
-                        if (z >= *depth) {
+                        float z = interpolate(triangle.vertices[0].position.z(), triangle.vertices[1].position.z(), triangle.vertices[2].position.z(), barycentric);
+
+                        z = options.depth_min + (options.depth_max - options.depth_min) * (z + 1) / 2;
+
+                        bool pass = false;
+                        switch (options.depth_func) {
+                        case GL_ALWAYS:
+                            pass = true;
+                            break;
+                        case GL_NEVER:
+                            pass = false;
+                            break;
+                        case GL_GREATER:
+                            pass = z > *depth;
+                            break;
+                        case GL_GEQUAL:
+                            pass = z >= *depth;
+                            break;
+                        case GL_NOTEQUAL:
+#ifdef __SSE__
+                            pass = z != *depth;
+#else
+                            pass = bit_cast<u32>(z) != bit_cast<u32>(*depth);
+#endif
+                            break;
+                        case GL_EQUAL:
+#ifdef __SSE__
+                            pass = z == *depth;
+#else
+                            //
+                            // This is an interesting quirk that occurs due to us using the x87 FPU when Serenity is
+                            // compiled for the i386 target. When we calculate our depth value to be stored in the buffer,
+                            // it is an 80-bit x87 floating point number, however, when stored into the DepthBuffer, this is
+                            // truncated to 32 bits. This 38 bit loss of precision means that when x87 `FCOMP` is eventually
+                            // used here the comparison fails.
+                            // This could be solved by using a `long double` for the depth buffer, however this would take
+                            // up significantly more space and is completely overkill for a depth buffer. As such, comparing
+                            // the first 32-bits of this depth value is "good enough" that if we get a hit on it being
+                            // equal, we can pretty much guarantee that it's actually equal.
+                            //
+                            pass = bit_cast<u32>(z) == bit_cast<u32>(*depth);
+#endif
+                            break;
+                        case GL_LEQUAL:
+                            pass = z <= *depth;
+                            break;
+                        case GL_LESS:
+                            pass = z < *depth;
+                            break;
+                        }
+
+                        if (!pass) {
                             pixel_mask[y] ^= 1 << x;
                             continue;
                         }
@@ -277,6 +333,10 @@ static void rasterize_triangle(const RasterizerOptions& options, Gfx::Bitmap& re
                     continue;
             }
 
+            // We will not update the color buffer at all
+            if (!options.color_mask)
+                continue;
+
             // Draw the pixels according to the previously generated mask
             auto coords = b0;
             for (int y = 0; y < RASTERIZER_BLOCK_SIZE; y++, coords += step_y) {
@@ -292,29 +352,33 @@ static void rasterize_triangle(const RasterizerOptions& options, Gfx::Bitmap& re
 
                     // Perspective correct barycentric coordinates
                     auto barycentric = FloatVector3(coords.x(), coords.y(), coords.z()) * one_over_area;
-                    float interpolated_reciprocal_w = interpolate(triangle.vertices[0].w, triangle.vertices[1].w, triangle.vertices[2].w, barycentric);
+                    float interpolated_reciprocal_w = interpolate(triangle.vertices[0].position.w(), triangle.vertices[1].position.w(), triangle.vertices[2].position.w(), barycentric);
                     float interpolated_w = 1 / interpolated_reciprocal_w;
-                    barycentric = barycentric * FloatVector3(triangle.vertices[0].w, triangle.vertices[1].w, triangle.vertices[2].w) * interpolated_w;
+                    barycentric = barycentric * FloatVector3(triangle.vertices[0].position.w(), triangle.vertices[1].position.w(), triangle.vertices[2].position.w()) * interpolated_w;
 
                     // FIXME: make this more generic. We want to interpolate more than just color and uv
                     FloatVector4 vertex_color;
                     if (options.shade_smooth) {
                         vertex_color = interpolate(
-                            FloatVector4(triangle.vertices[0].r, triangle.vertices[0].g, triangle.vertices[0].b, triangle.vertices[0].a),
-                            FloatVector4(triangle.vertices[1].r, triangle.vertices[1].g, triangle.vertices[1].b, triangle.vertices[1].a),
-                            FloatVector4(triangle.vertices[2].r, triangle.vertices[2].g, triangle.vertices[2].b, triangle.vertices[2].a),
+                            triangle.vertices[0].color,
+                            triangle.vertices[1].color,
+                            triangle.vertices[2].color,
                             barycentric);
                     } else {
-                        vertex_color = { triangle.vertices[0].r, triangle.vertices[0].g, triangle.vertices[0].b, triangle.vertices[0].a };
+                        vertex_color = triangle.vertices[0].color;
                     }
 
                     auto uv = interpolate(
-                        FloatVector2(triangle.vertices[0].u, triangle.vertices[0].v),
-                        FloatVector2(triangle.vertices[1].u, triangle.vertices[1].v),
-                        FloatVector2(triangle.vertices[2].u, triangle.vertices[2].v),
+                        triangle.vertices[0].tex_coord,
+                        triangle.vertices[1].tex_coord,
+                        triangle.vertices[2].tex_coord,
                         barycentric);
 
-                    *pixel = pixel_shader(uv, vertex_color);
+                    // Calculate depth of fragment for fog
+                    float z = interpolate(triangle.vertices[0].position.z(), triangle.vertices[1].position.z(), triangle.vertices[2].position.z(), barycentric);
+                    z = options.depth_min + (options.depth_max - options.depth_min) * (z + 1) / 2;
+
+                    *pixel = pixel_shader(uv, vertex_color, z);
                 }
             }
 
@@ -416,19 +480,10 @@ SoftwareRasterizer::SoftwareRasterizer(const Gfx::IntSize& min_size)
 {
 }
 
-void SoftwareRasterizer::submit_triangle(const GLTriangle& triangle)
-{
-    rasterize_triangle(m_options, *m_render_target, *m_depth_buffer, triangle, [](const FloatVector2&, const FloatVector4& color) -> FloatVector4 {
-        return color;
-    });
-}
-
 void SoftwareRasterizer::submit_triangle(const GLTriangle& triangle, const Array<TextureUnit, 32>& texture_units)
 {
-    rasterize_triangle(m_options, *m_render_target, *m_depth_buffer, triangle, [&texture_units](const FloatVector2& uv, const FloatVector4& color) -> FloatVector4 {
-        // TODO: We'd do some kind of multitexturing/blending here
-        // Construct a vector for the texel we want to sample
-        FloatVector4 texel = color;
+    rasterize_triangle(m_options, *m_render_target, *m_depth_buffer, triangle, [this, &texture_units](const FloatVector2& uv, const FloatVector4& color, float z) -> FloatVector4 {
+        FloatVector4 fragment = color;
 
         for (const auto& texture_unit : texture_units) {
 
@@ -436,11 +491,52 @@ void SoftwareRasterizer::submit_triangle(const GLTriangle& triangle, const Array
             if (!texture_unit.is_bound())
                 continue;
 
-            // FIXME: Don't assume Texture2D, _and_ work out how we blend/do multitexturing properly.....
-            texel = texel * static_ptr_cast<Texture2D>(texture_unit.bound_texture())->sampler().sample(uv);
+            // FIXME: Don't assume Texture2D
+            auto texel = texture_unit.bound_texture_2d()->sampler().sample(uv);
+
+            // FIXME: Implement more blend modes
+            switch (texture_unit.env_mode()) {
+            case GL_MODULATE:
+            default:
+                fragment = fragment * texel;
+                break;
+            case GL_REPLACE:
+                fragment = texel;
+                break;
+            case GL_DECAL: {
+                float src_alpha = fragment.w();
+                float one_minus_src_alpha = 1 - src_alpha;
+                fragment.set_x(texel.x() * src_alpha + fragment.x() * one_minus_src_alpha);
+                fragment.set_y(texel.y() * src_alpha + fragment.y() * one_minus_src_alpha);
+                fragment.set_z(texel.z() * src_alpha + fragment.z() * one_minus_src_alpha);
+                break;
+            }
+            }
         }
 
-        return texel;
+        // Calculate fog
+        // Math from here: https://opengl-notes.readthedocs.io/en/latest/topics/texturing/aliasing.html
+        if (m_options.fog_enabled) {
+            float factor = 0.0f;
+            switch (m_options.fog_mode) {
+            case GL_LINEAR:
+                factor = (m_options.fog_end - z) / (m_options.fog_end - m_options.fog_start);
+                break;
+            case GL_EXP:
+                factor = exp(-((m_options.fog_density * z)));
+                break;
+            case GL_EXP2:
+                factor = exp(-((m_options.fog_density * z) * (m_options.fog_density * z)));
+                break;
+            default:
+                break;
+            }
+
+            // Mix texel with fog
+            fragment = mix(m_options.fog_color, fragment, factor);
+        }
+
+        return fragment;
     });
 }
 

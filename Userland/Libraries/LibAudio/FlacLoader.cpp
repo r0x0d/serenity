@@ -40,8 +40,6 @@ FlacLoaderPlugin::FlacLoaderPlugin(const StringView& path)
     reset();
     if (!m_valid)
         return;
-
-    m_resampler = make<ResampleHelper<double>>(m_sample_rate, 44100);
 }
 
 FlacLoaderPlugin::FlacLoaderPlugin(const ByteBuffer& buffer)
@@ -58,8 +56,6 @@ FlacLoaderPlugin::FlacLoaderPlugin(const ByteBuffer& buffer)
     reset();
     if (!m_valid)
         return;
-
-    m_resampler = make<ResampleHelper<double>>(m_sample_rate, 44100);
 }
 
 bool FlacLoaderPlugin::sniff()
@@ -244,10 +240,6 @@ RefPtr<Buffer> FlacLoaderPlugin::get_more_samples(size_t max_bytes_to_read_from_
                 m_error_string = String::formatted("Frame parsing error: {}", m_error_string);
                 return nullptr;
             }
-            // HACK: Test the start of the next subframe
-            // auto input = m_stream->bit_stream();
-            // u64 next = input.read_bits_big_endian(64);
-            // dbgln("After frame end: {}", next);
         }
         samples.append(m_current_frame_data.take_first());
         if (m_current_frame_data.size() == 0) {
@@ -352,7 +344,6 @@ void FlacLoaderPlugin::next_frame()
         FlacSubframeHeader new_subframe = next_subframe_header(bit_stream, i);
         CHECK_ERROR_STRING;
         Vector<i32> subframe_samples = parse_subframe(new_subframe, bit_stream);
-        // HACK: Test the start of the next subframe
         CHECK_ERROR_STRING;
         current_subframes.append(move(subframe_samples));
     }

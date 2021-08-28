@@ -72,6 +72,10 @@ set(SOURCES
     Runtime/GlobalEnvironment.cpp
     Runtime/GlobalObject.cpp
     Runtime/IndexedProperties.cpp
+    Runtime/Intl/AbstractOperations.cpp
+    Runtime/Intl/DisplayNames.cpp
+    Runtime/Intl/DisplayNamesConstructor.cpp
+    Runtime/Intl/DisplayNamesPrototype.cpp
     Runtime/Intl/Intl.cpp
     Runtime/IteratorOperations.cpp
     Runtime/IteratorPrototype.cpp
@@ -98,6 +102,7 @@ set(SOURCES
     Runtime/PromiseJobs.cpp
     Runtime/PromisePrototype.cpp
     Runtime/PromiseReaction.cpp
+    Runtime/PromiseResolvingElementFunctions.cpp
     Runtime/PromiseResolvingFunction.cpp
     Runtime/PropertyDescriptor.cpp
     Runtime/ProxyConstructor.cpp

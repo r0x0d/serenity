@@ -60,14 +60,10 @@ KResultOr<FlatPtr> Process::sys$create_thread(void* (*entry)(void*), Userspace<c
         thread->detach();
 
     auto& regs = thread->regs();
-#if ARCH(I386)
-    regs.eip = (FlatPtr)entry;
-    regs.eflags = 0x0202;
-    regs.esp = user_sp.value();
-#else
-    regs.rip = (FlatPtr)entry;
-    regs.rflags = 0x0202;
-    regs.rsp = user_sp.value();
+    regs.set_ip((FlatPtr)entry);
+    regs.set_flags(0x0202);
+    regs.set_sp(user_sp.value());
+#if ARCH(X86_64)
     regs.rdi = params.rdi;
     regs.rsi = params.rsi;
     regs.rdx = params.rdx;
@@ -81,7 +77,7 @@ KResultOr<FlatPtr> Process::sys$create_thread(void* (*entry)(void*), Userspace<c
 
     PerformanceManager::add_thread_created_event(*thread);
 
-    ScopedSpinLock lock(g_scheduler_lock);
+    SpinlockLocker lock(g_scheduler_lock);
     thread->set_priority(requested_thread_priority);
     thread->set_state(Thread::State::Runnable);
     return thread->tid().value();
@@ -172,12 +168,8 @@ KResultOr<FlatPtr> Process::sys$kill_thread(pid_t tid, int signal)
     if (!thread || thread->pid() != pid())
         return ESRCH;
 
-    auto process = Process::current();
-    if (!process)
-        return ESRCH;
-
     if (signal != 0)
-        thread->send_signal(signal, process);
+        thread->send_signal(signal, &Process::current());
 
     return 0;
 }
@@ -215,7 +207,7 @@ KResultOr<FlatPtr> Process::sys$get_thread_name(pid_t tid, Userspace<char*> buff
     if (!thread || thread->pid() != pid())
         return ESRCH;
 
-    ScopedSpinLock locker(thread->get_lock());
+    SpinlockLocker locker(thread->get_lock());
     auto thread_name = thread->name();
 
     if (thread_name.is_null()) {

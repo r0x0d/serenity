@@ -6,6 +6,7 @@
 
 #include "MailWidget.h"
 #include <AK/Base64.h>
+#include <AK/GenericLexer.h>
 #include <Applications/Mail/MailWindowGML.h>
 #include <LibCore/ConfigFile.h>
 #include <LibDesktop/Launcher.h>
@@ -99,7 +100,7 @@ MailWidget::~MailWidget()
 
 bool MailWidget::connect_and_login()
 {
-    auto config = Core::ConfigFile::get_for_app("Mail");
+    auto config = Core::ConfigFile::open_for_app("Mail");
 
     auto server = config->read_entry("Connection", "Server", {});
 

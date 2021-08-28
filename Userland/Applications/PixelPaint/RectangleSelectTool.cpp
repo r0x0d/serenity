@@ -26,8 +26,9 @@ RectangleSelectTool::~RectangleSelectTool()
 {
 }
 
-void RectangleSelectTool::on_mousedown(Layer&, GUI::MouseEvent&, GUI::MouseEvent& image_event)
+void RectangleSelectTool::on_mousedown(Layer*, MouseEvent& event)
 {
+    auto& image_event = event.image_event();
     if (image_event.button() != GUI::MouseButton::Left)
         return;
 
@@ -39,8 +40,9 @@ void RectangleSelectTool::on_mousedown(Layer&, GUI::MouseEvent&, GUI::MouseEvent
     m_editor->update();
 }
 
-void RectangleSelectTool::on_mousemove(Layer&, GUI::MouseEvent&, GUI::MouseEvent& image_event)
+void RectangleSelectTool::on_mousemove(Layer*, MouseEvent& event)
 {
+    auto& image_event = event.image_event();
     if (!m_selecting)
         return;
 
@@ -56,8 +58,9 @@ void RectangleSelectTool::on_mousemove(Layer&, GUI::MouseEvent&, GUI::MouseEvent
     m_editor->update();
 }
 
-void RectangleSelectTool::on_mouseup(Layer&, GUI::MouseEvent&, GUI::MouseEvent& image_event)
+void RectangleSelectTool::on_mouseup(Layer*, MouseEvent& event)
 {
+    auto& image_event = event.image_event();
     if (!m_selecting || image_event.button() != GUI::MouseButton::Left)
         return;
 
@@ -121,7 +124,7 @@ void RectangleSelectTool::on_keyup(GUI::KeyEvent& key_event)
         m_moving_mode = MovingMode::None;
 }
 
-void RectangleSelectTool::on_second_paint(Layer const&, GUI::PaintEvent& event)
+void RectangleSelectTool::on_second_paint(Layer const*, GUI::PaintEvent& event)
 {
     if (!m_selecting)
         return;

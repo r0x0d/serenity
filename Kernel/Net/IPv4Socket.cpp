@@ -26,11 +26,11 @@
 
 namespace Kernel {
 
-static Singleton<ProtectedValue<IPv4Socket::List>> s_all_sockets;
+static Singleton<MutexProtected<IPv4Socket::List>> s_all_sockets;
 
 using BlockFlags = Thread::FileDescriptionBlocker::BlockFlags;
 
-ProtectedValue<IPv4Socket::List>& IPv4Socket::all_sockets()
+MutexProtected<IPv4Socket::List>& IPv4Socket::all_sockets()
 {
     return *s_all_sockets;
 }
@@ -118,9 +118,9 @@ KResult IPv4Socket::bind(Userspace<const sockaddr*> user_address, socklen_t addr
         return set_so_error(EINVAL);
 
     auto requested_local_port = ntohs(address.sin_port);
-    if (!Process::current()->is_superuser()) {
+    if (!Process::current().is_superuser()) {
         if (requested_local_port > 0 && requested_local_port < 1024) {
-            dbgln("UID {} attempted to bind {} to port {}", Process::current()->uid(), class_name(), requested_local_port);
+            dbgln("UID {} attempted to bind {} to port {}", Process::current().uid(), class_name(), requested_local_port);
             return set_so_error(EACCES);
         }
     }
@@ -603,7 +603,7 @@ KResult IPv4Socket::ioctl(FileDescription&, unsigned request, Userspace<void*> a
 
         switch (request) {
         case SIOCADDRT:
-            if (!Process::current()->is_superuser())
+            if (!Process::current().is_superuser())
                 return EPERM;
             if (route.rt_gateway.sa_family != AF_INET)
                 return EAFNOSUPPORT;
@@ -628,7 +628,7 @@ KResult IPv4Socket::ioctl(FileDescription&, unsigned request, Userspace<void*> a
 
         switch (request) {
         case SIOCSARP:
-            if (!Process::current()->is_superuser())
+            if (!Process::current().is_superuser())
                 return EPERM;
             if (arp_req.arp_pa.sa_family != AF_INET)
                 return EAFNOSUPPORT;
@@ -636,7 +636,7 @@ KResult IPv4Socket::ioctl(FileDescription&, unsigned request, Userspace<void*> a
             return KSuccess;
 
         case SIOCDARP:
-            if (!Process::current()->is_superuser())
+            if (!Process::current().is_superuser())
                 return EPERM;
             if (arp_req.arp_pa.sa_family != AF_INET)
                 return EAFNOSUPPORT;
@@ -663,7 +663,7 @@ KResult IPv4Socket::ioctl(FileDescription&, unsigned request, Userspace<void*> a
 
         switch (request) {
         case SIOCSIFADDR:
-            if (!Process::current()->is_superuser())
+            if (!Process::current().is_superuser())
                 return EPERM;
             if (ifr.ifr_addr.sa_family != AF_INET)
                 return EAFNOSUPPORT;
@@ -671,7 +671,7 @@ KResult IPv4Socket::ioctl(FileDescription&, unsigned request, Userspace<void*> a
             return KSuccess;
 
         case SIOCSIFNETMASK:
-            if (!Process::current()->is_superuser())
+            if (!Process::current().is_superuser())
                 return EPERM;
             if (ifr.ifr_addr.sa_family != AF_INET)
                 return EAFNOSUPPORT;
@@ -770,6 +770,14 @@ KResult IPv4Socket::ioctl(FileDescription&, unsigned request, Userspace<void*> a
     case SIOCSARP:
     case SIOCDARP:
         return ioctl_arp();
+
+    case FIONREAD: {
+        int readable = m_receive_buffer->immediately_readable();
+        if (!copy_to_user(Userspace<int*>(arg), &readable))
+            return EFAULT;
+
+        return KSuccess;
+    }
     }
 
     return EINVAL;

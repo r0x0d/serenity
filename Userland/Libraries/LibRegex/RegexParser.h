@@ -53,6 +53,7 @@ public:
         size_t match_length_minimum;
         Error error;
         Token error_token;
+        Vector<FlyString> capture_groups;
     };
 
     explicit Parser(Lexer& lexer)
@@ -80,9 +81,10 @@ protected:
     ALWAYS_INLINE Token consume();
     ALWAYS_INLINE Token consume(TokenType type, Error error);
     ALWAYS_INLINE bool consume(String const&);
+    ALWAYS_INLINE Optional<u32> consume_escaped_code_point(bool unicode);
     ALWAYS_INLINE bool try_skip(StringView);
     ALWAYS_INLINE bool lookahead_any(StringView);
-    ALWAYS_INLINE char skip();
+    ALWAYS_INLINE unsigned char skip();
     ALWAYS_INLINE void back(size_t = 1);
     ALWAYS_INLINE void reset();
     ALWAYS_INLINE bool done() const;
@@ -217,7 +219,7 @@ private:
     };
     StringView read_digits_as_string(ReadDigitsInitialZeroState initial_zero = ReadDigitsInitialZeroState::Allow, bool hex = false, int max_count = -1, int min_count = -1);
     Optional<unsigned> read_digits(ReadDigitsInitialZeroState initial_zero = ReadDigitsInitialZeroState::Allow, bool hex = false, int max_count = -1, int min_count = -1);
-    StringView read_capture_group_specifier(bool take_starting_angle_bracket = false);
+    FlyString read_capture_group_specifier(bool take_starting_angle_bracket = false);
 
     struct Script {
         Unicode::Script script {};

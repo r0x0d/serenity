@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020, Sergey Bugaev <bugaevc@serenityos.org>
+ * Copyright (c) 2020-2021, Sergey Bugaev <bugaevc@serenityos.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -10,12 +10,15 @@
 #include <AK/NonnullOwnPtr.h>
 #include <AK/OwnPtr.h>
 #include <AK/Vector.h>
-#include <LibCore/DirIterator.h>
+#include <dirent.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <grp.h>
 #include <pwd.h>
 #include <stdio.h>
+#include <string.h>
 #include <sys/stat.h>
+#include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -33,10 +36,60 @@ template<typename... Parameters>
     exit(1);
 }
 
+struct FileData {
+    // Full path to the file; either absolute or relative to cwd.
+    LexicalPath full_path;
+    // The parent directory of the file.
+    int dirfd { -1 };
+    // The file's basename, relative to the directory.
+    const char* basename { nullptr };
+    // Optionally, cached information as returned by stat/lstat/fstatat.
+    struct stat stat {
+    };
+    bool stat_is_valid : 1 { false };
+    // File type as returned from readdir(), or DT_UNKNOWN.
+    unsigned char d_type { DT_UNKNOWN };
+
+    const struct stat* ensure_stat()
+    {
+        if (stat_is_valid)
+            return &stat;
+
+        int flags = g_follow_symlinks ? 0 : AT_SYMLINK_NOFOLLOW;
+        int rc = fstatat(dirfd, basename, &stat, flags);
+        if (rc < 0) {
+            perror(full_path.string().characters());
+            g_there_was_an_error = true;
+            return nullptr;
+        }
+
+        stat_is_valid = true;
+
+        if (S_ISREG(stat.st_mode))
+            d_type = DT_REG;
+        else if (S_ISDIR(stat.st_mode))
+            d_type = DT_DIR;
+        else if (S_ISCHR(stat.st_mode))
+            d_type = DT_CHR;
+        else if (S_ISBLK(stat.st_mode))
+            d_type = DT_BLK;
+        else if (S_ISFIFO(stat.st_mode))
+            d_type = DT_FIFO;
+        else if (S_ISLNK(stat.st_mode))
+            d_type = DT_LNK;
+        else if (S_ISSOCK(stat.st_mode))
+            d_type = DT_SOCK;
+        else
+            VERIFY_NOT_REACHED();
+
+        return &stat;
+    }
+};
+
 class Command {
 public:
     virtual ~Command() { }
-    virtual bool evaluate(const char* file_path) const = 0;
+    virtual bool evaluate(FileData& file_data) const = 0;
 };
 
 class StatCommand : public Command {
@@ -44,21 +97,16 @@ public:
     virtual bool evaluate(const struct stat&) const = 0;
 
 private:
-    virtual bool evaluate(const char* file_path) const override
+    virtual bool evaluate(FileData& file_data) const override
     {
-        struct stat stat;
-        auto stat_func = g_follow_symlinks ? ::stat : ::lstat;
-        int rc = stat_func(file_path, &stat);
-        if (rc < 0) {
-            perror(file_path);
-            g_there_was_an_error = true;
+        const struct stat* stat = file_data.ensure_stat();
+        if (!stat)
             return false;
-        }
-        return evaluate(stat);
+        return evaluate(*stat);
     }
 };
 
-class TypeCommand final : public StatCommand {
+class TypeCommand final : public Command {
 public:
     TypeCommand(const char* arg)
     {
@@ -69,24 +117,31 @@ public:
     }
 
 private:
-    virtual bool evaluate(const struct stat& stat) const override
+    virtual bool evaluate(FileData& file_data) const override
     {
-        auto type = stat.st_mode;
+        // First, make sure we have a type, but avoid calling
+        // sys$stat() unless we need to.
+        if (file_data.d_type == DT_UNKNOWN) {
+            if (file_data.ensure_stat() == nullptr)
+                return false;
+        }
+
+        auto type = file_data.d_type;
         switch (m_type) {
         case 'b':
-            return S_ISBLK(type);
+            return type == DT_BLK;
         case 'c':
-            return S_ISCHR(type);
+            return type == DT_CHR;
         case 'd':
-            return S_ISDIR(type);
+            return type == DT_DIR;
         case 'l':
-            return S_ISLNK(type);
+            return type == DT_LNK;
         case 'p':
-            return S_ISFIFO(type);
+            return type == DT_FIFO;
         case 'f':
-            return S_ISREG(type);
+            return type == DT_REG;
         case 's':
-            return S_ISSOCK(type);
+            return type == DT_SOCK;
         default:
             // We've verified this is a correct character before.
             VERIFY_NOT_REACHED();
@@ -201,10 +256,9 @@ public:
     }
 
 private:
-    virtual bool evaluate(const char* file_path) const override
+    virtual bool evaluate(FileData& file_data) const override
     {
-        LexicalPath path { file_path };
-        return path.basename().matches(m_pattern, m_case_sensitivity);
+        return file_data.full_path.basename().matches(m_pattern, m_case_sensitivity);
     }
 
     StringView m_pattern;
@@ -219,9 +273,9 @@ public:
     }
 
 private:
-    virtual bool evaluate(const char* file_path) const override
+    virtual bool evaluate(FileData& file_data) const override
     {
-        out("{}{}", file_path, m_terminator);
+        out("{}{}", file_data.full_path, m_terminator);
         return true;
     }
 
@@ -236,7 +290,7 @@ public:
     }
 
 private:
-    virtual bool evaluate(const char* file_path) const override
+    virtual bool evaluate(FileData& file_data) const override
     {
         pid_t pid = fork();
 
@@ -251,7 +305,7 @@ private:
             auto argv = const_cast<Vector<char*>&>(m_argv);
             for (auto& arg : argv) {
                 if (StringView(arg) == "{}")
-                    arg = const_cast<char*>(file_path);
+                    arg = const_cast<char*>(file_data.full_path.string().characters());
             }
             argv.append(nullptr);
             execvp(m_argv[0], argv.data());
@@ -281,9 +335,9 @@ public:
     }
 
 private:
-    virtual bool evaluate(const char* file_path) const override
+    virtual bool evaluate(FileData& file_data) const override
     {
-        return m_lhs->evaluate(file_path) && m_rhs->evaluate(file_path);
+        return m_lhs->evaluate(file_data) && m_rhs->evaluate(file_data);
     }
 
     NonnullOwnPtr<Command> m_lhs;
@@ -299,9 +353,9 @@ public:
     }
 
 private:
-    virtual bool evaluate(const char* file_path) const override
+    virtual bool evaluate(FileData& file_data) const override
     {
-        return m_lhs->evaluate(file_path) || m_rhs->evaluate(file_path);
+        return m_lhs->evaluate(file_data) || m_rhs->evaluate(file_data);
     }
 
     NonnullOwnPtr<Command> m_lhs;
@@ -446,33 +500,91 @@ static const char* parse_options(int argc, char* argv[])
     }
 }
 
-static void walk_tree(const char* root_path, Command& command)
+static void walk_tree(FileData& root_data, Command& command)
 {
-    command.evaluate(root_path);
+    command.evaluate(root_data);
 
-    Core::DirIterator dir_iterator(root_path, Core::DirIterator::SkipParentAndBaseDir);
-    if (dir_iterator.has_error() && dir_iterator.error() == ENOTDIR)
+    // We should try to read directory entries if either:
+    // * This is a directory.
+    // * This is a symlink (that could point to a directory),
+    //   and we're following symlinks.
+    // * The type is unknown, so it could be a directory.
+    switch (root_data.d_type) {
+    case DT_DIR:
+    case DT_UNKNOWN:
+        break;
+    case DT_LNK:
+        if (g_follow_symlinks)
+            break;
         return;
-
-    while (dir_iterator.has_next()) {
-        auto path = dir_iterator.next_full_path();
-        struct stat stat;
-        if (g_follow_symlinks || ::lstat(path.characters(), &stat) < 0 || !S_ISLNK(stat.st_mode))
-            walk_tree(path.characters(), command);
-        else
-            command.evaluate(path.characters());
+    default:
+        return;
     }
 
-    if (dir_iterator.has_error()) {
-        warnln("{}: {}", root_path, dir_iterator.error_string());
+    int dirfd = openat(root_data.dirfd, root_data.basename, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    if (dirfd < 0) {
+        if (errno == ENOTDIR) {
+            // Above we decided to try to open this file because it could
+            // be a directory, but turns out it's not. This is fine though.
+            return;
+        }
+        perror(root_data.full_path.string().characters());
+        g_there_was_an_error = true;
+        return;
+    }
+
+    DIR* dir = fdopendir(dirfd);
+
+    while (true) {
+        errno = 0;
+        auto* dirent = readdir(dir);
+        if (!dirent)
+            break;
+
+        if (strcmp(dirent->d_name, ".") == 0 || strcmp(dirent->d_name, "..") == 0)
+            continue;
+
+        FileData file_data {
+            root_data.full_path.append(dirent->d_name),
+            dirfd,
+            dirent->d_name,
+            (struct stat) {},
+            false,
+            dirent->d_type,
+        };
+        walk_tree(file_data, command);
+    }
+
+    if (errno != 0) {
+        perror(root_data.full_path.string().characters());
         g_there_was_an_error = true;
     }
+
+    closedir(dir);
 }
 
 int main(int argc, char* argv[])
 {
     LexicalPath root_path(parse_options(argc, argv));
+    String dirname = root_path.dirname();
+    String basename = root_path.basename();
+
+    int dirfd = open(dirname.characters(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    if (dirfd < 0) {
+        perror(dirname.characters());
+        return 1;
+    }
+
+    FileData file_data {
+        root_path,
+        dirfd,
+        basename.characters(),
+        (struct stat) {},
+        false,
+        DT_UNKNOWN,
+    };
     auto command = parse_all_commands(argv);
-    walk_tree(root_path.string().characters(), *command);
+    walk_tree(file_data, *command);
+    close(dirfd);
     return g_there_was_an_error ? 1 : 0;
 }

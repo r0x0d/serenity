@@ -143,17 +143,6 @@ const char* sys_siglist[NSIG] = {
     "Bad system call",
 };
 
-int sigsetjmp(jmp_buf env, int savesigs)
-{
-    if (savesigs) {
-        int rc = sigprocmask(0, nullptr, &env->saved_signal_mask);
-        assert(rc == 0);
-        env->did_save_signal_mask = true;
-    } else {
-        env->did_save_signal_mask = false;
-    }
-    return setjmp(env);
-}
 void siglongjmp(jmp_buf env, int val)
 {
     if (env->did_save_signal_mask) {
@@ -168,7 +157,7 @@ int sigsuspend(const sigset_t* set)
     return pselect(0, nullptr, nullptr, nullptr, nullptr, set);
 }
 
-static const char* signal_names[] = {
+const char* sys_signame[] = {
     "INVAL",
     "HUP",
     "INT",
@@ -203,14 +192,15 @@ static const char* signal_names[] = {
     "SYS",
 };
 
-static_assert(sizeof(signal_names) == sizeof(const char*) * NSIG);
+static_assert(sizeof(sys_signame) == sizeof(const char*) * NSIG);
 
 int getsignalbyname(const char* name)
 {
     VERIFY(name);
+    StringView name_sv(name);
     for (size_t i = 0; i < NSIG; ++i) {
-        auto* signal_name = signal_names[i];
-        if (!strcmp(signal_name, name))
+        auto signal_name = StringView(sys_signame[i]);
+        if (signal_name == name_sv || (name_sv.starts_with("SIG") && signal_name == name_sv.substring_view(3)))
             return i;
     }
     errno = EINVAL;
@@ -223,6 +213,6 @@ const char* getsignalname(int signal)
         errno = EINVAL;
         return nullptr;
     }
-    return signal_names[signal];
+    return sys_signame[signal];
 }
 }

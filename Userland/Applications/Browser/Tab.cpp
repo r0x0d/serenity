@@ -29,7 +29,6 @@
 #include <LibGUI/Window.h>
 #include <LibJS/Interpreter.h>
 #include <LibWeb/HTML/SyntaxHighlighter/SyntaxHighlighter.h>
-#include <LibWeb/InProcessWebView.h>
 #include <LibWeb/Layout/BlockBox.h>
 #include <LibWeb/Layout/InitialContainingBlockBox.h>
 #include <LibWeb/Loader/ResourceLoader.h>
@@ -94,8 +93,7 @@ void Tab::view_dom_tree(const String& dom_tree)
     window->move_to_front();
 }
 
-Tab::Tab(BrowserWindow& window, Type type)
-    : m_type(type)
+Tab::Tab(BrowserWindow& window)
 {
     load_from_gml(tab_gml);
 
@@ -104,10 +102,7 @@ Tab::Tab(BrowserWindow& window, Type type)
 
     auto& webview_container = *find_descendant_of_type_named<GUI::Widget>("webview_container");
 
-    if (m_type == Type::InProcessWebView)
-        m_page_view = webview_container.add<Web::InProcessWebView>();
-    else
-        m_web_content_view = webview_container.add<Web::OutOfProcessWebView>();
+    m_web_content_view = webview_container.add<Web::OutOfProcessWebView>();
 
     auto& go_back_button = toolbar.add_action(window.go_back_action());
     go_back_button.on_context_menu_request = [this](auto& context_menu_event) {
@@ -142,7 +137,7 @@ Tab::Tab(BrowserWindow& window, Type type)
     toolbar.add_action(window.go_home_action());
     toolbar.add_action(window.reload_action());
 
-    m_location_box = toolbar.add<GUI::TextBox>();
+    m_location_box = toolbar.add<GUI::UrlBox>();
     m_location_box->set_placeholder("Address");
 
     m_location_box->on_return_pressed = [this] {
@@ -153,7 +148,7 @@ Tab::Tab(BrowserWindow& window, Type type)
 
         auto url = url_from_user_input(m_location_box->text());
         load(url);
-        view().set_focus(true);
+        view();
     };
 
     m_location_box->add_custom_context_menu_action(GUI::Action::create("Paste && Go", [this](auto&) {
@@ -173,14 +168,14 @@ Tab::Tab(BrowserWindow& window, Type type)
     m_bookmark_button->set_fixed_size(22, 22);
 
     m_bookmark_button->on_click = [this](auto) {
-        auto url = this->url().to_string();
-        if (BookmarksBarWidget::the().contains_bookmark(url)) {
-            BookmarksBarWidget::the().remove_bookmark(url);
-        } else {
-            BookmarksBarWidget::the().add_bookmark(url, m_title);
-        }
-        update_bookmark_button(url);
+        bookmark_current_url();
     };
+
+    auto bookmark_action = GUI::Action::create(
+        "Bookmark current URL", { Mod_Ctrl, Key_D }, [this](auto&) {
+            bookmark_current_url();
+        },
+        this);
 
     hooks().on_load_start = [this](auto& url) {
         m_location_box->set_icon(nullptr);
@@ -220,6 +215,8 @@ Tab::Tab(BrowserWindow& window, Type type)
     m_link_context_menu->add_action(GUI::Action::create("&Download", [this](auto&) {
         start_download(m_link_context_menu_url);
     }));
+    m_link_context_menu->add_separator();
+    m_link_context_menu->add_action(window.inspect_dom_node_action());
 
     hooks().on_link_context_menu_request = [this](auto& url, auto& screen_position) {
         m_link_context_menu_url = url;
@@ -245,6 +242,8 @@ Tab::Tab(BrowserWindow& window, Type type)
     m_image_context_menu->add_action(GUI::Action::create("&Download", [this](auto&) {
         start_download(m_image_context_menu_url);
     }));
+    m_image_context_menu->add_separator();
+    m_image_context_menu->add_action(window.inspect_dom_node_action());
 
     hooks().on_image_context_menu_request = [this](auto& image_url, auto& screen_position, const Gfx::ShareableBitmap& shareable_bitmap) {
         m_image_context_menu_url = image_url;
@@ -301,19 +300,10 @@ Tab::Tab(BrowserWindow& window, Type type)
         }
     };
 
-    if (m_type == Type::InProcessWebView) {
-        hooks().on_set_document = [this](auto* document) {
-            if (document && m_console_window) {
-                auto* console_widget = static_cast<ConsoleWidget*>(m_console_window->main_widget());
-                console_widget->set_interpreter(document->interpreter().make_weak_ptr());
-            }
-        };
-    }
-
     auto focus_location_box_action = GUI::Action::create(
         "Focus location box", { Mod_Ctrl, Key_L }, Key_F6, [this](auto&) {
-            m_location_box->select_all();
             m_location_box->set_focus(true);
+            m_location_box->select_current_line();
         },
         this);
 
@@ -354,9 +344,13 @@ Tab::Tab(BrowserWindow& window, Type type)
     m_page_context_menu->add_separator();
     m_page_context_menu->add_action(window.view_source_action());
     m_page_context_menu->add_action(window.inspect_dom_tree_action());
+    m_page_context_menu->add_action(window.inspect_dom_node_action());
     hooks().on_context_menu_request = [&](auto& screen_position) {
         m_page_context_menu->popup(screen_position);
     };
+
+    // FIXME: This is temporary, until the OOPWV properly supports the DOM Inspector
+    window.inspect_dom_node_action().set_enabled(false);
 }
 
 Tab::~Tab()
@@ -366,17 +360,12 @@ Tab::~Tab()
 void Tab::load(const URL& url, LoadType load_type)
 {
     m_is_history_navigation = (load_type == LoadType::HistoryNavigation);
-
-    if (m_type == Type::InProcessWebView)
-        m_page_view->load(url);
-    else
-        m_web_content_view->load(url);
+    m_web_content_view->load(url);
+    m_location_box->set_focus(false);
 }
 
 URL Tab::url() const
 {
-    if (m_type == Type::InProcessWebView)
-        return m_page_view->url();
     return m_web_content_view->url();
 }
 
@@ -408,6 +397,17 @@ void Tab::update_actions()
     window.go_forward_action().set_enabled(m_history.can_go_forward());
 }
 
+void Tab::bookmark_current_url()
+{
+    auto url = this->url().to_string();
+    if (BookmarksBarWidget::the().contains_bookmark(url)) {
+        BookmarksBarWidget::the().remove_bookmark(url);
+    } else {
+        BookmarksBarWidget::the().add_bookmark(url, m_title);
+    }
+    update_bookmark_button(url);
+}
+
 void Tab::update_bookmark_button(const String& url)
 {
     if (BookmarksBarWidget::the().contains_bookmark(url)) {
@@ -421,16 +421,6 @@ void Tab::update_bookmark_button(const String& url)
 
 void Tab::did_become_active()
 {
-    if (m_type == Type::InProcessWebView) {
-        Web::ResourceLoader::the().on_load_counter_change = [this] {
-            if (Web::ResourceLoader::the().pending_loads() == 0) {
-                m_statusbar->set_text("");
-                return;
-            }
-            m_statusbar->set_text(String::formatted("Loading ({} pending resources...)", Web::ResourceLoader::the().pending_loads()));
-        };
-    }
-
     BookmarksBarWidget::the().on_bookmark_click = [this](auto& url, unsigned modifiers) {
         if (modifiers & Mod_Ctrl)
             on_tab_open_request(url);
@@ -459,15 +449,11 @@ void Tab::context_menu_requested(const Gfx::IntPoint& screen_position)
 
 GUI::AbstractScrollableWidget& Tab::view()
 {
-    if (m_type == Type::InProcessWebView)
-        return *m_page_view;
     return *m_web_content_view;
 }
 
 Web::WebViewHooks& Tab::hooks()
 {
-    if (m_type == Type::InProcessWebView)
-        return *m_page_view;
     return *m_web_content_view;
 }
 
@@ -489,6 +475,11 @@ BrowserWindow const& Tab::window() const
 BrowserWindow& Tab::window()
 {
     return static_cast<BrowserWindow&>(*Widget::window());
+}
+
+void Tab::show_inspector_window(Browser::Tab::InspectorTarget)
+{
+    m_web_content_view->inspect_dom_tree();
 }
 
 }

@@ -34,16 +34,16 @@ public:
         u32 texel = m_pixel_data.at(y * m_width + x);
 
         return {
-            (texel & 0xff) / 255.f,
-            ((texel >> 8) & 0xff) / 255.f,
             ((texel >> 16) & 0xff) / 255.f,
+            ((texel >> 8) & 0xff) / 255.f,
+            (texel & 0xff) / 255.f,
             ((texel >> 24) & 0xff) / 255.f
         };
     }
 
 private:
-    GLsizei m_width;
-    GLsizei m_height;
+    GLsizei m_width { 0 };
+    GLsizei m_height { 0 };
     Vector<u32> m_pixel_data;
 };
 }

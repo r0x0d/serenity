@@ -60,7 +60,7 @@ private:
         start_timer(20);
 
         GL::make_context_current(m_context);
-        glFrontFace(GL_CW);
+        glFrontFace(GL_CCW);
         glEnable(GL_CULL_FACE);
         glEnable(GL_DEPTH_TEST);
 
@@ -97,7 +97,7 @@ private:
     float m_angle_y = 0.0;
     float m_angle_z = 0.0;
     Gfx::IntPoint m_last_mouse;
-    float m_rotation_speed = 1.f;
+    float m_rotation_speed = 60.f;
     bool m_show_frame_rate = false;
     int m_cycles = 0;
     int m_accumulated_time = 0;
@@ -124,8 +124,8 @@ void GLContextWidget::mousemove_event(GUI::MouseEvent& event)
         int delta_x = m_last_mouse.x() - event.x();
         int delta_y = m_last_mouse.y() - event.y();
 
-        m_angle_x -= delta_y / 100.0f;
-        m_angle_y -= delta_x / 100.0f;
+        m_angle_x -= delta_y / 2.0f;
+        m_angle_y -= delta_x / 2.0f;
     }
 
     m_last_mouse = event.position();
@@ -225,7 +225,7 @@ bool GLContextWidget::load(const String& filename)
     if (texture_image) {
         // Upload texture data to the GL
         glBindTexture(GL_TEXTURE_2D, tex);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, texture_image->width(), texture_image->height(), 0, GL_RGBA, GL_UNSIGNED_BYTE, texture_image->scanline(0));
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, texture_image->width(), texture_image->height(), 0, GL_BGRA, GL_UNSIGNED_BYTE, texture_image->scanline(0));
     } else {
         dbgln("3DFileViewer: Couldn't load texture for {}", filename);
     }
@@ -315,13 +315,13 @@ int main(int argc, char** argv)
         widget.set_rotation_speed(0.f);
     });
     auto slow_rotation_action = GUI::Action::create_checkable("&Slow", [&widget](auto&) {
-        widget.set_rotation_speed(0.5f);
+        widget.set_rotation_speed(30.f);
     });
     auto normal_rotation_action = GUI::Action::create_checkable("&Normal", [&widget](auto&) {
-        widget.set_rotation_speed(1.f);
+        widget.set_rotation_speed(60.f);
     });
     auto fast_rotation_action = GUI::Action::create_checkable("&Fast", [&widget](auto&) {
-        widget.set_rotation_speed(1.5f);
+        widget.set_rotation_speed(90.f);
     });
 
     rotation_speed_actions.add_action(*no_rotation_action);

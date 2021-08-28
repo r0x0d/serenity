@@ -13,9 +13,9 @@
 
 namespace Kernel {
 
-static Singleton<SpinLockProtectedValue<SlavePTY::List>> s_all_instances;
+static Singleton<SpinlockProtected<SlavePTY::List>> s_all_instances;
 
-SpinLockProtectedValue<SlavePTY::List>& SlavePTY::all_instances()
+SpinlockProtected<SlavePTY::List>& SlavePTY::all_instances()
 {
     return s_all_instances;
 }
@@ -39,9 +39,9 @@ SlavePTY::SlavePTY(MasterPTY& master, unsigned index)
     , m_index(index)
 {
     m_tty_name = String::formatted("/dev/pts/{}", m_index);
-    auto process = Process::current();
-    set_uid(process->uid());
-    set_gid(process->gid());
+    auto& process = Process::current();
+    set_uid(process.uid());
+    set_gid(process.gid());
     set_size(80, 25);
 
     SlavePTY::all_instances().with([&](auto& list) { list.append(*this); });
@@ -112,9 +112,9 @@ String SlavePTY::device_name() const
     return String::formatted("{}", minor());
 }
 
-FileBlockCondition& SlavePTY::block_condition()
+FileBlockerSet& SlavePTY::blocker_set()
 {
-    return m_master->block_condition();
+    return m_master->blocker_set();
 }
 
 }

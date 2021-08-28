@@ -21,7 +21,7 @@ I'm also on [Patreon](https://www.patreon.com/serenityos) and [GitHub Sponsors](
 
 ## Screenshot
 
-![Screenshot as of 0f85753.png](https://raw.githubusercontent.com/SerenityOS/serenity/master/Meta/screenshot-0f85753.png)
+![Screenshot as of b36968c.png](https://raw.githubusercontent.com/SerenityOS/serenity/master/Meta/screenshot-b36968c.png)
 
 ## Kernel features
 
@@ -81,7 +81,6 @@ I'm also on [Patreon](https://www.patreon.com/serenityos) and [GitHub Sponsors](
 * On-line help system (both terminal and GUI variants)
 * Web browser (Browser)
 * C++ IDE (HackStudio)
-* IRC client
 * Desktop synthesizer (Piano)
 * E-mail client (Mail)
 * Various desktop apps & games
@@ -144,6 +143,7 @@ Join our Discord server: [SerenityOS Discord](https://discord.gg/serenityos)
 * **Tobias Christiansen** - [TobyAsE](https://github.com/TobyAsE)
 * **Lenny Maiorani** - [ldm5180](https://github.com/ldm5180)
 * **sin-ack** - [sin-ack](https://github.com/sin-ack)
+* **Jesse Buhagiar** - [Quaker762](https://github.com/Quaker762)
 
 (And many more!) The people listed above have landed more than 100 commits in the project. :^)
 

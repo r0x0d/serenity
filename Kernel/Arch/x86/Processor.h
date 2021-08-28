@@ -120,7 +120,7 @@ class Processor {
     u32 m_gdt_length;
 
     u32 m_cpu;
-    u32 m_in_irq;
+    FlatPtr m_in_irq {};
     volatile u32 m_in_critical {};
     static Atomic<u32> s_idle_cpu_mask;
 
@@ -308,7 +308,7 @@ public:
         return (Thread*)read_gs_ptr(__builtin_offsetof(Processor, m_idle_thread));
     }
 
-    ALWAYS_INLINE u32 get_id() const
+    ALWAYS_INLINE u32 id() const
     {
         // NOTE: This variant should only be used when iterating over all
         // Processor instances, or when it's guaranteed that the thread
@@ -318,7 +318,7 @@ public:
         return m_cpu;
     }
 
-    ALWAYS_INLINE static u32 id()
+    ALWAYS_INLINE static u32 current_id()
     {
         // See comment in Processor::current_thread
         return read_gs_ptr(__builtin_offsetof(Processor, m_cpu));
@@ -326,12 +326,12 @@ public:
 
     ALWAYS_INLINE static bool is_bootstrap_processor()
     {
-        return Processor::id() == 0;
+        return Processor::current_id() == 0;
     }
 
-    ALWAYS_INLINE u32& in_irq()
+    ALWAYS_INLINE static FlatPtr current_in_irq()
     {
-        return m_in_irq;
+        return read_gs_ptr(__builtin_offsetof(Processor, m_in_irq));
     }
 
     ALWAYS_INLINE static void restore_in_critical(u32 critical)
@@ -392,10 +392,7 @@ public:
         return read_gs_ptr(__builtin_offsetof(Processor, m_in_critical));
     }
 
-    ALWAYS_INLINE const FPUState& clean_fpu_state() const
-    {
-        return s_clean_fpu_state;
-    }
+    ALWAYS_INLINE static FPUState const& clean_fpu_state() { return s_clean_fpu_state; }
 
     static void smp_enable();
     bool smp_process_pending_messages();
@@ -424,7 +421,7 @@ public:
     FlatPtr init_context(Thread& thread, bool leave_crit);
     static Vector<FlatPtr> capture_stack_trace(Thread& thread, size_t max_frames = 0);
 
-    String platform_string() const;
+    static StringView platform_string();
 };
 
 template<typename T>

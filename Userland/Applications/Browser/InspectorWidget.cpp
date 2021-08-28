@@ -26,7 +26,10 @@ void InspectorWidget::set_inspected_node(GUI::ModelIndex const index)
         return;
     }
     auto* node = static_cast<Web::DOM::Node*>(index.internal_data());
+    m_inspected_node = node;
     m_document->set_inspected_node(node);
+    m_dom_tree_view->set_cursor(index, GUI::AbstractView::SelectionUpdate::Set);
+    m_dom_tree_view->expand_all_parents_of(index);
     if (node && node->is_element()) {
         auto& element = verify_cast<Web::DOM::Element>(*node);
         if (element.specified_css_values()) {
@@ -37,6 +40,17 @@ void InspectorWidget::set_inspected_node(GUI::ModelIndex const index)
         m_style_table_view->set_model(nullptr);
         m_computed_style_table_view->set_model(nullptr);
     }
+}
+
+void InspectorWidget::set_inspected_node(Web::DOM::Node* requested_node)
+{
+    dbgln("Inspected node: {:p}", requested_node);
+    if (requested_node == nullptr) {
+        set_inspected_node(GUI::ModelIndex {});
+        return;
+    }
+
+    set_inspected_node(static_cast<Web::DOMTreeModel*>(m_dom_tree_view->model())->index_for_node(requested_node));
 }
 
 InspectorWidget::InspectorWidget()
@@ -70,6 +84,7 @@ InspectorWidget::~InspectorWidget()
 
 void InspectorWidget::set_document(Web::DOM::Document* document)
 {
+    document->set_inspected_node(m_inspected_node);
     if (m_document == document)
         return;
     m_document = document;

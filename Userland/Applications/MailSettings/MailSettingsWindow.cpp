@@ -43,7 +43,7 @@ void MailSettingsWindow::write_values()
 
 MailSettingsWindow::MailSettingsWindow()
 {
-    m_config = Core::ConfigFile::get_for_app("Mail");
+    m_config = Core::ConfigFile::open_for_app("Mail", Core::ConfigFile::AllowWriting::Yes);
     if (unveil(m_config->filename().characters(), "rwc") < 0) {
         perror("unveil");
         GUI::Application::the()->quit();
@@ -66,7 +66,7 @@ MailSettingsWindow::MailSettingsWindow()
     auto& main_widget = set_main_widget<GUI::Widget>();
     main_widget.set_fill_with_background_color(true);
     main_widget.set_layout<GUI::VerticalBoxLayout>();
-    main_widget.layout()->set_margins({ 4, 4, 4, 4 });
+    main_widget.layout()->set_margins(4);
     main_widget.layout()->set_spacing(6);
 
     auto& tab_widget = main_widget.add<GUI::TabWidget>();

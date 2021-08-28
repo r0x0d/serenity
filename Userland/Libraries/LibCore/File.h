@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020, Andreas Kling <kling@serenityos.org>
+ * Copyright (c) 2018-2021, Andreas Kling <kling@serenityos.org>
  *
  * SPDX-License-Identifier: BSD-2-Clause
  */
@@ -19,7 +19,7 @@ class File final : public IODevice {
 public:
     virtual ~File() override;
 
-    static Result<NonnullRefPtr<File>, String> open(String filename, OpenMode, mode_t = 0644);
+    static Result<NonnullRefPtr<File>, OSError> open(String filename, OpenMode, mode_t = 0644);
 
     String filename() const { return m_filename; }
     void set_filename(const String filename) { m_filename = move(filename); }
@@ -53,14 +53,19 @@ public:
         No,
     };
 
+    enum class PreserveMode {
+        Nothing,
+        PermissionsOwnershipTimestamps,
+    };
+
     struct CopyError {
         OSError error_code;
         bool tried_recursing;
     };
 
-    static Result<void, CopyError> copy_file(String const& dst_path, struct stat const& src_stat, File& source);
-    static Result<void, CopyError> copy_directory(String const& dst_path, String const& src_path, struct stat const& src_stat, LinkMode = LinkMode::Disallowed);
-    static Result<void, CopyError> copy_file_or_directory(String const& dst_path, String const& src_path, RecursionMode = RecursionMode::Allowed, LinkMode = LinkMode::Disallowed, AddDuplicateFileMarker = AddDuplicateFileMarker::Yes);
+    static Result<void, CopyError> copy_file(String const& dst_path, struct stat const& src_stat, File& source, PreserveMode = PreserveMode::Nothing);
+    static Result<void, CopyError> copy_directory(String const& dst_path, String const& src_path, struct stat const& src_stat, LinkMode = LinkMode::Disallowed, PreserveMode = PreserveMode::Nothing);
+    static Result<void, CopyError> copy_file_or_directory(String const& dst_path, String const& src_path, RecursionMode = RecursionMode::Allowed, LinkMode = LinkMode::Disallowed, AddDuplicateFileMarker = AddDuplicateFileMarker::Yes, PreserveMode = PreserveMode::Nothing);
 
     static String real_path_for(String const& filename);
     static String read_link(String const& link_path);

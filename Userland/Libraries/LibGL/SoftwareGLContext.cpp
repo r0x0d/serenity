@@ -123,6 +123,9 @@ void SoftwareGLContext::gl_end()
     // Make sure we had a `glBegin` before this call...
     RETURN_WITH_ERROR_IF(!m_in_draw_state, GL_INVALID_OPERATION);
 
+    triangle_list.clear_with_capacity();
+    processed_triangles.clear_with_capacity();
+
     // Let's construct some triangles
     if (m_current_draw_mode == GL_TRIANGLES) {
         GLTriangle triangle;
@@ -169,29 +172,22 @@ void SoftwareGLContext::gl_end()
             triangle_list.append(triangle);
         }
     } else {
+        vertex_list.clear_with_capacity();
         RETURN_WITH_ERROR_IF(true, GL_INVALID_ENUM);
     }
+
+    vertex_list.clear_with_capacity();
+
+    auto mvp = m_projection_matrix * m_model_view_matrix;
 
     // Now let's transform each triangle and send that to the GPU
     for (size_t i = 0; i < triangle_list.size(); i++) {
         GLTriangle& triangle = triangle_list.at(i);
-        GLVertex& vertexa = triangle.vertices[0];
-        GLVertex& vertexb = triangle.vertices[1];
-        GLVertex& vertexc = triangle.vertices[2];
-
-        FloatVector4 veca({ vertexa.x, vertexa.y, vertexa.z, 1.0f });
-        FloatVector4 vecb({ vertexb.x, vertexb.y, vertexb.z, 1.0f });
-        FloatVector4 vecc({ vertexc.x, vertexc.y, vertexc.z, 1.0f });
 
         // First multiply the vertex by the MODELVIEW matrix and then the PROJECTION matrix
-        veca = m_model_view_matrix * veca;
-        veca = m_projection_matrix * veca;
-
-        vecb = m_model_view_matrix * vecb;
-        vecb = m_projection_matrix * vecb;
-
-        vecc = m_model_view_matrix * vecc;
-        vecc = m_projection_matrix * vecc;
+        triangle.vertices[0].position = mvp * triangle.vertices[0].position;
+        triangle.vertices[1].position = mvp * triangle.vertices[1].position;
+        triangle.vertices[2].position = mvp * triangle.vertices[2].position;
 
         // At this point, we're in clip space
         // Here's where we do the clipping. This is a really crude implementation of the
@@ -203,87 +199,35 @@ void SoftwareGLContext::gl_end()
 
         // Okay, let's do some face culling first
 
-        Vector<FloatVector4> vecs;
-        Vector<GLVertex> verts;
+        m_clipped_vertices.clear_with_capacity();
+        m_clipped_vertices.append(triangle.vertices[0]);
+        m_clipped_vertices.append(triangle.vertices[1]);
+        m_clipped_vertices.append(triangle.vertices[2]);
+        m_clipper.clip_triangle_against_frustum(m_clipped_vertices);
 
-        vecs.append(veca);
-        vecs.append(vecb);
-        vecs.append(vecc);
-        m_clipper.clip_triangle_against_frustum(vecs);
+        if (m_clipped_vertices.size() < 3)
+            continue;
 
-        // TODO: Copy color and UV information too!
-        for (size_t vec_idx = 0; vec_idx < vecs.size(); vec_idx++) {
-            FloatVector4& vec = vecs.at(vec_idx);
-            GLVertex vertex;
+        for (auto& vec : m_clipped_vertices) {
+            // perspective divide
+            float w = vec.position.w();
+            vec.position.set_x(vec.position.x() / w);
+            vec.position.set_y(vec.position.y() / w);
+            vec.position.set_z(vec.position.z() / w);
+            vec.position.set_w(1 / w);
 
-            // Perform the perspective divide
-            if (vec.w() != 0.0f) {
-                vec.set_x(vec.x() / vec.w());
-                vec.set_y(vec.y() / vec.w());
-                vec.set_z(vec.z() / vec.w());
-                vec.set_w(1 / vec.w());
-            }
-
-            vertex.x = vec.x();
-            vertex.y = vec.y();
-            vertex.z = vec.z();
-            vertex.w = vec.w();
-
-            // FIXME: This is to suppress any -Wunused errors
-            vertex.u = 0.0f;
-            vertex.v = 0.0f;
-
-            if (vec_idx == 0) {
-                vertex.r = vertexa.r;
-                vertex.g = vertexa.g;
-                vertex.b = vertexa.b;
-                vertex.a = vertexa.a;
-                vertex.u = vertexa.u;
-                vertex.v = vertexa.v;
-            } else if (vec_idx == 1) {
-                vertex.r = vertexb.r;
-                vertex.g = vertexb.g;
-                vertex.b = vertexb.b;
-                vertex.a = vertexb.a;
-                vertex.u = vertexb.u;
-                vertex.v = vertexb.v;
-            } else {
-                vertex.r = vertexc.r;
-                vertex.g = vertexc.g;
-                vertex.b = vertexc.b;
-                vertex.a = vertexc.a;
-                vertex.u = vertexc.u;
-                vertex.v = vertexc.v;
-            }
-
-            vertex.x = (vec.x() + 1.0f) * (scr_width / 2.0f) + 0.0f; // TODO: 0.0f should be something!?
-            vertex.y = scr_height - ((vec.y() + 1.0f) * (scr_height / 2.0f) + 0.0f);
-            vertex.z = vec.z();
-            verts.append(vertex);
+            // to screen space
+            vec.position.set_x(scr_width / 2 + vec.position.x() * scr_width / 2);
+            vec.position.set_y(scr_height / 2 - vec.position.y() * scr_height / 2);
         }
 
-        if (verts.size() == 0) {
-            continue;
-        } else if (verts.size() == 3) {
-            GLTriangle tri;
+        GLTriangle tri;
+        tri.vertices[0] = m_clipped_vertices[0];
+        for (size_t i = 1; i < m_clipped_vertices.size() - 1; i++) {
 
-            tri.vertices[0] = verts.at(0);
-            tri.vertices[1] = verts.at(1);
-            tri.vertices[2] = verts.at(2);
+            tri.vertices[1] = m_clipped_vertices[i];
+            tri.vertices[2] = m_clipped_vertices[i + 1];
             processed_triangles.append(tri);
-        } else if (verts.size() == 4) {
-            GLTriangle tri1;
-            GLTriangle tri2;
-
-            tri1.vertices[0] = verts.at(0);
-            tri1.vertices[1] = verts.at(1);
-            tri1.vertices[2] = verts.at(2);
-            processed_triangles.append(tri1);
-
-            tri2.vertices[0] = verts.at(0);
-            tri2.vertices[1] = verts.at(2);
-            tri2.vertices[2] = verts.at(3);
-            processed_triangles.append(tri2);
         }
     }
 
@@ -292,17 +236,17 @@ void SoftwareGLContext::gl_end()
 
         // Let's calculate the (signed) area of the triangle
         // https://cp-algorithms.com/geometry/oriented-triangle-area.html
-        float dxAB = triangle.vertices[0].x - triangle.vertices[1].x; // A.x - B.x
-        float dxBC = triangle.vertices[1].x - triangle.vertices[2].x; // B.X - C.x
-        float dyAB = triangle.vertices[0].y - triangle.vertices[1].y;
-        float dyBC = triangle.vertices[1].y - triangle.vertices[2].y;
+        float dxAB = triangle.vertices[0].position.x() - triangle.vertices[1].position.x(); // A.x - B.x
+        float dxBC = triangle.vertices[1].position.x() - triangle.vertices[2].position.x(); // B.X - C.x
+        float dyAB = triangle.vertices[0].position.y() - triangle.vertices[1].position.y();
+        float dyBC = triangle.vertices[1].position.y() - triangle.vertices[2].position.y();
         float area = (dxAB * dyBC) - (dxBC * dyAB);
 
         if (area == 0.0f)
             continue;
 
         if (m_cull_faces) {
-            bool is_front = (m_front_face == GL_CCW ? area > 0 : area < 0);
+            bool is_front = (m_front_face == GL_CCW ? area < 0 : area > 0);
 
             if (is_front && (m_culled_sides == GL_FRONT || m_culled_sides == GL_FRONT_AND_BACK))
                 continue;
@@ -311,12 +255,12 @@ void SoftwareGLContext::gl_end()
                 continue;
         }
 
+        if (area > 0) {
+            swap(triangle.vertices[0], triangle.vertices[1]);
+        }
+
         m_rasterizer.submit_triangle(triangle, m_texture_units);
     }
-
-    triangle_list.clear();
-    processed_triangles.clear();
-    vertex_list.clear();
 
     m_in_draw_state = false;
 }
@@ -397,7 +341,9 @@ GLubyte* SoftwareGLContext::gl_get_string(GLenum name)
     case GL_RENDERER:
         return reinterpret_cast<GLubyte*>(const_cast<char*>("SerenityOS OpenGL"));
     case GL_VERSION:
-        return reinterpret_cast<GLubyte*>(const_cast<char*>("OpenGL 1.2 SerenityOS"));
+        return reinterpret_cast<GLubyte*>(const_cast<char*>("1.5"));
+    case GL_EXTENSIONS:
+        return reinterpret_cast<GLubyte*>(const_cast<char*>(""));
     default:
         dbgln_if(GL_DEBUG, "glGetString(): Unknown enum name!");
         break;
@@ -504,7 +450,7 @@ void SoftwareGLContext::gl_rotate(GLdouble angle, GLdouble x, GLdouble y, GLdoub
 
     FloatVector3 axis = { (float)x, (float)y, (float)z };
     axis.normalize();
-    auto rotation_mat = Gfx::rotation_matrix(axis, static_cast<float>(angle));
+    auto rotation_mat = Gfx::rotation_matrix(axis, static_cast<float>(angle * M_PI * 2 / 360));
 
     if (m_current_matrix_mode == GL_MODELVIEW)
         m_model_view_matrix = m_model_view_matrix * rotation_mat;
@@ -544,30 +490,19 @@ void SoftwareGLContext::gl_vertex(GLdouble x, GLdouble y, GLdouble z, GLdouble w
 
     GLVertex vertex;
 
-    vertex.x = x;
-    vertex.y = y;
-    vertex.z = z;
-    vertex.w = w;
-    vertex.r = m_current_vertex_color.x();
-    vertex.g = m_current_vertex_color.y();
-    vertex.b = m_current_vertex_color.z();
-    vertex.a = m_current_vertex_color.w();
-
-    // FIXME: This is to suppress any -Wunused errors
-    vertex.w = 0.0f;
-    vertex.u = 0.0f;
-    vertex.v = 0.0f;
+    vertex.position = { static_cast<float>(x), static_cast<float>(y), static_cast<float>(z), static_cast<float>(w) };
+    vertex.color = m_current_vertex_color;
+    vertex.tex_coord = { m_current_vertex_tex_coord.x(), m_current_vertex_tex_coord.y() };
 
     vertex_list.append(vertex);
 }
 
 // FIXME: We need to add `r` and `q` to our GLVertex?!
-void SoftwareGLContext::gl_tex_coord(GLfloat s, GLfloat t, GLfloat, GLfloat)
+void SoftwareGLContext::gl_tex_coord(GLfloat s, GLfloat t, GLfloat r, GLfloat q)
 {
-    auto& vertex = vertex_list.last(); // Get the last created vertex
+    APPEND_TO_CALL_LIST_AND_RETURN_IF_NEEDED(gl_tex_coord, s, t, r, q);
 
-    vertex.u = s;
-    vertex.v = t;
+    m_current_vertex_tex_coord = { s, t, r, q };
 }
 
 void SoftwareGLContext::gl_viewport(GLint x, GLint y, GLsizei width, GLsizei height)
@@ -608,6 +543,10 @@ void SoftwareGLContext::gl_enable(GLenum capability)
     case GL_ALPHA_TEST:
         m_alpha_test_enabled = true;
         rasterizer_options.enable_alpha_test = true;
+        update_rasterizer_options = true;
+        break;
+    case GL_FOG:
+        rasterizer_options.fog_enabled = true;
         update_rasterizer_options = true;
         break;
     default:
@@ -711,7 +650,7 @@ void SoftwareGLContext::gl_tex_image_2d(GLenum target, GLint level, GLint intern
     RETURN_WITH_ERROR_IF((width & 2) != 0 || (height & 2) != 0, GL_INVALID_VALUE);
     RETURN_WITH_ERROR_IF(border < 0 || border > 1, GL_INVALID_VALUE);
 
-    m_active_texture_unit->bound_texture_2d()->upload_texture_data(target, level, internal_format, width, height, border, format, type, data);
+    m_active_texture_unit->bound_texture_2d()->upload_texture_data(target, level, internal_format, width, height, border, format, type, data, m_unpack_row_length);
 }
 
 void SoftwareGLContext::gl_tex_parameter(GLenum target, GLenum pname, GLfloat param)
@@ -846,7 +785,7 @@ void SoftwareGLContext::gl_delete_lists(GLuint list, GLsizei range)
         return;
 
     for (auto& entry : m_listings.span().slice(list - 1, range))
-        entry.entries.clear();
+        entry.entries.clear_with_capacity();
 }
 
 void SoftwareGLContext::gl_end_list()
@@ -1388,7 +1327,7 @@ void SoftwareGLContext::gl_get_floatv(GLenum pname, GLfloat* params)
     default:
         // FIXME: Because glQuake only requires GL_MODELVIEW_MATRIX, that is the only parameter
         // that we currently support. More parameters should be supported.
-        TODO();
+        RETURN_WITH_ERROR_IF(true, GL_INVALID_ENUM);
     }
 }
 
@@ -1493,7 +1432,7 @@ void SoftwareGLContext::gl_vertex_pointer(GLint size, GLenum type, GLsizei strid
 {
     RETURN_WITH_ERROR_IF(m_in_draw_state, GL_INVALID_OPERATION);
 
-    RETURN_WITH_ERROR_IF(!(size == 1 || size == 2 || size == 4), GL_INVALID_VALUE);
+    RETURN_WITH_ERROR_IF(!(size == 2 || size == 3 || size == 4), GL_INVALID_VALUE);
     RETURN_WITH_ERROR_IF(!(type == GL_SHORT || type == GL_INT || type == GL_FLOAT || type == GL_DOUBLE), GL_INVALID_ENUM);
     RETURN_WITH_ERROR_IF(stride < 0, GL_INVALID_VALUE);
 
@@ -1541,6 +1480,36 @@ void SoftwareGLContext::gl_tex_coord_pointer(GLint size, GLenum type, GLsizei st
     m_client_tex_coord_pointer.type = type;
     m_client_tex_coord_pointer.stride = stride;
     m_client_tex_coord_pointer.pointer = pointer;
+}
+
+void SoftwareGLContext::gl_tex_env(GLenum target, GLenum pname, GLfloat param)
+{
+    APPEND_TO_CALL_LIST_AND_RETURN_IF_NEEDED(gl_tex_env, target, pname, param);
+    RETURN_WITH_ERROR_IF(m_in_draw_state, GL_INVALID_OPERATION);
+
+    if (target == GL_TEXTURE_ENV) {
+        if (pname == GL_TEXTURE_ENV_MODE) {
+            auto param_enum = static_cast<GLenum>(param);
+
+            switch (param_enum) {
+            case GL_MODULATE:
+            case GL_REPLACE:
+            case GL_DECAL:
+                m_active_texture_unit->set_env_mode(param_enum);
+                break;
+            default:
+                // FIXME: We currently only support a subset of possible param values. Implement the rest!
+                RETURN_WITH_ERROR_IF(true, GL_INVALID_ENUM);
+                break;
+            }
+        } else {
+            // FIXME: We currently only support a subset of possible pname values. Implement the rest!
+            RETURN_WITH_ERROR_IF(true, GL_INVALID_ENUM);
+        }
+    } else {
+        // FIXME: We currently only support a subset of possible target values. Implement the rest!
+        RETURN_WITH_ERROR_IF(true, GL_INVALID_ENUM);
+    }
 }
 
 void SoftwareGLContext::gl_draw_arrays(GLenum mode, GLint first, GLsizei count)
@@ -1640,6 +1609,39 @@ void SoftwareGLContext::gl_draw_elements(GLenum mode, GLsizei count, GLenum type
         glVertex4fv(vertex);
     }
     glEnd();
+}
+
+void SoftwareGLContext::gl_depth_range(GLdouble min, GLdouble max)
+{
+    APPEND_TO_CALL_LIST_AND_RETURN_IF_NEEDED(gl_depth_range, min, max);
+
+    RETURN_WITH_ERROR_IF(m_in_draw_state, GL_INVALID_OPERATION);
+
+    auto options = m_rasterizer.options();
+    options.depth_min = clamp(min, 0.f, 1.f);
+    options.depth_max = clamp(max, 0.f, 1.f);
+    m_rasterizer.set_options(options);
+}
+
+void SoftwareGLContext::gl_depth_func(GLenum func)
+{
+    APPEND_TO_CALL_LIST_AND_RETURN_IF_NEEDED(gl_depth_func, func);
+
+    RETURN_WITH_ERROR_IF(m_in_draw_state, GL_INVALID_OPERATION);
+
+    RETURN_WITH_ERROR_IF(!(func == GL_NEVER
+                             || func == GL_LESS
+                             || func == GL_EQUAL
+                             || func == GL_LEQUAL
+                             || func == GL_GREATER
+                             || func == GL_NOTEQUAL
+                             || func == GL_GEQUAL
+                             || func == GL_ALWAYS),
+        GL_INVALID_ENUM);
+
+    auto options = m_rasterizer.options();
+    options.depth_func = func;
+    m_rasterizer.set_options(options);
 }
 
 // General helper function to read arbitrary vertex attribute data into a float array
@@ -1763,6 +1765,88 @@ void SoftwareGLContext::gl_color_mask(GLboolean red, GLboolean green, GLboolean 
 
     options.color_mask = mask;
     m_rasterizer.set_options(options);
+}
+
+void SoftwareGLContext::gl_polygon_mode(GLenum face, GLenum mode)
+{
+    RETURN_WITH_ERROR_IF(!(face == GL_BACK || face == GL_FRONT || face == GL_FRONT_AND_BACK), GL_INVALID_ENUM);
+    RETURN_WITH_ERROR_IF(!(mode == GL_POINT || mode == GL_LINE || mode == GL_FILL), GL_INVALID_ENUM);
+    RETURN_WITH_ERROR_IF(m_in_draw_state, GL_INVALID_OPERATION);
+
+    auto options = m_rasterizer.options();
+    options.polygon_mode = mode;
+
+    m_rasterizer.set_options(options);
+}
+
+void SoftwareGLContext::gl_fogfv(GLenum pname, GLfloat* params)
+{
+    RETURN_WITH_ERROR_IF(m_in_draw_state, GL_INVALID_OPERATION);
+
+    auto options = m_rasterizer.options();
+
+    switch (pname) {
+    case GL_FOG_COLOR:
+        // Set rasterizer options fog color
+        // NOTE: We purposefully don't check for `nullptr` here (as with other calls). The spec states nothing
+        // about us checking for such things. If the programmer does so and hits SIGSEGV, that's on them.
+        options.fog_color = FloatVector4 { params[0], params[1], params[2], params[3] };
+        break;
+    default:
+        RETURN_WITH_ERROR_IF(true, GL_INVALID_ENUM);
+    }
+
+    m_rasterizer.set_options(options);
+}
+
+void SoftwareGLContext::gl_fogf(GLenum pname, GLfloat param)
+{
+    RETURN_WITH_ERROR_IF(m_in_draw_state, GL_INVALID_OPERATION);
+    RETURN_WITH_ERROR_IF(param < 0.0f, GL_INVALID_VALUE);
+
+    auto options = m_rasterizer.options();
+
+    switch (pname) {
+    case GL_FOG_DENSITY:
+        options.fog_density = param;
+        break;
+    default:
+        RETURN_WITH_ERROR_IF(true, GL_INVALID_ENUM);
+    }
+
+    m_rasterizer.set_options(options);
+}
+
+void SoftwareGLContext::gl_fogi(GLenum pname, GLint param)
+{
+    RETURN_WITH_ERROR_IF(m_in_draw_state, GL_INVALID_OPERATION);
+    RETURN_WITH_ERROR_IF(!(param == GL_EXP || param == GL_EXP2 || param != GL_LINEAR), GL_INVALID_ENUM);
+
+    auto options = m_rasterizer.options();
+
+    switch (pname) {
+    case GL_FOG_MODE:
+        options.fog_mode = param;
+        break;
+    default:
+        RETURN_WITH_ERROR_IF(true, GL_INVALID_ENUM);
+    }
+
+    m_rasterizer.set_options(options);
+}
+
+void SoftwareGLContext::gl_pixel_store(GLenum pname, GLfloat param)
+{
+    // FIXME: Implement missing parameters
+    switch (pname) {
+    case GL_UNPACK_ROW_LENGTH:
+        RETURN_WITH_ERROR_IF(param < 0, GL_INVALID_VALUE);
+        m_unpack_row_length = static_cast<size_t>(param);
+        break;
+    default:
+        RETURN_WITH_ERROR_IF(true, GL_INVALID_ENUM);
+        break;
+    }
 }
 
 void SoftwareGLContext::present()

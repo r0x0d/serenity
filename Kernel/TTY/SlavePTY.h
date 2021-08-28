@@ -23,7 +23,7 @@ public:
 
     time_t time_of_last_write() const { return m_time_of_last_write; }
 
-    virtual FileBlockCondition& block_condition() override;
+    virtual FileBlockerSet& blocker_set() override;
 
 private:
     // ^TTY
@@ -53,7 +53,7 @@ private:
 
 public:
     using List = IntrusiveList<SlavePTY, RawPtr<SlavePTY>, &SlavePTY::m_list_node>;
-    static SpinLockProtectedValue<SlavePTY::List>& all_instances();
+    static SpinlockProtected<SlavePTY::List>& all_instances();
 };
 
 }

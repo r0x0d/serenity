@@ -26,14 +26,13 @@ set(KERNEL_SOURCES
     Arch/x86/SmapDisabler.h
     Bus/PCI/Access.cpp
     Bus/PCI/Device.cpp
-    Bus/PCI/DeviceController.cpp
     Bus/PCI/IOAccess.cpp
     Bus/PCI/MMIOAccess.cpp
     Bus/PCI/Initializer.cpp
     Bus/PCI/WindowedMMIOAccess.cpp
     Bus/USB/SysFSUSB.cpp
-    Bus/USB/UHCIController.cpp
-    Bus/USB/UHCIRootHub.cpp
+    Bus/USB/UHCI/UHCIController.cpp
+    Bus/USB/UHCI/UHCIRootHub.cpp
     Bus/USB/USBController.cpp
     Bus/USB/USBDevice.cpp
     Bus/USB/USBHub.cpp
@@ -48,7 +47,7 @@ set(KERNEL_SOURCES
     CMOS.cpp
     CommandLine.cpp
     ConsoleDevice.cpp
-    CoreDump.cpp
+    Coredump.cpp
     Devices/AsyncDeviceRequest.cpp
     Devices/BlockDevice.cpp
     Devices/CharacterDevice.cpp
@@ -396,7 +395,7 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -static-pie")
 # secure to run in production builds. Useful for coverage guided fuzzing.
 if (ENABLE_KERNEL_COVERAGE_COLLECTION)
     add_definitions(-DENABLE_KERNEL_COVERAGE_COLLECTION)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize-coverage=trace-pc")
+    add_compile_options(-fsanitize-coverage=trace-pc)
     set(KCOV_EXCLUDED_SOURCES
         # Make sure we don't instrument any code called from __sanitizer_cov_trace_pc
         # otherwise we'll end up with recursive calls to that function.
@@ -428,7 +427,7 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=undefined")
 # is not currently meant to be used, besides when developing Kernel ASAN support.
 #
 if (ENABLE_KERNEL_ADDRESS_SANITIZER)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=kernel-address")
+    add_compile_options(-fsanitize=kernel-address)
 endif()
 
 add_compile_definitions(KERNEL)
@@ -437,8 +436,9 @@ add_compile_definitions(KERNEL)
 #       It's needed because CLion doesn't understand the way we switch compilers mid-build.
 add_compile_definitions(__serenity__)
 
+add_link_options(LINKER:-z,notext)
+
 if (USE_CLANG_TOOLCHAIN)
-    add_link_options(LINKER:-z,notext)
     add_link_options(LINKER:--build-id=none)
 endif()
 

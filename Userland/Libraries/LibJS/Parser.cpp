@@ -210,7 +210,6 @@ constexpr OperatorPrecedenceTable g_operator_precedence;
 
 Parser::ParserState::ParserState(Lexer l, Program::Type program_type)
     : lexer(move(l))
-    , current_token(TokenType::Invalid, {}, {}, {}, {}, 0, 0, 0)
 {
     if (program_type == Program::Type::Module)
         lexer.disallow_html_comments();
@@ -405,6 +404,11 @@ NonnullRefPtr<Statement> Parser::parse_statement(AllowLabelledFunction allow_lab
         m_state.current_token = m_state.lexer.force_slash_as_regex();
         [[fallthrough]];
     default:
+        if (m_state.current_token.type() == TokenType::EscapedKeyword
+            && (m_state.strict_mode
+                || (m_state.current_token.value() != "yield"sv && m_state.current_token.value() != "let"sv)))
+            syntax_error("Keyword must not contain escaped characters");
+
         if (match_identifier_name()) {
             auto result = try_parse_labelled_statement(allow_labelled_function);
             if (!result.is_null())
@@ -546,7 +550,7 @@ RefPtr<Statement> Parser::try_parse_labelled_statement(AllowLabelledFunction all
         load_state();
     };
 
-    if (match(TokenType::Yield) && (m_state.strict_mode || m_state.in_generator_function_context)) {
+    if (m_state.current_token.value() == "yield"sv && (m_state.strict_mode || m_state.in_generator_function_context)) {
         syntax_error("'yield' label not allowed in this context");
         return {};
     }
@@ -605,7 +609,8 @@ RefPtr<MetaProperty> Parser::try_parse_new_target_expression()
     consume();
     if (!match(TokenType::Identifier))
         return {};
-    if (consume().value() != "target")
+    // The string 'target' cannot have escapes so we check original value.
+    if (consume().original_value() != "target"sv)
         return {};
 
     state_rollback_guard.disarm();
@@ -680,7 +685,7 @@ NonnullRefPtr<ClassExpression> Parser::parse_class_expression(bool expect_class_
 
         if (match_property_key()) {
             StringView name;
-            if (!is_generator && m_state.current_token.value() == "static"sv) {
+            if (!is_generator && m_state.current_token.original_value() == "static"sv) {
                 if (match(TokenType::Identifier)) {
                     consume();
                     is_static = true;
@@ -848,6 +853,9 @@ Parser::PrimaryExpressionParseResult Parser::parse_primary_expression()
         if (!m_state.allow_super_property_lookup)
             syntax_error("'super' keyword unexpected here");
         return { create_ast_node<SuperExpression>({ m_state.current_token.filename(), rule_start.position(), position() }) };
+    case TokenType::EscapedKeyword:
+        syntax_error("Keyword must not contain escaped characters");
+        [[fallthrough]];
     case TokenType::Identifier: {
     read_as_identifier:;
         if (!try_parse_arrow_function_expression_failed_at_position(position())) {
@@ -1510,6 +1518,7 @@ NonnullRefPtr<AssignmentExpression> Parser::parse_assignment_expression(Assignme
             parser.m_state.allow_super_property_lookup = m_state.allow_super_property_lookup;
             parser.m_state.allow_super_constructor_call = m_state.allow_super_constructor_call;
             parser.m_state.in_function_context = m_state.in_function_context;
+            parser.m_state.in_formal_parameter_context = m_state.in_formal_parameter_context;
             parser.m_state.in_generator_function_context = m_state.in_generator_function_context;
             parser.m_state.in_arrow_function_context = m_state.in_arrow_function_context;
             parser.m_state.in_break_context = m_state.in_break_context;
@@ -1623,6 +1632,10 @@ NonnullRefPtr<NewExpression> Parser::parse_new_expression()
 NonnullRefPtr<YieldExpression> Parser::parse_yield_expression()
 {
     auto rule_start = push_start();
+
+    if (m_state.in_formal_parameter_context)
+        syntax_error("'Yield' expression is not allowed in formal parameters of generator function");
+
     consume(TokenType::Yield);
     RefPtr<Expression> argument;
     bool yield_from = false;
@@ -1833,6 +1846,7 @@ Vector<FunctionNode::Parameter> Parser::parse_formal_parameters(int& function_le
     auto rule_start = push_start();
     bool has_default_parameter = false;
     bool has_rest_parameter = false;
+    TemporaryChange formal_parameter_context_change { m_state.in_formal_parameter_context, true };
 
     Vector<FunctionNode::Parameter> parameters;
 
@@ -1906,8 +1920,6 @@ Vector<FunctionNode::Parameter> Parser::parse_formal_parameters(int& function_le
             bool is_generator = parse_options & FunctionNodeParseOptions::IsGeneratorFunction;
             if ((is_generator || m_state.strict_mode) && default_value && default_value->fast_is<Identifier>() && static_cast<Identifier&>(*default_value).string() == "yield"sv)
                 syntax_error("Generator function parameter initializer cannot contain a reference to an identifier named \"yield\"");
-            if (default_value && is<YieldExpression>(*default_value))
-                syntax_error("Yield expression not allowed in formal parameter");
         }
         parameters.append({ move(parameter), default_value, is_rest });
         if (match(TokenType::ParenClose))
@@ -2524,7 +2536,7 @@ NonnullRefPtr<Statement> Parser::parse_for_statement()
 {
     auto rule_start = push_start();
     auto match_for_in_of = [&]() {
-        return match(TokenType::In) || (match(TokenType::Identifier) && m_state.current_token.value() == "of");
+        return match(TokenType::In) || (match(TokenType::Identifier) && m_state.current_token.original_value() == "of");
     };
 
     consume(TokenType::For);
@@ -2801,6 +2813,14 @@ bool Parser::match_variable_declaration()
 
 bool Parser::match_identifier() const
 {
+    if (m_state.current_token.type() == TokenType::EscapedKeyword) {
+        if (m_state.current_token.value() == "let"sv)
+            return !m_state.strict_mode;
+        if (m_state.current_token.value() == "yield"sv)
+            return !m_state.strict_mode && !m_state.in_generator_function_context;
+        return true;
+    }
+
     return m_state.current_token.type() == TokenType::Identifier
         || (m_state.current_token.type() == TokenType::Let && !m_state.strict_mode)
         || (m_state.current_token.type() == TokenType::Yield && !m_state.in_generator_function_context && !m_state.strict_mode); // See note in Parser::parse_identifier().
@@ -2860,6 +2880,9 @@ Token Parser::consume_identifier()
     if (match(TokenType::Identifier))
         return consume(TokenType::Identifier);
 
+    if (match(TokenType::EscapedKeyword))
+        return consume(TokenType::EscapedKeyword);
+
     // Note that 'let' is not a reserved keyword, but our lexer considers it such
     // As it's pretty nice to have that (for syntax highlighting and such), we'll
     // special-case it here instead.
@@ -2884,6 +2907,16 @@ Token Parser::consume_identifier_reference()
 {
     if (match(TokenType::Identifier))
         return consume(TokenType::Identifier);
+
+    if (match(TokenType::EscapedKeyword)) {
+        auto name = m_state.current_token.value();
+        if (name == "await"sv)
+            syntax_error("Identifier reference may not be 'await'");
+        else if (m_state.strict_mode && (name == "let"sv || name == "yield"sv))
+            syntax_error(String::formatted("'{}' is not allowed as an identifier in strict mode", name));
+
+        return consume();
+    }
 
     // See note in Parser::parse_identifier().
     if (match(TokenType::Let)) {
@@ -3019,7 +3052,7 @@ NonnullRefPtr<ImportStatement> Parser::parse_import_statement(Program& program)
     };
 
     auto match_as = [&] {
-        return match(TokenType::Identifier) && m_state.current_token.value() == "as"sv;
+        return match(TokenType::Identifier) && m_state.current_token.original_value() == "as"sv;
     };
 
     bool continue_parsing = true;
@@ -3134,11 +3167,15 @@ NonnullRefPtr<ExportStatement> Parser::parse_export_statement(Program& program)
         syntax_error("Cannot use export statement outside a module");
 
     auto match_as = [&] {
-        return match(TokenType::Identifier) && m_state.current_token.value() == "as"sv;
+        return match(TokenType::Identifier) && m_state.current_token.original_value() == "as"sv;
     };
 
     auto match_from = [&] {
-        return match(TokenType::Identifier) && m_state.current_token.value() == "from"sv;
+        return match(TokenType::Identifier) && m_state.current_token.original_value() == "from"sv;
+    };
+
+    auto match_default = [&] {
+        return match(TokenType::Default) && m_state.current_token.original_value() == "default"sv;
     };
 
     consume(TokenType::Export);
@@ -3158,7 +3195,7 @@ NonnullRefPtr<ExportStatement> Parser::parse_export_statement(Program& program)
 
     RefPtr<ASTNode> expression = {};
 
-    if (match(TokenType::Default)) {
+    if (match_default()) {
         auto default_position = position();
         consume(TokenType::Default);
 

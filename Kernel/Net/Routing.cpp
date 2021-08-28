@@ -7,7 +7,7 @@
 #include <AK/HashMap.h>
 #include <AK/Singleton.h>
 #include <Kernel/Debug.h>
-#include <Kernel/Locking/ProtectedValue.h>
+#include <Kernel/Locking/MutexProtected.h>
 #include <Kernel/Net/LoopbackAdapter.h>
 #include <Kernel/Net/NetworkTask.h>
 #include <Kernel/Net/NetworkingManagement.h>
@@ -16,17 +16,17 @@
 
 namespace Kernel {
 
-static Singleton<ProtectedValue<HashMap<IPv4Address, MACAddress>>> s_arp_table;
+static Singleton<MutexProtected<HashMap<IPv4Address, MACAddress>>> s_arp_table;
 
-class ARPTableBlocker : public Thread::Blocker {
+class ARPTableBlocker final : public Thread::Blocker {
 public:
     ARPTableBlocker(IPv4Address ip_addr, Optional<MACAddress>& addr);
 
     virtual StringView state_string() const override { return "Routing (ARP)"sv; }
     virtual Type blocker_type() const override { return Type::Routing; }
-    virtual bool should_block() override { return m_should_block; }
+    virtual bool setup_blocker() override;
 
-    virtual void not_blocking(bool) override;
+    virtual void will_unblock_immediately_without_blocking(UnblockImmediatelyReason) override;
 
     bool unblock(bool from_add_blocker, const IPv4Address& ip_addr, const MACAddress& addr)
     {
@@ -34,7 +34,7 @@ public:
             return false;
 
         {
-            ScopedSpinLock lock(m_lock);
+            SpinlockLocker lock(m_lock);
             if (m_did_unblock)
                 return false;
             m_did_unblock = true;
@@ -52,14 +52,13 @@ private:
     const IPv4Address m_ip_addr;
     Optional<MACAddress>& m_addr;
     bool m_did_unblock { false };
-    bool m_should_block { true };
 };
 
-class ARPTableBlockCondition : public Thread::BlockCondition {
+class ARPTableBlockerSet final : public Thread::BlockerSet {
 public:
     void unblock(const IPv4Address& ip_addr, const MACAddress& addr)
     {
-        BlockCondition::unblock([&](auto& b, void*, bool&) {
+        BlockerSet::unblock_all_blockers_whose_conditions_are_met([&](auto& b, void*, bool&) {
             VERIFY(b.blocker_type() == Thread::Blocker::Type::Routing);
             auto& blocker = static_cast<ARPTableBlocker&>(b);
             return blocker.unblock(false, ip_addr, addr);
@@ -80,31 +79,33 @@ protected:
     }
 };
 
-static Singleton<ARPTableBlockCondition> s_arp_table_block_condition;
+static Singleton<ARPTableBlockerSet> s_arp_table_blocker_set;
 
 ARPTableBlocker::ARPTableBlocker(IPv4Address ip_addr, Optional<MACAddress>& addr)
     : m_ip_addr(ip_addr)
     , m_addr(addr)
 {
-    if (!set_block_condition(*s_arp_table_block_condition))
-        m_should_block = false;
 }
 
-void ARPTableBlocker::not_blocking(bool timeout_in_past)
+bool ARPTableBlocker::setup_blocker()
 {
-    VERIFY(timeout_in_past || !m_should_block);
+    return add_to_blocker_set(*s_arp_table_blocker_set);
+}
+
+void ARPTableBlocker::will_unblock_immediately_without_blocking(UnblockImmediatelyReason)
+{
     auto addr = arp_table().with_shared([&](const auto& table) -> auto {
         return table.get(ip_addr());
     });
 
-    ScopedSpinLock lock(m_lock);
+    SpinlockLocker lock(m_lock);
     if (!m_did_unblock) {
         m_did_unblock = true;
         m_addr = move(addr);
     }
 }
 
-ProtectedValue<HashMap<IPv4Address, MACAddress>>& arp_table()
+MutexProtected<HashMap<IPv4Address, MACAddress>>& arp_table()
 {
     return *s_arp_table;
 }
@@ -117,7 +118,7 @@ void update_arp_table(const IPv4Address& ip_addr, const MACAddress& addr, Update
         if (update == UpdateArp::Delete)
             table.remove(ip_addr);
     });
-    s_arp_table_block_condition->unblock(ip_addr, addr);
+    s_arp_table_blocker_set->unblock(ip_addr, addr);
 
     if constexpr (ARP_DEBUG) {
         arp_table().with_shared([&](const auto& table) {

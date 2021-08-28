@@ -15,7 +15,7 @@
 
 namespace Kernel {
 
-static SpinLock<u8> s_index_lock;
+static Spinlock<u8> s_index_lock;
 static InodeIndex s_next_inode_index = 0;
 
 namespace SegmentedProcFSIndex {
@@ -71,7 +71,7 @@ InodeIndex build_segmented_index_for_file_description(ProcessID pid, unsigned fd
 
 static size_t s_allocate_global_inode_index()
 {
-    ScopedSpinLock lock(s_index_lock);
+    SpinlockLocker lock(s_index_lock);
     s_next_inode_index = s_next_inode_index.value() + 1;
     // Note: Global ProcFS indices must be above 0 and up to maximum of what 36 bit (2 ^ 36 - 1) can represent.
     VERIFY(s_next_inode_index > 0);
@@ -218,8 +218,8 @@ KResult ProcFSExposedDirectory::traverse_as_directory(unsigned fsid, Function<bo
     auto parent_directory = m_parent_directory.strong_ref();
     if (parent_directory.is_null())
         return KResult(EINVAL);
-    callback({ ".", { fsid, component_index() }, 0 });
-    callback({ "..", { fsid, parent_directory->component_index() }, 0 });
+    callback({ ".", { fsid, component_index() }, DT_DIR });
+    callback({ "..", { fsid, parent_directory->component_index() }, DT_DIR });
 
     for (auto& component : m_components) {
         InodeIdentifier identifier = { fsid, component.component_index() };

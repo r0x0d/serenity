@@ -107,7 +107,7 @@ HackStudioWidget::HackStudioWidget(const String& path_to_project)
 
     m_editors_splitter = m_right_hand_stack->add<GUI::VerticalSplitter>();
     m_editors_splitter->layout()->set_spacing(5);
-    m_editors_splitter->layout()->set_margins({ 0, 3, 0, 0 });
+    m_editors_splitter->layout()->set_margins({ 3, 0, 0 });
     add_new_editor(*m_editors_splitter);
 
     m_switch_to_next_editor = create_switch_to_next_editor_action();
@@ -189,22 +189,24 @@ void HackStudioWidget::on_action_tab_change()
 
 void HackStudioWidget::open_project(const String& root_path)
 {
+    if (warn_unsaved_changes("There are unsaved changes, do you want to save before closing current project?") == ContinueDecision::No)
+        return;
     if (chdir(root_path.characters()) < 0) {
         perror("chdir");
         exit(1);
     }
     if (m_project) {
-        m_editors_splitter->remove_all_children();
-        m_all_editor_wrappers.clear();
-        m_open_files.clear();
-        m_open_files_vector.clear();
-        add_new_editor(*m_editors_splitter);
+        close_current_project();
     }
     m_project = Project::open_with_root_path(root_path);
     VERIFY(m_project);
     if (m_project_tree_view) {
         m_project_tree_view->set_model(m_project->model());
         m_project_tree_view->update();
+    }
+    if (m_git_widget) {
+        m_git_widget->change_repo(LexicalPath(root_path));
+        m_git_widget->refresh();
     }
     if (Debugger::is_initialized()) {
         auto& debugger = Debugger::the();
@@ -288,7 +290,6 @@ bool HackStudioWidget::open_file(const String& full_filename)
     if (filename.starts_with(m_project->root_path()))
         relative_file_path = filename.substring(m_project->root_path().length() + 1);
 
-    window()->set_title(String::formatted("{} - {} - Hack Studio", relative_file_path, m_project->name()));
     m_project_tree_view->update();
 
     current_editor_wrapper().set_filename(filename);
@@ -296,10 +297,37 @@ bool HackStudioWidget::open_file(const String& full_filename)
     current_editor().set_focus(true);
 
     current_editor().on_cursor_change = [this] { update_statusbar(); };
-    current_editor().on_change = [this] { update_gml_preview(); };
+    current_editor_wrapper().on_change = [this] { update_gml_preview(); };
     update_gml_preview();
 
     return true;
+}
+
+void HackStudioWidget::close_file_in_all_editors(String const& filename)
+{
+    m_open_files.remove(filename);
+    m_open_files_vector.remove_all_matching(
+        [&filename](String const& element) { return element == filename; });
+
+    for (auto& editor_wrapper : m_all_editor_wrappers) {
+        Editor& editor = editor_wrapper.editor();
+        String editor_file_path = editor.code_document().file_path();
+        String relative_editor_file_path = LexicalPath::relative_path(editor_file_path, project().root_path());
+
+        if (relative_editor_file_path == filename) {
+            if (m_open_files_vector.is_empty()) {
+                editor.set_document(CodeDocument::create());
+                editor_wrapper.set_filename("");
+            } else {
+                auto& first_path = m_open_files_vector[0];
+                auto& document = m_open_files.get(first_path).value()->code_document();
+                editor.set_document(document);
+                editor_wrapper.set_filename(first_path);
+            }
+        }
+    }
+
+    m_open_files_view->model()->invalidate();
 }
 
 EditorWrapper& HackStudioWidget::current_editor_wrapper()
@@ -327,28 +355,50 @@ void HackStudioWidget::set_edit_mode(EditMode mode)
 
 NonnullRefPtr<GUI::Menu> HackStudioWidget::create_project_tree_view_context_menu()
 {
+    m_new_file_actions.append(create_new_file_action("C++ Source File", "/res/icons/16x16/filetype-cplusplus.png", "cpp"));
+    m_new_file_actions.append(create_new_file_action("C++ Header File", "/res/icons/16x16/filetype-header.png", "h"));
+    // FIXME: Create a file icon for GML files
+    m_new_file_actions.append(create_new_file_action("GML File", "/res/icons/16x16/new.png", "gml"));
+    m_new_file_actions.append(create_new_file_action("JavaScript Source File", "/res/icons/16x16/filetype-javascript.png", "js"));
+    m_new_file_actions.append(create_new_file_action("HTML File", "/res/icons/16x16/filetype-html.png", "html"));
+    // FIXME: Create a file icon for CSS files
+    m_new_file_actions.append(create_new_file_action("CSS File", "/res/icons/16x16/new.png", "css"));
+
+    m_new_plain_file_action = create_new_file_action("Plain File", "/res/icons/16x16/new.png", "");
+
     m_open_selected_action = create_open_selected_action();
     m_show_in_file_manager_action = create_show_in_file_manager_action();
-    m_new_file_action = create_new_file_action();
+
     m_new_directory_action = create_new_directory_action();
     m_delete_action = create_delete_action();
     auto project_tree_view_context_menu = GUI::Menu::construct("Project Files");
+
+    auto& new_file_submenu = project_tree_view_context_menu->add_submenu("New");
+    for (auto& new_file_action : m_new_file_actions) {
+        new_file_submenu.add_action(new_file_action);
+    }
+    new_file_submenu.add_action(*m_new_plain_file_action);
+    new_file_submenu.add_separator();
+    new_file_submenu.add_action(*m_new_directory_action);
+
     project_tree_view_context_menu->add_action(*m_open_selected_action);
     project_tree_view_context_menu->add_action(*m_show_in_file_manager_action);
     // TODO: Rename, cut, copy, duplicate with new name...
     project_tree_view_context_menu->add_separator();
-    project_tree_view_context_menu->add_action(*m_new_file_action);
-    project_tree_view_context_menu->add_action(*m_new_directory_action);
     project_tree_view_context_menu->add_action(*m_delete_action);
     return project_tree_view_context_menu;
 }
 
-NonnullRefPtr<GUI::Action> HackStudioWidget::create_new_file_action()
+NonnullRefPtr<GUI::Action> HackStudioWidget::create_new_file_action(String const& label, String const& icon, String const& extension)
 {
-    return GUI::Action::create("New &File...", { Mod_Ctrl, Key_N }, Gfx::Bitmap::try_load_from_file("/res/icons/16x16/new.png"), [this](const GUI::Action&) {
+    return GUI::Action::create(label, Gfx::Bitmap::try_load_from_file(icon), [this, extension](const GUI::Action&) {
         String filename;
         if (GUI::InputBox::show(window(), filename, "Enter name of new file:", "Add new file to project") != GUI::InputBox::ExecOK)
             return;
+
+        if (!extension.is_empty() && !filename.ends_with(String::formatted(".{}", extension))) {
+            filename = String::formatted("{}.{}", filename, extension);
+        }
 
         auto path_to_selected = selected_file_paths();
 
@@ -515,7 +565,7 @@ void HackStudioWidget::add_new_editor(GUI::Widget& parent)
     wrapper->editor().set_focus(true);
     wrapper->set_project_root(LexicalPath(m_project->root_path()));
     wrapper->editor().on_cursor_change = [this] { update_statusbar(); };
-    wrapper->editor().on_change = [this] { update_gml_preview(); };
+    wrapper->on_change = [this] { update_gml_preview(); };
     set_edit_mode(EditMode::Text);
 }
 
@@ -624,12 +674,25 @@ NonnullRefPtr<GUI::Action> HackStudioWidget::create_save_as_action()
             return;
         }
 
-        current_editor_wrapper().set_filename(save_path.value());
+        String const relative_file_path = LexicalPath::relative_path(save_path.value(), m_project->root_path());
+        if (current_editor_wrapper().filename().is_null()) {
+            current_editor_wrapper().set_filename(relative_file_path);
+        } else {
+            for (auto& editor_wrapper : m_all_editor_wrappers) {
+                if (editor_wrapper.filename() == old_filename)
+                    editor_wrapper.set_filename(relative_file_path);
+            }
+        }
         current_editor_wrapper().save();
 
-        auto new_project_file = m_project->get_file(save_path.value());
-        m_open_files.set(save_path.value(), *new_project_file);
-        m_open_files_vector.append(save_path.value());
+        auto new_project_file = m_project->get_file(relative_file_path);
+        m_open_files.set(relative_file_path, *new_project_file);
+        m_open_files_vector.append(relative_file_path);
+
+        update_window_title();
+
+        m_project->model().invalidate();
+        update_tree_view();
     });
 }
 
@@ -826,6 +889,8 @@ Project& HackStudioWidget::project()
 void HackStudioWidget::set_current_editor_wrapper(RefPtr<EditorWrapper> editor_wrapper)
 {
     m_current_editor_wrapper = editor_wrapper;
+    update_window_title();
+    update_tree_view();
 }
 
 void HackStudioWidget::configure_project_tree_view()
@@ -875,7 +940,7 @@ void HackStudioWidget::create_open_files_view(GUI::Widget& parent)
 void HackStudioWidget::create_toolbar(GUI::Widget& parent)
 {
     auto& toolbar = parent.add<GUI::Toolbar>();
-    toolbar.add_action(*m_new_file_action);
+    toolbar.add_action(*m_new_plain_file_action);
     toolbar.add_action(*m_new_directory_action);
     toolbar.add_action(*m_save_action);
     toolbar.add_action(*m_delete_action);
@@ -958,14 +1023,14 @@ void HackStudioWidget::create_project_tab(GUI::Widget& parent)
 
     auto& tree_view_container = m_project_tab->add_tab<GUI::Widget>("Files");
     tree_view_container.set_layout<GUI::VerticalBoxLayout>();
-    tree_view_container.layout()->set_margins({ 2, 2, 2, 2 });
+    tree_view_container.layout()->set_margins(2);
 
     m_project_tree_view = tree_view_container.add<GUI::TreeView>();
     configure_project_tree_view();
 
     auto& class_view_container = m_project_tab->add_tab<GUI::Widget>("Classes");
     class_view_container.set_layout<GUI::VerticalBoxLayout>();
-    class_view_container.layout()->set_margins({ 2, 2, 2, 2 });
+    class_view_container.layout()->set_margins(2);
 
     m_class_view = class_view_container.add<ClassViewWidget>();
 
@@ -990,8 +1055,13 @@ void HackStudioWidget::create_file_menu(GUI::Window& window)
 void HackStudioWidget::create_project_menu(GUI::Window& window)
 {
     auto& project_menu = window.add_menu("&Project");
-    project_menu.add_action(*m_new_file_action);
-    project_menu.add_action(*m_new_directory_action);
+    auto& new_submenu = project_menu.add_submenu("New");
+    for (auto& new_file_action : m_new_file_actions) {
+        new_submenu.add_action(new_file_action);
+    }
+    new_submenu.add_action(*m_new_plain_file_action);
+    new_submenu.add_separator();
+    new_submenu.add_action(*m_new_directory_action);
 }
 
 void HackStudioWidget::create_edit_menu(GUI::Window& window)
@@ -1119,32 +1189,10 @@ void HackStudioWidget::update_statusbar()
 
 void HackStudioWidget::handle_external_file_deletion(const String& filepath)
 {
-    m_open_files.remove(filepath);
-    m_open_files_vector.remove_all_matching(
-        [&filepath](const String& element) { return element == filepath; });
-
-    for (auto& editor_wrapper : m_all_editor_wrappers) {
-        Editor& editor = editor_wrapper.editor();
-        String editor_file_path = editor.code_document().file_path();
-        String relative_editor_file_path = LexicalPath::relative_path(editor_file_path, project().root_path());
-
-        if (relative_editor_file_path == filepath) {
-            if (m_open_files_vector.is_empty()) {
-                editor.set_document(CodeDocument::create());
-                editor_wrapper.set_filename("");
-            } else {
-                auto& first_path = m_open_files_vector[0];
-                auto& document = m_open_files.get(first_path).value()->code_document();
-                editor.set_document(document);
-                editor_wrapper.set_filename(first_path);
-            }
-        }
-    }
-
-    m_open_files_view->model()->invalidate();
+    close_file_in_all_editors(filepath);
 }
 
-HackStudioWidget::~HackStudioWidget()
+void HackStudioWidget::stop_debugger_if_running()
 {
     if (!m_debugger_thread.is_null()) {
         Debugger::the().stop();
@@ -1155,6 +1203,25 @@ HackStudioWidget::~HackStudioWidget()
             dbgln("error joining debugger thread");
         }
     }
+}
+
+void HackStudioWidget::close_current_project()
+{
+    m_editors_splitter->remove_all_children();
+    m_all_editor_wrappers.clear();
+    m_open_files.clear();
+    m_open_files_vector.clear();
+    add_new_editor(*m_editors_splitter);
+    m_find_in_files_widget->reset();
+    m_todo_entries_widget->clear();
+    m_terminal_wrapper->clear_including_history();
+    stop_debugger_if_running();
+    update_gml_preview();
+}
+
+HackStudioWidget::~HackStudioWidget()
+{
+    stop_debugger_if_running();
 }
 
 HackStudioWidget::ContinueDecision HackStudioWidget::warn_unsaved_changes(const String& prompt)
@@ -1192,6 +1259,20 @@ void HackStudioWidget::update_gml_preview()
 {
     auto gml_content = current_editor_wrapper().filename().ends_with(".gml") ? current_editor_wrapper().editor().text() : "";
     m_gml_preview_widget->load_gml(gml_content);
+}
+
+void HackStudioWidget::update_tree_view()
+{
+    auto index = m_project->model().index(m_current_editor_wrapper->filename(), GUI::FileSystemModel::Column::Name);
+    if (index.is_valid()) {
+        m_project_tree_view->expand_all_parents_of(index);
+        m_project_tree_view->set_cursor(index, GUI::AbstractView::SelectionUpdate::Set);
+    }
+}
+
+void HackStudioWidget::update_window_title()
+{
+    window()->set_title(String::formatted("{} - {} - Hack Studio", m_current_editor_wrapper->filename_label().text(), m_project->name()));
 }
 
 }

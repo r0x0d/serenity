@@ -18,6 +18,7 @@ public:
 
     void set_document(Web::DOM::Document*);
     void set_dom_json(String);
+    void set_inspected_node(Web::DOM::Node*);
 
 private:
     InspectorWidget();
@@ -28,6 +29,8 @@ private:
     RefPtr<GUI::TreeView> m_layout_tree_view;
     RefPtr<GUI::TableView> m_style_table_view;
     RefPtr<GUI::TableView> m_computed_style_table_view;
+
+    RefPtr<Web::DOM::Node> m_inspected_node;
 
     // One of these will be available, depending on if we're
     // in-process (m_document) or out-of-process (m_dom_json)

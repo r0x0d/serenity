@@ -1399,17 +1399,24 @@ Optional<float> Parser::try_parse_float(StringView string)
     return is_negative ? -value : value;
 }
 
-RefPtr<StyleValue> Parser::parse_builtin_or_dynamic_value(ParsingContext const& context, StyleComponentValueRule const& component_value)
+RefPtr<StyleValue> Parser::parse_builtin_value(ParsingContext const&, StyleComponentValueRule const& component_value)
 {
     if (component_value.is(Token::Type::Ident)) {
         auto ident = component_value.token().ident();
         if (ident.equals_ignoring_case("inherit"))
-            return InheritStyleValue::create();
+            return InheritStyleValue::the();
         if (ident.equals_ignoring_case("initial"))
-            return InitialStyleValue::create();
-        // FIXME: Implement `unset` keyword
+            return InitialStyleValue::the();
+        if (ident.equals_ignoring_case("unset"))
+            return UnsetStyleValue::the();
+        // FIXME: Implement `revert` and `revert-layer` keywords, from Cascade4 and Cascade5 respectively
     }
 
+    return {};
+}
+
+RefPtr<StyleValue> Parser::parse_dynamic_value(ParsingContext const& context, StyleComponentValueRule const& component_value)
+{
     if (component_value.is_function()) {
         auto& function = component_value.function();
 
@@ -1459,6 +1466,8 @@ Optional<Length> Parser::parse_length(ParsingContext const& context, StyleCompon
             type = Length::Type::Em;
         } else if (unit_string.equals_ignoring_case("ex")) {
             type = Length::Type::Ex;
+        } else if (unit_string.equals_ignoring_case("ch")) {
+            type = Length::Type::Ch;
         } else if (unit_string.equals_ignoring_case("vw")) {
             type = Length::Type::Vw;
         } else if (unit_string.equals_ignoring_case("vh")) {
@@ -2400,14 +2409,13 @@ RefPtr<StyleValue> Parser::parse_font_value(ParsingContext const& context, Vecto
             font_families = maybe_font_families.release_nonnull();
             break;
         }
-
         return nullptr;
     }
 
     // Since normal is the default value for all the properties that can have it, we don't have to actually
     // set anything to normal here. It'll be set when we create the FontStyleValue below.
     // We just need to make sure we were not given more normals than will fit.
-    int unset_value_count = (font_style ? 1 : 0) + (font_weight ? 1 : 0);
+    int unset_value_count = (font_style ? 0 : 1) + (font_weight ? 0 : 1);
     if (unset_value_count < normal_count)
         return nullptr;
 
@@ -2734,7 +2742,7 @@ RefPtr<StyleValue> Parser::parse_text_decoration_value(ParsingContext const& con
         decoration_style = IdentifierStyleValue::create(ValueID::Solid);
     // FIXME: Should default to 'currentcolor' special value: https://www.w3.org/TR/css-color-3/#currentcolor
     if (!decoration_color)
-        decoration_color = InitialStyleValue::create();
+        decoration_color = InitialStyleValue::the();
 
     return TextDecorationStyleValue::create(decoration_line.release_nonnull(), decoration_style.release_nonnull(), decoration_color.release_nonnull());
 }
@@ -2766,6 +2774,11 @@ RefPtr<StyleValue> Parser::parse_css_value(PropertyID property_id, TokenStream<S
 
     if (component_values.is_empty())
         return {};
+
+    if (component_values.size() == 1) {
+        if (auto parsed_value = parse_builtin_value(m_context, component_values.first()))
+            return parsed_value;
+    }
 
     // Special-case property handling
     switch (property_id) {
@@ -2870,8 +2883,17 @@ RefPtr<StyleValue> Parser::parse_css_value(ParsingContext const& context, Proper
         }
     }
 
-    if (auto builtin_or_dynamic = parse_builtin_or_dynamic_value(context, component_value))
-        return builtin_or_dynamic;
+    // FIXME: This is a hack for the `opacity` property which should really take an <alpha-value>
+    if (property_id == PropertyID::Opacity && component_value.is(Token::Type::Number)) {
+        String string = component_value.token().number_string_value();
+        return LengthStyleValue::create(Length::make_px(strtof(string.characters(), nullptr)));
+    }
+
+    if (auto builtin = parse_builtin_value(context, component_value))
+        return builtin;
+
+    if (auto dynamic = parse_dynamic_value(context, component_value))
+        return dynamic;
 
     if (auto length = parse_length_value(context, component_value))
         return length;

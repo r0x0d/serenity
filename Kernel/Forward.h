@@ -12,7 +12,7 @@ namespace Kernel {
 
 class BlockDevice;
 class CharacterDevice;
-class CoreDump;
+class Coredump;
 class Custody;
 class DevFSDeviceInode;
 class DevFSDirectoryInode;
@@ -48,7 +48,7 @@ class ProcFSSystemBoolean;
 class ProcFSSystemDirectory;
 class Process;
 class ProcessGroup;
-class RecursiveSpinLock;
+class RecursiveSpinlock;
 class Scheduler;
 class Socket;
 class SysFS;
@@ -84,9 +84,9 @@ class VirtualRangeAllocator;
 }
 
 template<typename BaseType>
-class SpinLock;
+class Spinlock;
 template<typename LockType>
-class ScopedSpinLock;
+class SpinlockLocker;
 template<typename T>
 class KResultOr;
 

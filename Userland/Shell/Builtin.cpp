@@ -9,6 +9,7 @@
 #include "Shell/Formatter.h"
 #include <AK/LexicalPath.h>
 #include <AK/ScopeGuard.h>
+#include <AK/String.h>
 #include <LibCore/ArgsParser.h>
 #include <LibCore/EventLoop.h>
 #include <LibCore/File.h>
@@ -906,11 +907,17 @@ int Shell::builtin_time(int argc, const char** argv)
 {
     Vector<const char*> args;
 
+    int number_of_iterations = 1;
+
     Core::ArgsParser parser;
+    parser.add_option(number_of_iterations, "Number of iterations", "iterations", 'n', "iterations");
     parser.set_stop_on_first_non_option(true);
     parser.add_positional_argument(args, "Command to execute with arguments", "command", Core::ArgsParser::Required::Yes);
 
     if (!parser.parse(argc, const_cast<char**>(argv), Core::ArgsParser::FailureBehavior::PrintUsage))
+        return 1;
+
+    if (number_of_iterations < 1)
         return 1;
 
     AST::Command command;
@@ -919,14 +926,38 @@ int Shell::builtin_time(int argc, const char** argv)
 
     auto commands = expand_aliases({ move(command) });
 
-    Core::ElapsedTimer timer;
+    Vector<int> iteration_times;
+    iteration_times.ensure_capacity(number_of_iterations);
+
     int exit_code = 1;
-    timer.start();
-    for (auto& job : run_commands(commands)) {
-        block_on_job(job);
-        exit_code = job.exit_code();
+    for (int i = 0; i < number_of_iterations; ++i) {
+        Core::ElapsedTimer timer;
+        timer.start();
+        for (auto& job : run_commands(commands)) {
+            block_on_job(job);
+            exit_code = job.exit_code();
+        }
+        iteration_times.unchecked_append(timer.elapsed());
     }
-    warnln("Time: {} ms", timer.elapsed());
+
+    if (number_of_iterations == 1) {
+        warnln("Time: {} ms", iteration_times.first());
+    } else {
+        float total_time = 0;
+        for (auto time : iteration_times)
+            total_time += static_cast<float>(time);
+        float average = total_time / number_of_iterations;
+
+        float total_time_excluding_first = total_time - static_cast<float>(iteration_times.first());
+        float average_excluding_first = total_time_excluding_first / (number_of_iterations - 1);
+
+        warnln("Timing report:");
+        warnln("==============");
+        warnln("Command:         {}", String::join(' ', args));
+        warnln("Average time:    {} ms", average);
+        warnln("Excluding first: {} ms", average_excluding_first);
+    }
+
     return exit_code;
 }
 

@@ -80,6 +80,7 @@ namespace JS {
     P(byteLength)                            \
     P(byteOffset)                            \
     P(calendar)                              \
+    P(calendarName)                          \
     P(call)                                  \
     P(callee)                                \
     P(caller)                                \
@@ -93,6 +94,7 @@ namespace JS {
     P(clz32)                                 \
     P(codePointAt)                           \
     P(compareExchange)                       \
+    P(compile)                               \
     P(concat)                                \
     P(configurable)                          \
     P(console)                               \
@@ -133,6 +135,8 @@ namespace JS {
     P(epochNanoseconds)                      \
     P(epochSeconds)                          \
     P(equals)                                \
+    P(era)                                   \
+    P(eraYear)                               \
     P(error)                                 \
     P(errors)                                \
     P(escape)                                \
@@ -142,6 +146,7 @@ namespace JS {
     P(exec)                                  \
     P(exp)                                   \
     P(expm1)                                 \
+    P(fallback)                              \
     P(fields)                                \
     P(fill)                                  \
     P(filter)                                \
@@ -172,6 +177,7 @@ namespace JS {
     P(get)                                   \
     P(getBigInt64)                           \
     P(getBigUint64)                          \
+    P(getCanonicalLocales)                   \
     P(getDate)                               \
     P(getDay)                                \
     P(getFloat32)                            \
@@ -259,7 +265,9 @@ namespace JS {
     P(length)                                \
     P(link)                                  \
     P(load)                                  \
+    P(locale)                                \
     P(localeCompare)                         \
+    P(localeMatcher)                         \
     P(log)                                   \
     P(log1p)                                 \
     P(log2)                                  \
@@ -290,6 +298,7 @@ namespace JS {
     P(of)                                    \
     P(offset)                                \
     P(offsetNanoseconds)                     \
+    P(overflow)                              \
     P(ownKeys)                               \
     P(padEnd)                                \
     P(padStart)                              \
@@ -311,15 +320,19 @@ namespace JS {
     P(race)                                  \
     P(random)                                \
     P(raw)                                   \
+    P(reason)                                \
     P(reduce)                                \
     P(reduceRight)                           \
     P(reject)                                \
     P(repeat)                                \
     P(resolve)                               \
+    P(resolvedOptions)                       \
     P(reverse)                               \
     P(revocable)                             \
     P(revoke)                                \
     P(round)                                 \
+    P(roundingIncrement)                     \
+    P(roundingMode)                          \
     P(seal)                                  \
     P(second)                                \
     P(seconds)                               \
@@ -358,16 +371,19 @@ namespace JS {
     P(size)                                  \
     P(slice)                                 \
     P(small)                                 \
+    P(smallestUnit)                          \
     P(some)                                  \
     P(sort)                                  \
     P(source)                                \
     P(splice)                                \
     P(sqrt)                                  \
     P(startsWith)                            \
+    P(status)                                \
     P(sticky)                                \
     P(store)                                 \
     P(strike)                                \
     P(stringify)                             \
+    P(style)                                 \
     P(sub)                                   \
     P(subarray)                              \
     P(substr)                                \
@@ -408,6 +424,7 @@ namespace JS {
     P(trimRight)                             \
     P(trimStart)                             \
     P(trunc)                                 \
+    P(type)                                  \
     P(undefined)                             \
     P(unescape)                              \
     P(unicode)                               \
@@ -422,6 +439,7 @@ namespace JS {
     P(with)                                  \
     P(withCalendar)                          \
     P(withPlainDate)                         \
+    P(withPlainTime)                         \
     P(writable)                              \
     P(year)                                  \
     P(yearMonthFromFields)                   \

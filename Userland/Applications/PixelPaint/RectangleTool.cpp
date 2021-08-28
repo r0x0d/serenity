@@ -42,51 +42,61 @@ void RectangleTool::draw_using(GUI::Painter& painter, Gfx::IntRect const& rect)
     }
 }
 
-void RectangleTool::on_mousedown(Layer&, GUI::MouseEvent& event, GUI::MouseEvent&)
+void RectangleTool::on_mousedown(Layer* layer, MouseEvent& event)
 {
-    if (event.button() != GUI::MouseButton::Left && event.button() != GUI::MouseButton::Right)
+    if (!layer)
+        return;
+
+    auto& layer_event = event.layer_event();
+    if (layer_event.button() != GUI::MouseButton::Left && layer_event.button() != GUI::MouseButton::Right)
         return;
 
     if (m_drawing_button != GUI::MouseButton::None)
         return;
 
-    m_drawing_button = event.button();
-    m_rectangle_start_position = event.position();
-    m_rectangle_end_position = event.position();
+    m_drawing_button = layer_event.button();
+    m_rectangle_start_position = layer_event.position();
+    m_rectangle_end_position = layer_event.position();
     m_editor->update();
 }
 
-void RectangleTool::on_mouseup(Layer& layer, GUI::MouseEvent& event, GUI::MouseEvent&)
+void RectangleTool::on_mouseup(Layer* layer, MouseEvent& event)
 {
-    if (event.button() == m_drawing_button) {
-        GUI::Painter painter(layer.bitmap());
+    if (!layer)
+        return;
+
+    if (event.layer_event().button() == m_drawing_button) {
+        GUI::Painter painter(layer->bitmap());
         auto rect = Gfx::IntRect::from_two_points(m_rectangle_start_position, m_rectangle_end_position);
         draw_using(painter, rect);
         m_drawing_button = GUI::MouseButton::None;
-        layer.did_modify_bitmap();
+        layer->did_modify_bitmap();
         m_editor->did_complete_action();
     }
 }
 
-void RectangleTool::on_mousemove(Layer&, GUI::MouseEvent& event, GUI::MouseEvent&)
+void RectangleTool::on_mousemove(Layer* layer, MouseEvent& event)
 {
+    if (!layer)
+        return;
+
     if (m_drawing_button == GUI::MouseButton::None)
         return;
 
-    m_rectangle_end_position = event.position();
+    m_rectangle_end_position = event.layer_event().position();
     m_editor->update();
 }
 
-void RectangleTool::on_second_paint(Layer const& layer, GUI::PaintEvent& event)
+void RectangleTool::on_second_paint(Layer const* layer, GUI::PaintEvent& event)
 {
-    if (m_drawing_button == GUI::MouseButton::None)
+    if (!layer || m_drawing_button == GUI::MouseButton::None)
         return;
 
     GUI::Painter painter(*m_editor);
     painter.add_clip_rect(event.rect());
     auto rect = Gfx::IntRect::from_two_points(
-        m_editor->layer_position_to_editor_position(layer, m_rectangle_start_position).to_type<int>(),
-        m_editor->layer_position_to_editor_position(layer, m_rectangle_end_position).to_type<int>());
+        m_editor->layer_position_to_editor_position(*layer, m_rectangle_start_position).to_type<int>(),
+        m_editor->layer_position_to_editor_position(*layer, m_rectangle_end_position).to_type<int>());
     draw_using(painter, rect);
 }
 

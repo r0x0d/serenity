@@ -109,7 +109,7 @@ private:
             obj.add("bytes_in", socket.bytes_in());
             obj.add("packets_out", socket.packets_out());
             obj.add("bytes_out", socket.bytes_out());
-            if (Process::current()->is_superuser() || Process::current()->uid() == socket.origin_uid()) {
+            if (Process::current().is_superuser() || Process::current().uid() == socket.origin_uid()) {
                 obj.add("origin_pid", socket.origin_pid());
                 obj.add("origin_uid", socket.origin_uid());
                 obj.add("origin_gid", socket.origin_gid());
@@ -159,7 +159,7 @@ private:
             obj.add("local_port", socket.local_port());
             obj.add("peer_address", socket.peer_address().to_string());
             obj.add("peer_port", socket.peer_port());
-            if (Process::current()->is_superuser() || Process::current()->uid() == socket.origin_uid()) {
+            if (Process::current().is_superuser() || Process::current().uid() == socket.origin_uid()) {
                 obj.add("origin_pid", socket.origin_pid());
                 obj.add("origin_uid", socket.origin_uid());
                 obj.add("origin_gid", socket.origin_gid());
@@ -336,7 +336,7 @@ private:
     ProcFSSelfProcessDirectory();
     virtual bool acquire_link(KBufferBuilder& builder) override
     {
-        builder.appendff("{}", Process::current()->pid().value());
+        builder.appendff("{}", Process::current().pid().value());
         return true;
     }
 };
@@ -474,7 +474,7 @@ private:
             process_object.add("kernel", process.is_kernel_process());
             auto thread_array = process_object.add_array("threads");
             process.for_each_thread([&](const Thread& thread) {
-                ScopedSpinLock locker(thread.get_lock());
+                SpinlockLocker locker(thread.get_lock());
                 auto thread_object = thread_array.add_object();
 #if LOCK_DEBUG
                 thread_object.add("lock_count", thread.lock_count());
@@ -500,7 +500,7 @@ private:
             });
         };
 
-        ScopedSpinLock lock(g_scheduler_lock);
+        SpinlockLocker lock(g_scheduler_lock);
         {
             {
                 auto array = json.add_array("processes");
@@ -530,7 +530,7 @@ private:
             [&](Processor& proc) {
                 auto& info = proc.info();
                 auto obj = array.add_object();
-                obj.add("processor", proc.get_id());
+                obj.add("processor", proc.id());
                 obj.add("cpuid", info.cpuid());
                 obj.add("family", info.display_family());
 
@@ -737,7 +737,7 @@ private:
 
     virtual bool output(KBufferBuilder& builder) override
     {
-        if (!Process::current()->is_superuser())
+        if (!Process::current().is_superuser())
             return false;
         builder.append(String::number(kernel_load_base));
         return true;

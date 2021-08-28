@@ -39,12 +39,12 @@ public:
     [[nodiscard]] Mode force_unlock_if_locked(u32&);
     [[nodiscard]] bool is_locked() const
     {
-        ScopedSpinLock lock(m_lock);
+        SpinlockLocker lock(m_lock);
         return m_mode != Mode::Unlocked;
     }
     [[nodiscard]] bool own_lock() const
     {
-        ScopedSpinLock lock(m_lock);
+        SpinlockLocker lock(m_lock);
         if (m_mode == Mode::Exclusive)
             return m_holder == Thread::current();
         if (m_mode == Mode::Shared)
@@ -77,7 +77,7 @@ private:
         return mode == Mode::Exclusive ? m_blocked_threads_list_exclusive : m_blocked_threads_list_shared;
     }
 
-    void block(Thread&, Mode, ScopedSpinLock<SpinLock<u8>>&, u32);
+    void block(Thread&, Mode, SpinlockLocker<Spinlock<u8>>&, u32);
     void unblock_waiters(Mode);
 
     const char* m_name { nullptr };
@@ -98,7 +98,7 @@ private:
     BlockedThreadList m_blocked_threads_list_exclusive;
     BlockedThreadList m_blocked_threads_list_shared;
 
-    mutable SpinLock<u8> m_lock;
+    mutable Spinlock<u8> m_lock;
 };
 
 class MutexLocker {
@@ -152,54 +152,6 @@ public:
 private:
     Mutex* m_lock;
     bool m_locked { true };
-};
-
-class ScopedLockRelease {
-    AK_MAKE_NONCOPYABLE(ScopedLockRelease);
-
-public:
-    ScopedLockRelease& operator=(ScopedLockRelease&&) = delete;
-
-    ScopedLockRelease(Mutex& lock)
-        : m_lock(&lock)
-        , m_previous_mode(lock.force_unlock_if_locked(m_previous_recursions))
-    {
-    }
-
-    ScopedLockRelease(ScopedLockRelease&& from)
-        : m_lock(exchange(from.m_lock, nullptr))
-        , m_previous_mode(exchange(from.m_previous_mode, Mutex::Mode::Unlocked))
-        , m_previous_recursions(exchange(from.m_previous_recursions, 0))
-    {
-    }
-
-    ~ScopedLockRelease()
-    {
-        if (m_lock && m_previous_mode != Mutex::Mode::Unlocked)
-            m_lock->restore_lock(m_previous_mode, m_previous_recursions);
-    }
-
-    void restore_lock()
-    {
-        VERIFY(m_lock);
-        if (m_previous_mode != Mutex::Mode::Unlocked) {
-            m_lock->restore_lock(m_previous_mode, m_previous_recursions);
-            m_previous_mode = Mutex::Mode::Unlocked;
-            m_previous_recursions = 0;
-        }
-    }
-
-    void do_not_restore()
-    {
-        VERIFY(m_lock);
-        m_previous_mode = Mutex::Mode::Unlocked;
-        m_previous_recursions = 0;
-    }
-
-private:
-    Mutex* m_lock;
-    Mutex::Mode m_previous_mode;
-    u32 m_previous_recursions;
 };
 
 }

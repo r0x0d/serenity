@@ -70,6 +70,7 @@ public:
     virtual void gl_tex_image_2d(GLenum target, GLint level, GLint internal_format, GLsizei width, GLsizei height, GLint border, GLenum format, GLenum type, const GLvoid* data) override;
     virtual void gl_tex_parameter(GLenum target, GLenum pname, GLfloat param) override;
     virtual void gl_tex_coord(GLfloat s, GLfloat t, GLfloat r, GLfloat q) override;
+    virtual void gl_tex_env(GLenum target, GLenum pname, GLfloat param) override;
     virtual void gl_bind_texture(GLenum target, GLuint texture) override;
     virtual void gl_active_texture(GLenum texture) override;
     virtual void gl_get_floatv(GLenum pname, GLfloat* params) override;
@@ -84,6 +85,13 @@ public:
     virtual void gl_color_mask(GLboolean red, GLboolean green, GLboolean blue, GLboolean alpha) override;
     virtual void gl_get_booleanv(GLenum pname, GLboolean* data) override;
     virtual void gl_get_integerv(GLenum pname, GLint* data) override;
+    virtual void gl_depth_range(GLdouble min, GLdouble max) override;
+    virtual void gl_depth_func(GLenum func) override;
+    virtual void gl_polygon_mode(GLenum face, GLenum mode) override;
+    virtual void gl_fogfv(GLenum pname, GLfloat* params) override;
+    virtual void gl_fogf(GLenum pname, GLfloat param) override;
+    virtual void gl_fogi(GLenum pname, GLint param) override;
+    virtual void gl_pixel_store(GLenum pname, GLfloat param) override;
     virtual void present() override;
 
 private:
@@ -119,10 +127,12 @@ private:
     FloatVector4 m_clear_color = { 0.0f, 0.0f, 0.0f, 0.0f };
     double m_clear_depth = { 1.0 };
     FloatVector4 m_current_vertex_color = { 1.0f, 1.0f, 1.0f, 1.0f };
+    FloatVector4 m_current_vertex_tex_coord = { 0.0f, 0.0f, 0.0f, 0.0f };
 
     Vector<GLVertex, 96> vertex_list;
     Vector<GLTriangle, 32> triangle_list;
     Vector<GLTriangle, 32> processed_triangles;
+    Vector<GLVertex> m_clipped_vertices;
 
     GLenum m_error = GL_NO_ERROR;
     bool m_in_draw_state = false;
@@ -214,7 +224,8 @@ private:
             decltype(&SoftwareGLContext::gl_tex_parameter),
             decltype(&SoftwareGLContext::gl_depth_mask),
             decltype(&SoftwareGLContext::gl_draw_arrays),
-            decltype(&SoftwareGLContext::gl_draw_elements)>;
+            decltype(&SoftwareGLContext::gl_draw_elements),
+            decltype(&SoftwareGLContext::gl_depth_range)>;
 
         using ExtraSavedArguments = Variant<
             FloatMatrix4x4>;
@@ -245,6 +256,8 @@ private:
     VertexAttribPointer m_client_vertex_pointer;
     VertexAttribPointer m_client_color_pointer;
     VertexAttribPointer m_client_tex_coord_pointer;
+
+    size_t m_unpack_row_length { 0 };
 };
 
 }

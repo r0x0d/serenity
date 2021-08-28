@@ -91,7 +91,7 @@ String sample_format_name(PcmSampleFormat format);
 template<typename SampleType>
 class ResampleHelper {
 public:
-    ResampleHelper(double source, double target);
+    ResampleHelper(u32 source, u32 target);
 
     // To be used as follows:
     // while the resampler doesn't need a new sample, read_sample(current) and store the resulting samples.
@@ -103,18 +103,24 @@ public:
     bool read_sample(SampleType& next_l, SampleType& next_r);
     Vector<SampleType> resample(Vector<SampleType> to_resample);
 
+    void reset();
+
+    u32 source() const { return m_source; }
+    u32 target() const { return m_target; }
+
 private:
-    const double m_ratio;
-    double m_current_ratio { 0 };
+    const u32 m_source;
+    const u32 m_target;
+    u32 m_current_ratio { 0 };
     SampleType m_last_sample_l;
     SampleType m_last_sample_r;
 };
 
-// A buffer of audio samples, normalized to 44100hz.
+// A buffer of audio samples.
 class Buffer : public RefCounted<Buffer> {
 public:
-    static RefPtr<Buffer> from_pcm_data(ReadonlyBytes data, ResampleHelper<double>& resampler, int num_channels, PcmSampleFormat sample_format);
-    static RefPtr<Buffer> from_pcm_stream(InputMemoryStream& stream, ResampleHelper<double>& resampler, int num_channels, PcmSampleFormat sample_format, int num_samples);
+    static RefPtr<Buffer> from_pcm_data(ReadonlyBytes data, int num_channels, PcmSampleFormat sample_format);
+    static RefPtr<Buffer> from_pcm_stream(InputMemoryStream& stream, int num_channels, PcmSampleFormat sample_format, int num_samples);
     static NonnullRefPtr<Buffer> create_with_samples(Vector<Frame>&& samples)
     {
         return adopt_ref(*new Buffer(move(samples)));
@@ -153,5 +159,8 @@ private:
     const i32 m_id;
     const int m_sample_count;
 };
+
+// This only works for double resamplers, and therefore cannot be part of the class
+NonnullRefPtr<Buffer> resample_buffer(ResampleHelper<double>& resampler, Buffer const& to_resample);
 
 }

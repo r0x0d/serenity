@@ -219,13 +219,17 @@ void NodeWithStyle::apply_style(const CSS::StyleProperties& specified_style)
 {
     auto& computed_values = static_cast<CSS::MutableComputedValues&>(m_computed_values);
 
-    m_font = specified_style.font();
+    m_font = specified_style.font(*this);
     m_line_height = specified_style.line_height(*this);
 
     {
-        // FIXME: This doesn't work right for relative font-sizes
-        auto length = specified_style.length_or_fallback(CSS::PropertyID::FontSize, CSS::Length(10, CSS::Length::Type::Px));
-        m_font_size = length.raw_value();
+        constexpr int default_font_size = 10;
+        auto parent_font_size = parent() == nullptr ? default_font_size : parent()->font_size();
+        auto length = specified_style.length_or_fallback(CSS::PropertyID::FontSize, CSS::Length(default_font_size, CSS::Length::Type::Px));
+        // FIXME: em sizes return 0 here, for some reason
+        m_font_size = length.resolved_or_zero(*this, parent_font_size).to_px(*this);
+        if (m_font_size == 0)
+            m_font_size = default_font_size;
     }
 
     auto bgimage = specified_style.property(CSS::PropertyID::BackgroundImage);

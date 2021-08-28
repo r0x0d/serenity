@@ -7,6 +7,7 @@
 #pragma once
 
 #include <Kernel/API/POSIX/signal.h>
+#include <bits/sighow.h>
 #include <signal_numbers.h>
 #include <sys/types.h>
 
@@ -30,5 +31,6 @@ int getsignalbyname(const char*);
 const char* getsignalname(int);
 
 extern const char* sys_siglist[NSIG];
+extern const char* sys_signame[NSIG];
 
 __END_DECLS

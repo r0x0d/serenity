@@ -9,6 +9,8 @@
 #include <LibGfx/FontDatabase.h>
 #include <LibWeb/CSS/StyleProperties.h>
 #include <LibWeb/FontCache.h>
+#include <LibWeb/Layout/BlockBox.h>
+#include <LibWeb/Layout/Node.h>
 
 namespace Web::CSS {
 
@@ -43,10 +45,38 @@ void StyleProperties::set_property(CSS::PropertyID id, const StringView& value)
 
 Optional<NonnullRefPtr<StyleValue>> StyleProperties::property(CSS::PropertyID id) const
 {
-    auto it = m_property_values.find((unsigned)id);
-    if (it == m_property_values.end())
+    auto fetch_initial = [](CSS::PropertyID id) -> Optional<NonnullRefPtr<StyleValue>> {
+        auto initial_value = property_initial_value(id);
+        if (initial_value)
+            return initial_value.release_nonnull();
         return {};
-    return it->value;
+    };
+    auto fetch_inherited = [](CSS::PropertyID) -> Optional<NonnullRefPtr<StyleValue>> {
+        // FIXME: Implement inheritance
+        return {};
+    };
+
+    auto it = m_property_values.find((unsigned)id);
+    if (it == m_property_values.end()) {
+        if (is_inherited_property(id))
+            return fetch_inherited(id);
+        return fetch_initial(id);
+    }
+
+    auto& value = it->value;
+    if (value->is_initial())
+        return fetch_initial(id);
+    if (value->is_inherit())
+        return fetch_inherited(id);
+    if (value->is_unset()) {
+        if (is_inherited_property(id)) {
+            return fetch_inherited(id);
+        } else {
+            return fetch_initial(id);
+        }
+    }
+
+    return value;
 }
 
 Length StyleProperties::length_or_fallback(CSS::PropertyID id, const Length& fallback) const
@@ -74,14 +104,6 @@ LengthBox StyleProperties::length_box(CSS::PropertyID left_id, CSS::PropertyID t
     return box;
 }
 
-String StyleProperties::string_or_fallback(CSS::PropertyID id, const StringView& fallback) const
-{
-    auto value = property(id);
-    if (!value.has_value())
-        return fallback;
-    return value.value()->to_string();
-}
-
 Color StyleProperties::color_or_fallback(CSS::PropertyID id, const DOM::Document& document, Color fallback) const
 {
     auto value = property(id);
@@ -90,58 +112,48 @@ Color StyleProperties::color_or_fallback(CSS::PropertyID id, const DOM::Document
     return value.value()->to_color(document);
 }
 
-void StyleProperties::load_font() const
+void StyleProperties::load_font(Layout::Node const& node) const
 {
-    auto family_value = string_or_fallback(CSS::PropertyID::FontFamily, "Katica");
     auto font_size = property(CSS::PropertyID::FontSize).value_or(IdentifierStyleValue::create(CSS::ValueID::Medium));
     auto font_weight = property(CSS::PropertyID::FontWeight).value_or(IdentifierStyleValue::create(CSS::ValueID::Normal));
 
-    auto family_parts = family_value.split(',');
-    auto family = family_parts[0];
-
-    auto monospace = false;
-    auto bold = false;
-
-    if (family.is_one_of("monospace", "ui-monospace")) {
-        monospace = true;
-        family = "Csilla";
-    } else if (family.is_one_of("serif", "sans-serif", "cursive", "fantasy", "ui-serif", "ui-sans-serif", "ui-rounded")) {
-        family = "Katica";
-    }
-
-    int weight = 400;
+    int weight = Gfx::FontWeight::Regular;
     if (font_weight->is_identifier()) {
         switch (static_cast<const IdentifierStyleValue&>(*font_weight).id()) {
         case CSS::ValueID::Normal:
-            weight = 400;
+            weight = Gfx::FontWeight::Regular;
             break;
         case CSS::ValueID::Bold:
-            weight = 700;
+            weight = Gfx::FontWeight::Bold;
             break;
         case CSS::ValueID::Lighter:
             // FIXME: This should be relative to the parent.
-            weight = 400;
+            weight = Gfx::FontWeight::Regular;
             break;
         case CSS::ValueID::Bolder:
             // FIXME: This should be relative to the parent.
-            weight = 700;
+            weight = Gfx::FontWeight::Bold;
             break;
         default:
             break;
         }
-    } else if (font_weight->is_length()) {
-        // FIXME: This isn't really a length, it's a numeric value..
-        int font_weight_integer = font_weight->to_length().raw_value();
-        if (font_weight_integer <= 400)
-            weight = 400;
-        if (font_weight_integer <= 700)
-            weight = 700;
-        weight = 900;
+    } else if (font_weight->is_numeric()) {
+        int font_weight_integer = roundf(static_cast<NumericStyleValue const&>(*font_weight).value());
+        if (font_weight_integer <= Gfx::FontWeight::Regular)
+            weight = Gfx::FontWeight::Regular;
+        else if (font_weight_integer <= Gfx::FontWeight::Bold)
+            weight = Gfx::FontWeight::Bold;
+        else
+            weight = Gfx::FontWeight::Black;
     }
+    // FIXME: calc() for font-weight
 
-    bold = weight > 400;
+    bool bold = weight > Gfx::FontWeight::Regular;
 
     int size = 10;
+    auto parent_font_size = node.parent() == nullptr ? size : node.parent()->font_size();
+    constexpr float font_size_ratio = 1.2f;
+
     if (font_size->is_identifier()) {
         switch (static_cast<const IdentifierStyleValue&>(*font_size).id()) {
         case CSS::ValueID::XxSmall:
@@ -159,38 +171,94 @@ void StyleProperties::load_font() const
             size = 12;
             break;
         case CSS::ValueID::Smaller:
-            // FIXME: This should be relative to the parent.
-            size = 10;
+            size = roundf(parent_font_size / font_size_ratio);
             break;
         case CSS::ValueID::Larger:
-            // FIXME: This should be relative to the parent.
-            size = 12;
+            size = roundf(parent_font_size * font_size_ratio);
             break;
 
         default:
             break;
         }
-    } else if (font_size->is_length()) {
-        // FIXME: This isn't really a length, it's a numeric value..
-        int font_size_integer = font_size->to_length().raw_value();
-        size = font_size_integer;
+    } else {
+        Optional<Length> maybe_length;
+        if (font_size->is_length()) {
+            maybe_length = font_size->to_length();
+        } else if (font_size->is_calculated()) {
+            Length length = Length(0, Length::Type::Calculated);
+            length.set_calculated_style(verify_cast<CalculatedStyleValue>(font_size.ptr()));
+            maybe_length = length;
+        }
+        if (maybe_length.has_value()) {
+            // FIXME: em sizes return 0 here, for some reason
+            auto calculated_size = maybe_length.value().resolved_or_zero(node, parent_font_size).to_px(node);
+            if (calculated_size != 0)
+                size = calculated_size;
+        }
     }
 
-    FontSelector font_selector { family, size, weight };
+    // FIXME: Implement the full font-matching algorithm: https://www.w3.org/TR/css-fonts-4/#font-matching-algorithm
 
-    auto found_font = FontCache::the().get(font_selector);
-    if (found_font) {
-        m_font = found_font;
-        return;
+    // Note: This is modified by the find_font() lambda
+    FontSelector font_selector;
+    bool monospace = false;
+
+    auto find_font = [&](String const& family) -> RefPtr<Gfx::Font> {
+        font_selector = { family, size, weight };
+
+        if (auto found_font = FontCache::the().get(font_selector))
+            return found_font;
+
+        if (auto found_font = Gfx::FontDatabase::the().get(family, size, weight))
+            return found_font;
+
+        return {};
+    };
+
+    // FIXME: Replace hard-coded font names with a relevant call to FontDatabase.
+    // Currently, we cannot request the default font's name, or request it at a specific size and weight.
+    // So, hard-coded font names it is.
+    auto find_generic_font = [&](ValueID font_id) -> RefPtr<Gfx::Font> {
+        switch (font_id) {
+        case ValueID::Monospace:
+        case ValueID::UiMonospace:
+            monospace = true;
+            return find_font("Csilla");
+        case ValueID::Serif:
+        case ValueID::SansSerif:
+        case ValueID::Cursive:
+        case ValueID::Fantasy:
+        case ValueID::UiSerif:
+        case ValueID::UiSansSerif:
+        case ValueID::UiRounded:
+            return find_font("Katica");
+        default:
+            return {};
+        }
+    };
+
+    RefPtr<Gfx::Font> found_font {};
+
+    auto family_value = property(PropertyID::FontFamily).value_or(StringStyleValue::create("Katica"));
+    if (family_value->is_value_list()) {
+        auto& family_list = static_cast<StyleValueList const&>(*family_value).values();
+        for (auto& family : family_list) {
+            if (family.is_identifier()) {
+                found_font = find_generic_font(family.to_identifier());
+            } else if (family.is_string()) {
+                found_font = find_font(family.to_string());
+            }
+            if (found_font)
+                break;
+        }
+    } else if (family_value->is_identifier()) {
+        found_font = find_generic_font(family_value->to_identifier());
+    } else if (family_value->is_string()) {
+        found_font = find_font(family_value->to_string());
     }
-
-    Gfx::FontDatabase::the().for_each_font([&](auto& font) {
-        if (font.family() == family && font.weight() == weight && font.presentation_size() == size)
-            found_font = font;
-    });
 
     if (!found_font) {
-        dbgln("Font not found: '{}' {} {}", family, size, weight);
+        dbgln("Font not found: '{}' {} {}", family_value->to_string(), size, weight);
         found_font = font_fallback(monospace, bold);
     }
 
@@ -217,7 +285,7 @@ float StyleProperties::line_height(const Layout::Node& layout_node) const
     auto line_height_length = length_or_fallback(CSS::PropertyID::LineHeight, Length::make_auto());
     if (line_height_length.is_absolute())
         return (float)line_height_length.to_px(layout_node);
-    return (float)font().glyph_height() * 1.4f;
+    return (float)font(layout_node).glyph_height() * 1.4f;
 }
 
 Optional<int> StyleProperties::z_index() const
@@ -313,7 +381,7 @@ Optional<float> StyleProperties::flex_shrink_factor() const
     auto value = property(CSS::PropertyID::FlexShrink);
     if (!value.has_value())
         return {};
-    if (!value.value()->is_numeric()) {
+    if (value.value()->is_numeric()) {
         auto numeric = verify_cast<CSS::NumericStyleValue>(value.value().ptr());
         return numeric->value();
     }

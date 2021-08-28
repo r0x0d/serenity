@@ -8,7 +8,9 @@
 #include <AK/CharacterTypes.h>
 #include <AK/DateTimeLexer.h>
 #include <LibJS/Runtime/IteratorOperations.h>
+#include <LibJS/Runtime/PropertyName.h>
 #include <LibJS/Runtime/Temporal/AbstractOperations.h>
+#include <LibJS/Runtime/Temporal/Calendar.h>
 #include <LibJS/Runtime/Temporal/Duration.h>
 #include <LibJS/Runtime/Temporal/PlainDate.h>
 #include <LibJS/Runtime/Temporal/PlainTime.h>
@@ -97,8 +99,10 @@ Object* get_options_object(GlobalObject& global_object, Value options)
 }
 
 // 13.3 GetOption ( options, property, types, values, fallback ), https://tc39.es/proposal-temporal/#sec-getoption
-Value get_option(GlobalObject& global_object, Object& options, String const& property, Vector<OptionType> const& types, Vector<StringView> const& values, Value fallback)
+Value get_option(GlobalObject& global_object, Object& options, PropertyName const& property, Vector<OptionType> const& types, Vector<StringView> const& values, Value fallback)
 {
+    VERIFY(property.is_string());
+
     auto& vm = global_object.vm();
 
     // 1. Assert: Type(options) is Object.
@@ -138,7 +142,7 @@ Value get_option(GlobalObject& global_object, Object& options, String const& pro
             return {};
         // b. If value is NaN, throw a RangeError exception.
         if (value.is_nan()) {
-            vm.throw_exception<RangeError>(global_object, ErrorType::OptionIsNotValidValue, vm.names.NaN.as_string(), property);
+            vm.throw_exception<RangeError>(global_object, ErrorType::OptionIsNotValidValue, vm.names.NaN.as_string(), property.as_string());
             return {};
         }
     }
@@ -155,7 +159,7 @@ Value get_option(GlobalObject& global_object, Object& options, String const& pro
         VERIFY(value.is_string());
         // a. If values does not contain value, throw a RangeError exception.
         if (!values.contains_slow(value.as_string().string())) {
-            vm.throw_exception<RangeError>(global_object, ErrorType::OptionIsNotValidValue, value.as_string().string(), property);
+            vm.throw_exception<RangeError>(global_object, ErrorType::OptionIsNotValidValue, value.as_string().string(), property.as_string());
             return {};
         }
     }
@@ -170,7 +174,7 @@ Optional<String> to_temporal_overflow(GlobalObject& global_object, Object& norma
     auto& vm = global_object.vm();
 
     // 1. Return ? GetOption(normalizedOptions, "overflow", « String », « "constrain", "reject" », "constrain").
-    auto option = get_option(global_object, normalized_options, "overflow", { OptionType::String }, { "constrain"sv, "reject"sv }, js_string(vm, "constrain"));
+    auto option = get_option(global_object, normalized_options, vm.names.overflow, { OptionType::String }, { "constrain"sv, "reject"sv }, js_string(vm, "constrain"));
     if (vm.exception())
         return {};
 
@@ -183,7 +187,22 @@ Optional<String> to_temporal_rounding_mode(GlobalObject& global_object, Object& 
 {
     auto& vm = global_object.vm();
 
-    auto option = get_option(global_object, normalized_options, "roundingMode", { OptionType::String }, { "ceil"sv, "floor"sv, "trunc"sv, "halfExpand"sv }, js_string(vm, fallback));
+    // 1. Return ? GetOption(normalizedOptions, "roundingMode", « String », « "ceil", "floor", "trunc", "halfExpand" », fallback).
+    auto option = get_option(global_object, normalized_options, vm.names.roundingMode, { OptionType::String }, { "ceil"sv, "floor"sv, "trunc"sv, "halfExpand"sv }, js_string(vm, fallback));
+    if (vm.exception())
+        return {};
+
+    VERIFY(option.is_string());
+    return option.as_string().string();
+}
+
+// 13.11 ToShowCalendarOption ( normalizedOptions ), https://tc39.es/proposal-temporal/#sec-temporal-toshowcalendaroption
+Optional<String> to_show_calendar_option(GlobalObject& global_object, Object& normalized_options)
+{
+    auto& vm = global_object.vm();
+
+    // 1. Return ? GetOption(normalizedOptions, "calendarName", « String », « "auto", "always", "never" », "auto").
+    auto option = get_option(global_object, normalized_options, vm.names.calendarName, { OptionType::String }, { "auto"sv, "always"sv, "never"sv }, js_string(vm, "auto"sv));
     if (vm.exception())
         return {};
 
@@ -219,7 +238,7 @@ u64 to_temporal_rounding_increment(GlobalObject& global_object, Object& normaliz
     }
 
     // 5. Let increment be ? GetOption(normalizedOptions, "roundingIncrement", « Number », empty, 1).
-    auto increment_value = get_option(global_object, normalized_options, "roundingIncrement", { OptionType::Number }, {}, Value(1));
+    auto increment_value = get_option(global_object, normalized_options, vm.names.roundingIncrement, { OptionType::Number }, {}, Value(1));
     if (vm.exception())
         return {};
     VERIFY(increment_value.is_number());
@@ -267,7 +286,7 @@ Optional<String> to_smallest_temporal_unit(GlobalObject& global_object, Object& 
     // 1. Assert: disallowedUnits does not contain fallback.
 
     // 2. Let smallestUnit be ? GetOption(normalizedOptions, "smallestUnit", « String », « "year", "years", "month", "months", "week", "weeks", "day", "days", "hour", "hours", "minute", "minutes", "second", "seconds", "millisecond", "milliseconds", "microsecond", "microseconds", "nanosecond", "nanoseconds" », fallback).
-    auto smallest_unit_value = get_option(global_object, normalized_options, "smallestUnit"sv, { OptionType::String }, { "year"sv, "years"sv, "month"sv, "months"sv, "week"sv, "weeks"sv, "day"sv, "days"sv, "hour"sv, "hours"sv, "minute"sv, "minutes"sv, "second"sv, "seconds"sv, "millisecond"sv, "milliseconds"sv, "microsecond"sv, "microseconds"sv, "nanosecond"sv, "nanoseconds"sv }, fallback.has_value() ? js_string(vm, *fallback) : js_undefined());
+    auto smallest_unit_value = get_option(global_object, normalized_options, vm.names.smallestUnit, { OptionType::String }, { "year"sv, "years"sv, "month"sv, "months"sv, "week"sv, "weeks"sv, "day"sv, "days"sv, "hour"sv, "hours"sv, "minute"sv, "minutes"sv, "second"sv, "seconds"sv, "millisecond"sv, "milliseconds"sv, "microsecond"sv, "microseconds"sv, "nanosecond"sv, "nanoseconds"sv }, fallback.has_value() ? js_string(vm, *fallback) : js_undefined());
     if (vm.exception())
         return {};
 
@@ -492,8 +511,10 @@ Optional<TemporalInstant> parse_temporal_instant_string(GlobalObject& global_obj
 }
 
 // 13.37 ParseTemporalCalendarString ( isoString ), https://tc39.es/proposal-temporal/#sec-temporal-parsetemporalcalendarstring
-Optional<String> parse_temporal_calendar_string([[maybe_unused]] GlobalObject& global_object, [[maybe_unused]] String const& iso_string)
+Optional<String> parse_temporal_calendar_string(GlobalObject& global_object, [[maybe_unused]] String const& iso_string)
 {
+    auto& vm = global_object.vm();
+
     // 1. Assert: Type(isoString) is String.
 
     // 2. If isoString does not satisfy the syntax of a TemporalCalendarString (see 13.33), then
@@ -508,7 +529,14 @@ Optional<String> parse_temporal_calendar_string([[maybe_unused]] GlobalObject& g
         return "iso8601";
     }
 
-    // 5. Return id.
+    // 5. If ! IsBuiltinCalendar(id) is false, then
+    if (!is_builtin_calendar(*id_part)) {
+        // a. Throw a RangeError exception.
+        vm.throw_exception<RangeError>(global_object, ErrorType::TemporalInvalidCalendarIdentifier, *id_part);
+        return {};
+    }
+
+    // 6. Return id.
     return id_part.value();
 }
 
@@ -532,6 +560,26 @@ Optional<TemporalDate> parse_temporal_date_string(GlobalObject& global_object, S
     return TemporalDate { .year = result->year, .month = result->month, .day = result->day, .calendar = move(result->calendar) };
 }
 
+// 13.39 ParseTemporalDateTimeString ( isoString ), https://tc39.es/proposal-temporal/#sec-temporal-parsetemporaldatetimestring
+Optional<ISODateTime> parse_temporal_date_time_string(GlobalObject& global_object, String const& iso_string)
+{
+    auto& vm = global_object.vm();
+
+    // 1. Assert: Type(isoString) is String.
+
+    // 2. If isoString does not satisfy the syntax of a TemporalDateTimeString (see 13.33), then
+    // a. Throw a RangeError exception.
+    // TODO
+
+    // 3. Let result be ? ParseISODateTime(isoString).
+    auto result = parse_iso_date_time(global_object, iso_string);
+    if (vm.exception())
+        return {};
+
+    // 4. Return result.
+    return result;
+}
+
 // 13.40 ParseTemporalDurationString ( isoString ), https://tc39.es/proposal-temporal/#sec-temporal-parsetemporaldurationstring
 Optional<TemporalDuration> parse_temporal_duration_string(GlobalObject& global_object, String const& iso_string)
 {
@@ -540,7 +588,27 @@ Optional<TemporalDuration> parse_temporal_duration_string(GlobalObject& global_o
     TODO();
 }
 
-// 13.43 ParseTemporalTimeZoneString ( isoString ), https://tc39.es/proposal-temporal/#sec-temporal-parsetemporaltimezonestring
+// 13.43 ParseTemporalTimeString ( isoString ), https://tc39.es/proposal-temporal/#sec-temporal-parsetemporaltimestring
+Optional<TemporalTime> parse_temporal_time_string(GlobalObject& global_object, [[maybe_unused]] String const& iso_string)
+{
+    auto& vm = global_object.vm();
+
+    // 1. Assert: Type(isoString) is String.
+
+    // 2. If isoString does not satisfy the syntax of a TemporalTimeString (see 13.33), then
+    // a. Throw a RangeError exception.
+    // TODO
+
+    // 3. Let result be ? ParseISODateTime(isoString).
+    auto result = parse_iso_date_time(global_object, iso_string);
+    if (vm.exception())
+        return {};
+
+    // 4. Return the Record { [[Hour]]: result.[[Hour]], [[Minute]]: result.[[Minute]], [[Second]]: result.[[Second]], [[Millisecond]]: result.[[Millisecond]], [[Microsecond]]: result.[[Microsecond]], [[Nanosecond]]: result.[[Nanosecond]], [[Calendar]]: result.[[Calendar]] }.
+    return TemporalTime { .hour = result->hour, .minute = result->minute, .second = result->second, .millisecond = result->millisecond, .microsecond = result->microsecond, .nanosecond = result->nanosecond, .calendar = move(result->calendar) };
+}
+
+// 13.44 ParseTemporalTimeZoneString ( isoString ), https://tc39.es/proposal-temporal/#sec-temporal-parsetemporaltimezonestring
 Optional<TemporalTimeZone> parse_temporal_time_zone_string(GlobalObject& global_object, [[maybe_unused]] String const& iso_string)
 {
     auto& vm = global_object.vm();
@@ -633,7 +701,7 @@ Optional<TemporalTimeZone> parse_temporal_time_zone_string(GlobalObject& global_
     return TemporalTimeZone { .z = false, .offset = offset, .name = name };
 }
 
-// 13.45 ToPositiveIntegerOrInfinity ( argument ), https://tc39.es/proposal-temporal/#sec-temporal-topositiveintegerorinfinity
+// 13.46 ToPositiveIntegerOrInfinity ( argument ), https://tc39.es/proposal-temporal/#sec-temporal-topositiveintegerorinfinity
 double to_positive_integer_or_infinity(GlobalObject& global_object, Value argument)
 {
     auto& vm = global_object.vm();
@@ -661,7 +729,7 @@ double to_positive_integer_or_infinity(GlobalObject& global_object, Value argume
     return integer;
 }
 
-// 13.47 PrepareTemporalFields ( fields, fieldNames, requiredFields ), https://tc39.es/proposal-temporal/#sec-temporal-preparetemporalfields
+// 13.48 PrepareTemporalFields ( fields, fieldNames, requiredFields ), https://tc39.es/proposal-temporal/#sec-temporal-preparetemporalfields
 Object* prepare_temporal_fields(GlobalObject& global_object, Object& fields, Vector<String> const& field_names, Vector<StringView> const& required_fields)
 {
     auto& vm = global_object.vm();

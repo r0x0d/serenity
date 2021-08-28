@@ -170,6 +170,8 @@ extern "C" {
 #define GL_ONE_MINUS_CONSTANT_ALPHA 0x8004
 
 // Polygon modes
+#define GL_POINT 0x1B00
+#define GL_LINE 0x1B01
 #define GL_FILL 0x1B02
 
 // Pixel formats
@@ -356,6 +358,7 @@ GLAPI void glTexCoord2f(GLfloat s, GLfloat t);
 GLAPI void glTexCoord4fv(const GLfloat* v);
 GLAPI void glTexParameteri(GLenum target, GLenum pname, GLint param);
 GLAPI void glTexParameterf(GLenum target, GLenum pname, GLfloat param);
+GLAPI void glTexEnvf(GLenum target, GLenum pname, GLfloat param);
 GLAPI void glBindTexture(GLenum target, GLuint texture);
 GLAPI void glActiveTexture(GLenum texture);
 GLAPI void glGetFloatv(GLenum pname, GLfloat* params);
@@ -369,6 +372,13 @@ GLAPI void glColorPointer(GLint size, GLenum type, GLsizei stride, const void* p
 GLAPI void glTexCoordPointer(GLint size, GLenum type, GLsizei stride, const void* pointer);
 GLAPI void glDrawArrays(GLenum mode, GLint first, GLsizei count);
 GLAPI void glDrawElements(GLenum mode, GLsizei count, GLenum type, const void* indices);
+GLAPI void glDepthRange(GLdouble nearVal, GLdouble farVal);
+GLAPI void glDepthFunc(GLenum func);
+GLAPI void glPolygonMode(GLenum face, GLenum mode);
+GLAPI void glFogfv(GLenum mode, GLfloat* params);
+GLAPI void glFogf(GLenum pname, GLfloat param);
+GLAPI void glFogi(GLenum pname, GLint param);
+GLAPI void glPixelStorei(GLenum pname, GLint param);
 
 #ifdef __cplusplus
 }

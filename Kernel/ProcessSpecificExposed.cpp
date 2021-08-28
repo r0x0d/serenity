@@ -24,7 +24,7 @@ KResultOr<size_t> Process::procfs_get_thread_stack(ThreadID thread_id, KBufferBu
     auto thread = Thread::from_tid(thread_id);
     if (!thread)
         return KResult(ESRCH);
-    bool show_kernel_addresses = Process::current()->is_superuser();
+    bool show_kernel_addresses = Process::current().is_superuser();
     bool kernel_address_added = false;
     for (auto address : Processor::capture_stack_trace(*thread, 1024)) {
         if (!show_kernel_addresses && !Memory::is_user_address(VirtualAddress { address })) {
@@ -99,7 +99,7 @@ KResult Process::traverse_file_descriptions_directory(unsigned fsid, Function<bo
         }
         StringBuilder builder;
         builder.appendff("{}", count);
-        callback({ builder.string_view(), { fsid, SegmentedProcFSIndex::build_segmented_index_for_file_description(pid(), count) }, 0 });
+        callback({ builder.string_view(), { fsid, SegmentedProcFSIndex::build_segmented_index_for_file_description(pid(), count) }, DT_LNK });
         count++;
     });
     return KSuccess;
@@ -211,9 +211,9 @@ KResult Process::procfs_get_virtual_memory_stats(KBufferBuilder& builder) const
 {
     JsonArraySerializer array { builder };
     {
-        ScopedSpinLock lock(address_space().get_lock());
+        SpinlockLocker lock(address_space().get_lock());
         for (auto& region : address_space().regions()) {
-            if (!region->is_user() && !Process::current()->is_superuser())
+            if (!region->is_user() && !Process::current().is_superuser())
                 continue;
             auto region_object = array.add_object();
             region_object.add("readable", region->is_readable());

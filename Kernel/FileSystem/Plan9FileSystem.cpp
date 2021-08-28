@@ -412,7 +412,7 @@ Plan9FS::ReceiveCompletion::~ReceiveCompletion()
 bool Plan9FS::Blocker::unblock(u16 tag)
 {
     {
-        ScopedSpinLock lock(m_lock);
+        SpinlockLocker lock(m_lock);
         if (m_did_unblock)
             return false;
         m_did_unblock = true;
@@ -425,10 +425,15 @@ bool Plan9FS::Blocker::unblock(u16 tag)
     return unblock();
 }
 
-void Plan9FS::Blocker::not_blocking(bool)
+bool Plan9FS::Blocker::setup_blocker()
+{
+    return add_to_blocker_set(m_fs.m_completion_blocker);
+}
+
+void Plan9FS::Blocker::will_unblock_immediately_without_blocking(UnblockImmediatelyReason)
 {
     {
-        ScopedSpinLock lock(m_lock);
+        SpinlockLocker lock(m_lock);
         if (m_did_unblock)
             return;
     }
@@ -438,39 +443,39 @@ void Plan9FS::Blocker::not_blocking(bool)
 
 bool Plan9FS::Blocker::is_completed() const
 {
-    ScopedSpinLock lock(m_completion->lock);
+    SpinlockLocker lock(m_completion->lock);
     return m_completion->completed;
 }
 
-bool Plan9FS::Plan9FSBlockCondition::should_add_blocker(Thread::Blocker& b, void*)
+bool Plan9FS::Plan9FSBlockerSet::should_add_blocker(Thread::Blocker& b, void*)
 {
     // NOTE: m_lock is held already!
     auto& blocker = static_cast<Blocker&>(b);
     return !blocker.is_completed();
 }
 
-void Plan9FS::Plan9FSBlockCondition::unblock_completed(u16 tag)
+void Plan9FS::Plan9FSBlockerSet::unblock_completed(u16 tag)
 {
-    unblock([&](Thread::Blocker& b, void*, bool&) {
+    unblock_all_blockers_whose_conditions_are_met([&](Thread::Blocker& b, void*, bool&) {
         VERIFY(b.blocker_type() == Thread::Blocker::Type::Plan9FS);
         auto& blocker = static_cast<Blocker&>(b);
         return blocker.unblock(tag);
     });
 }
 
-void Plan9FS::Plan9FSBlockCondition::unblock_all()
+void Plan9FS::Plan9FSBlockerSet::unblock_all()
 {
-    unblock([&](Thread::Blocker& b, void*, bool&) {
+    unblock_all_blockers_whose_conditions_are_met([&](Thread::Blocker& b, void*, bool&) {
         VERIFY(b.blocker_type() == Thread::Blocker::Type::Plan9FS);
         auto& blocker = static_cast<Blocker&>(b);
         return blocker.unblock();
     });
 }
 
-void Plan9FS::Plan9FSBlockCondition::try_unblock(Plan9FS::Blocker& blocker)
+void Plan9FS::Plan9FSBlockerSet::try_unblock(Plan9FS::Blocker& blocker)
 {
     if (m_fs.is_complete(*blocker.completion())) {
-        ScopedSpinLock lock(m_lock);
+        SpinlockLocker lock(m_lock);
         blocker.unblock(blocker.completion()->tag);
     }
 }
@@ -576,7 +581,7 @@ KResult Plan9FS::read_and_dispatch_one_message()
     auto optional_completion = m_completions.get(header.tag);
     if (optional_completion.has_value()) {
         auto completion = optional_completion.value();
-        ScopedSpinLock lock(completion->lock);
+        SpinlockLocker lock(completion->lock);
         completion->result = KSuccess;
         completion->message = adopt_own_if_nonnull(new (nothrow) Message { buffer.release_nonnull() });
         completion->completed = true;
@@ -666,7 +671,7 @@ void Plan9FS::thread_main()
 
 void Plan9FS::ensure_thread()
 {
-    ScopedSpinLock lock(m_thread_lock);
+    SpinlockLocker lock(m_thread_lock);
     if (!m_thread_running.exchange(true, AK::MemoryOrder::memory_order_acq_rel)) {
         Process::create_kernel_process(m_thread, "Plan9FS", [&]() {
             thread_main();

@@ -11,7 +11,7 @@
 #include <AK/Types.h>
 #include <Kernel/API/Syscall.h>
 #include <Kernel/Arch/x86/InterruptDisabler.h>
-#include <Kernel/CoreDump.h>
+#include <Kernel/Coredump.h>
 #include <Kernel/Debug.h>
 #ifdef ENABLE_KERNEL_COVERAGE_COLLECTION
 #    include <Kernel/Devices/KCOVDevice.h>
@@ -42,20 +42,20 @@ namespace Kernel {
 
 static void create_signal_trampoline();
 
-RecursiveSpinLock g_profiling_lock;
+RecursiveSpinlock g_profiling_lock;
 static Atomic<pid_t> next_pid;
-static Singleton<ProtectedValue<Process::List>> s_processes;
+static Singleton<MutexProtected<Process::List>> s_processes;
 READONLY_AFTER_INIT HashMap<String, OwnPtr<Module>>* g_modules;
 READONLY_AFTER_INIT Memory::Region* g_signal_trampoline_region;
 
-static Singleton<ProtectedValue<String>> s_hostname;
+static Singleton<MutexProtected<String>> s_hostname;
 
-ProtectedValue<String>& hostname()
+MutexProtected<String>& hostname()
 {
     return *s_hostname;
 }
 
-ProtectedValue<Process::List>& processes()
+MutexProtected<Process::List>& processes()
 {
     return *s_processes;
 }
@@ -184,7 +184,7 @@ RefPtr<Process> Process::create_user_process(RefPtr<Thread>& first_thread, const
     register_new(*process);
     error = 0;
 
-    // NOTE: All user processes have a leaked ref on them. It's balanced by Thread::WaitBlockCondition::finalize().
+    // NOTE: All user processes have a leaked ref on them. It's balanced by Thread::WaitBlockerSet::finalize().
     (void)process.leak_ref();
 
     return process;
@@ -195,18 +195,17 @@ RefPtr<Process> Process::create_kernel_process(RefPtr<Thread>& first_thread, Str
     auto process = Process::create(first_thread, move(name), (uid_t)0, (gid_t)0, ProcessID(0), true);
     if (!first_thread || !process)
         return {};
+    first_thread->regs().set_ip((FlatPtr)entry);
 #if ARCH(I386)
-    first_thread->regs().eip = (FlatPtr)entry;
     first_thread->regs().esp = FlatPtr(entry_data); // entry function argument is expected to be in regs.esp
 #else
-    first_thread->regs().rip = (FlatPtr)entry;
     first_thread->regs().rdi = FlatPtr(entry_data); // entry function argument is expected to be in regs.rdi
 #endif
 
     if (do_register == RegisterProcess::Yes)
         register_new(*process);
 
-    ScopedSpinLock lock(g_scheduler_lock);
+    SpinlockLocker lock(g_scheduler_lock);
     first_thread->set_affinity(affinity);
     first_thread->set_state(Thread::State::Runnable);
     return process;
@@ -246,7 +245,7 @@ Process::Process(const String& name, uid_t uid, gid_t gid, ProcessID ppid, bool 
     , m_executable(move(executable))
     , m_cwd(move(cwd))
     , m_tty(tty)
-    , m_wait_block_condition(*this)
+    , m_wait_blocker_set(*this)
 {
     // Ensure that we protect the process data when exiting the constructor.
     ProtectedDataMutationScope scope { *this };
@@ -390,7 +389,7 @@ void create_signal_trampoline()
 void Process::crash(int signal, FlatPtr ip, bool out_of_memory)
 {
     VERIFY(!is_dead());
-    VERIFY(Process::current() == this);
+    VERIFY(&Process::current() == this);
 
     if (out_of_memory) {
         dbgln("\033[31;1mOut of memory\033[m, killing: {}", *this);
@@ -407,7 +406,7 @@ void Process::crash(int signal, FlatPtr ip, bool out_of_memory)
         ProtectedDataMutationScope scope { *this };
         m_protected_values.termination_signal = signal;
     }
-    set_dump_core(!out_of_memory);
+    set_should_generate_coredump(!out_of_memory);
     address_space().dump_regions();
     VERIFY(is_user_process());
     die();
@@ -430,7 +429,7 @@ RefPtr<Process> Process::from_pid(ProcessID pid)
 
 const Process::FileDescriptionAndFlags* Process::FileDescriptions::get_if_valid(size_t i) const
 {
-    ScopedSpinLock lock(m_fds_lock);
+    SpinlockLocker lock(m_fds_lock);
     if (m_fds_metadatas.size() <= i)
         return nullptr;
 
@@ -441,7 +440,7 @@ const Process::FileDescriptionAndFlags* Process::FileDescriptions::get_if_valid(
 }
 Process::FileDescriptionAndFlags* Process::FileDescriptions::get_if_valid(size_t i)
 {
-    ScopedSpinLock lock(m_fds_lock);
+    SpinlockLocker lock(m_fds_lock);
     if (m_fds_metadatas.size() <= i)
         return nullptr;
 
@@ -453,20 +452,20 @@ Process::FileDescriptionAndFlags* Process::FileDescriptions::get_if_valid(size_t
 
 const Process::FileDescriptionAndFlags& Process::FileDescriptions::at(size_t i) const
 {
-    ScopedSpinLock lock(m_fds_lock);
+    SpinlockLocker lock(m_fds_lock);
     VERIFY(m_fds_metadatas[i].is_allocated());
     return m_fds_metadatas[i];
 }
 Process::FileDescriptionAndFlags& Process::FileDescriptions::at(size_t i)
 {
-    ScopedSpinLock lock(m_fds_lock);
+    SpinlockLocker lock(m_fds_lock);
     VERIFY(m_fds_metadatas[i].is_allocated());
     return m_fds_metadatas[i];
 }
 
 RefPtr<FileDescription> Process::FileDescriptions::file_description(int fd) const
 {
-    ScopedSpinLock lock(m_fds_lock);
+    SpinlockLocker lock(m_fds_lock);
     if (fd < 0)
         return nullptr;
     if (static_cast<size_t>(fd) < m_fds_metadatas.size())
@@ -476,7 +475,7 @@ RefPtr<FileDescription> Process::FileDescriptions::file_description(int fd) cons
 
 void Process::FileDescriptions::enumerate(Function<void(const FileDescriptionAndFlags&)> callback) const
 {
-    ScopedSpinLock lock(m_fds_lock);
+    SpinlockLocker lock(m_fds_lock);
     for (auto& file_description_metadata : m_fds_metadatas) {
         callback(file_description_metadata);
     }
@@ -484,7 +483,7 @@ void Process::FileDescriptions::enumerate(Function<void(const FileDescriptionAnd
 
 void Process::FileDescriptions::change_each(Function<void(FileDescriptionAndFlags&)> callback)
 {
-    ScopedSpinLock lock(m_fds_lock);
+    SpinlockLocker lock(m_fds_lock);
     for (auto& file_description_metadata : m_fds_metadatas) {
         callback(file_description_metadata);
     }
@@ -502,7 +501,7 @@ size_t Process::FileDescriptions::open_count() const
 
 KResultOr<Process::ScopedDescriptionAllocation> Process::FileDescriptions::allocate(int first_candidate_fd)
 {
-    ScopedSpinLock lock(m_fds_lock);
+    SpinlockLocker lock(m_fds_lock);
     for (size_t i = first_candidate_fd; i < max_open(); ++i) {
         if (!m_fds_metadatas[i].is_allocated()) {
             m_fds_metadatas[i].allocate();
@@ -562,10 +561,10 @@ KResultOr<NonnullOwnPtr<KString>> Process::get_syscall_path_argument(Syscall::St
 bool Process::dump_core()
 {
     VERIFY(is_dumpable());
-    VERIFY(should_core_dump());
+    VERIFY(should_generate_coredump());
     dbgln("Generating coredump for pid: {}", pid().value());
     auto coredump_path = String::formatted("/tmp/coredump/{}_{}_{}", name(), pid().value(), kgettimeofday().to_truncated_seconds());
-    auto coredump = CoreDump::create(*this, coredump_path);
+    auto coredump = Coredump::create(*this, coredump_path);
     if (!coredump)
         return false;
     return !coredump->write().is_error();
@@ -616,7 +615,7 @@ void Process::finalize()
     dbgln_if(PROCESS_DEBUG, "Finalizing process {}", *this);
 
     if (is_dumpable()) {
-        if (m_should_dump_core)
+        if (m_should_generate_coredump)
             dump_core();
         if (m_perf_event_buffer) {
             dump_perfcore();
@@ -657,22 +656,22 @@ void Process::finalize()
     m_space->remove_all_regions({});
 
     VERIFY(ref_count() > 0);
-    // WaitBlockCondition::finalize will be in charge of dropping the last
+    // WaitBlockerSet::finalize will be in charge of dropping the last
     // reference if there are still waiters around, or whenever the last
     // waitable states are consumed. Unless there is no parent around
     // anymore, in which case we'll just drop it right away.
-    m_wait_block_condition.finalize();
+    m_wait_blocker_set.finalize();
 }
 
 void Process::disowned_by_waiter(Process& process)
 {
-    m_wait_block_condition.disowned_by_waiter(process);
+    m_wait_blocker_set.disowned_by_waiter(process);
 }
 
 void Process::unblock_waiters(Thread::WaitBlocker::UnblockFlags flags, u8 signal)
 {
     if (auto parent = Process::from_pid(ppid()))
-        parent->m_wait_block_condition.unblock(*this, flags, signal);
+        parent->m_wait_blocker_set.unblock(*this, flags, signal);
 }
 
 void Process::die()
@@ -721,7 +720,7 @@ void Process::terminate_due_to_signal(u8 signal)
 {
     VERIFY_INTERRUPTS_DISABLED();
     VERIFY(signal < 32);
-    VERIFY(Process::current() == this);
+    VERIFY(&Process::current() == this);
     dbgln("Terminating {} due to signal {}", *this, signal);
     {
         ProtectedDataMutationScope scope { *this };
@@ -769,15 +768,10 @@ RefPtr<Thread> Process::create_kernel_thread(void (*entry)(void*), void* entry_d
         thread->detach();
 
     auto& regs = thread->regs();
-#if ARCH(I386)
-    regs.eip = (FlatPtr)entry;
-    regs.esp = FlatPtr(entry_data); // entry function argument is expected to be in regs.rsp
-#else
-    regs.rip = (FlatPtr)entry;
-    regs.rsp = FlatPtr(entry_data); // entry function argument is expected to be in regs.rsp
-#endif
+    regs.set_ip((FlatPtr)entry);
+    regs.set_sp((FlatPtr)entry_data); // entry function argument is expected to be in the SP register
 
-    ScopedSpinLock lock(g_scheduler_lock);
+    SpinlockLocker lock(g_scheduler_lock);
     thread->set_state(Thread::State::Runnable);
     return thread;
 }

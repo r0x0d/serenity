@@ -12,9 +12,11 @@ namespace Unicode {
 
 enum class Condition : u8;
 enum class GeneralCategory : u8;
-enum class Locale : u8;
+enum class Language : u8;
+enum class Locale : u16;
 enum class Property : u8;
 enum class Script : u8;
+enum class Territory : u8;
 enum class WordBreakProperty : u8;
 
 struct SpecialCasing;

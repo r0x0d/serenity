@@ -85,6 +85,7 @@ public:
 
     [[nodiscard]] String to_lowercase_string() const;
     [[nodiscard]] String to_uppercase_string() const;
+    [[nodiscard]] String to_titlecase_string() const;
 
     [[nodiscard]] Optional<size_t> find(char needle, size_t start = 0) const { return StringUtils::find(*this, needle, start); }
     [[nodiscard]] Optional<size_t> find(StringView const& needle, size_t start = 0) const { return StringUtils::find(*this, needle, start); }
@@ -228,7 +229,7 @@ private:
 };
 
 template<>
-struct Traits<StringView> : public GenericTraits<String> {
+struct Traits<StringView> : public GenericTraits<StringView> {
     static unsigned hash(const StringView& s) { return s.hash(); }
 };
 

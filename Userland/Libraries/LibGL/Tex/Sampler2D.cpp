@@ -57,6 +57,9 @@ FloatVector4 Sampler2D::sample(FloatVector2 const& uv) const
 
     MipMap const& mip = m_texture.mipmap(lod);
 
+    if (mip.width() < 1 || mip.height() < 1)
+        return { 1, 1, 1, 1 };
+
     float x = wrap(uv.x(), m_wrap_t_mode);
     float y = wrap(uv.y(), m_wrap_s_mode);
 
@@ -65,7 +68,7 @@ FloatVector4 Sampler2D::sample(FloatVector2 const& uv) const
 
     // Sampling implemented according to https://www.khronos.org/registry/OpenGL/specs/gl/glspec121.pdf Chapter 3.8
     if (m_mag_filter == GL_NEAREST) {
-        return mip.texel(static_cast<unsigned>(x) % mip.width(), static_cast<unsigned>(y) % mip.height());
+        return mip.texel(static_cast<unsigned>(x), static_cast<unsigned>(y));
     } else if (m_mag_filter == GL_LINEAR) {
         // FIXME: Implement different sampling points for wrap modes other than GL_REPEAT
 
@@ -85,8 +88,11 @@ FloatVector4 Sampler2D::sample(FloatVector2 const& uv) const
 
         float frac_x = x - floorf(x);
         float frac_y = y - floorf(y);
+        float one_minus_frac_x = 1 - frac_x;
 
-        return t0 * (1 - frac_x) * (1 - frac_y) + t1 * frac_x * (1 - frac_y) + t2 * (1 - frac_x) * frac_y + t3 * frac_x * frac_y;
+        auto h1 = t0 * one_minus_frac_x + t1 * frac_x;
+        auto h2 = t2 * one_minus_frac_x + t3 * frac_x;
+        return h1 * (1 - frac_y) + h2 * frac_y;
     } else {
         VERIFY_NOT_REACHED();
     }

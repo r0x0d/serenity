@@ -21,9 +21,9 @@ namespace Kernel {
 
 class File;
 
-class FileBlockCondition : public Thread::BlockCondition {
+class FileBlockerSet final : public Thread::BlockerSet {
 public:
-    FileBlockCondition() { }
+    FileBlockerSet() { }
 
     virtual bool should_add_blocker(Thread::Blocker& b, void* data) override
     {
@@ -32,10 +32,10 @@ public:
         return !blocker.unblock(true, data);
     }
 
-    void unblock()
+    void unblock_all_blockers_whose_conditions_are_met()
     {
-        ScopedSpinLock lock(m_lock);
-        do_unblock([&](auto& b, void* data, bool&) {
+        SpinlockLocker lock(m_lock);
+        BlockerSet::unblock_all_blockers_whose_conditions_are_met_locked([&](auto& b, void* data, bool&) {
             VERIFY(b.blocker_type() == Thread::Blocker::Type::File);
             auto& blocker = static_cast<Thread::FileBlocker&>(b);
             return blocker.unblock(false, data);
@@ -112,7 +112,7 @@ public:
     virtual bool is_socket() const { return false; }
     virtual bool is_inode_watcher() const { return false; }
 
-    virtual FileBlockCondition& block_condition() { return m_block_condition; }
+    virtual FileBlockerSet& blocker_set() { return m_blocker_set; }
 
     size_t attach_count() const { return m_attach_count; }
 
@@ -121,7 +121,7 @@ protected:
 
     void evaluate_block_conditions()
     {
-        if (Processor::current().in_irq()) {
+        if (Processor::current_in_irq()) {
             // If called from an IRQ handler we need to delay evaluation
             // and unblocking of waiting threads. Note that this File
             // instance may be deleted until the deferred call is executed!
@@ -137,11 +137,11 @@ protected:
 private:
     ALWAYS_INLINE void do_evaluate_block_conditions()
     {
-        VERIFY(!Processor::current().in_irq());
-        block_condition().unblock();
+        VERIFY(!Processor::current_in_irq());
+        blocker_set().unblock_all_blockers_whose_conditions_are_met();
     }
 
-    FileBlockCondition m_block_condition;
+    FileBlockerSet m_blocker_set;
     size_t m_attach_count { 0 };
 };
 

@@ -6,7 +6,7 @@
 
 #include <Kernel/Debug.h>
 #include <Kernel/Locking/Mutex.h>
-#include <Kernel/Locking/ProtectedValue.h>
+#include <Kernel/Locking/MutexProtected.h>
 #include <Kernel/Net/ARP.h>
 #include <Kernel/Net/EtherType.h>
 #include <Kernel/Net/EthernetFrameHeader.h>
@@ -411,8 +411,10 @@ void handle_tcp(IPv4Packet const& ipv4_packet, Time const& packet_timestamp)
 
     auto socket = TCPSocket::from_tuple(tuple);
     if (!socket) {
-        dbgln("handle_tcp: No TCP socket for tuple {}. Sending RST.", tuple.to_string());
-        send_tcp_rst(ipv4_packet, tcp_packet, adapter);
+        if (!tcp_packet.has_rst()) {
+            dbgln("handle_tcp: No TCP socket for tuple {}. Sending RST.", tuple.to_string());
+            send_tcp_rst(ipv4_packet, tcp_packet, adapter);
+        }
         return;
     }
 
